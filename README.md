@@ -65,8 +65,9 @@ This repo includes:
 
 ```text
 render.yaml   Render blueprint for qma-api + qma-arc-gateway
-vercel.json   Static landing/dashboard routes: / and /app
+vercel.json   Static landing/dashboard routes from frontend/: / and /app
 .vercelignore Keeps Vercel from deploying the Python/Node backend files
+frontend/     Vercel-only static bundle. Render/FastAPI still serves root HTML files.
 ```
 
 After Render creates both services, set these environment variables:
@@ -101,6 +102,7 @@ In Vercel project settings, use:
 
 ```text
 Framework Preset: Other
+Root Directory: repo root, or frontend if you prefer the dedicated static bundle
 Build Command: empty
 Output Directory: empty
 Install Command: empty

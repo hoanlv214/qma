@@ -1,0 +1,21 @@
+{
+  "cleanUrls": true,
+  "rewrites": [
+    {
+      "source": "/",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/landing",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/lading",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/app",
+      "destination": "/app/index.html"
+    }
+  ]
+}
