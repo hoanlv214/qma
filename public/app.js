@@ -113,11 +113,23 @@ let hasUnlockedReport = false;
 let connectedWallet = null;
 let gatewayContractAddress = null;
 let sellerWalletAddress = null;
+let arcGatewayBaseUrl = '';
 const WITHDRAW_FEE_RESERVE_USDC = 0.0035;
 const API_BASE_URL = String(window.QMA_API_BASE_URL || '').replace(/\/$/, '');
 
 function apiUrl(path) {
     return `${API_BASE_URL}${path}`;
+}
+
+function setArcGatewayBaseUrl(value) {
+    arcGatewayBaseUrl = String(value || '').replace(/\/$/, '');
+}
+
+function gatewayApiUrl(path) {
+    if (!arcGatewayBaseUrl) {
+        throw new Error('Arc Gateway URL is not loaded yet. Refresh the page or wait for QMA health check to complete.');
+    }
+    return `${arcGatewayBaseUrl}${path}`;
 }
 
 // Fetch elements
@@ -614,7 +626,7 @@ function extractGatewayBalanceUsdc(data) {
 
 async function checkGatewayBalance(account) {
     try {
-        const resp = await fetch(`http://127.0.0.1:3000/api/balance/${account}`);
+        const resp = await fetch(gatewayApiUrl(`/api/balance/${account}`));
         const data = await resp.json();
         if (!resp.ok) {
             console.warn('Gateway balance lookup failed', data);
@@ -629,7 +641,7 @@ async function checkGatewayBalance(account) {
 
 async function getWalletStatus(account) {
     try {
-        const resp = await fetch(`http://127.0.0.1:3000/api/wallet-status/${account}`);
+        const resp = await fetch(gatewayApiUrl(`/api/wallet-status/${account}`));
         const data = await resp.json();
         if (!resp.ok) {
             console.warn('Wallet status lookup failed', data);
@@ -661,7 +673,7 @@ async function waitForReceipt(txHash) {
 
 async function depositToGateway(account, amount, walletStatus = null) {
     const approveAmount = Math.max(10, amount).toFixed(6);
-    const url = `http://127.0.0.1:3000/api/deposit-calldata/${account}?amount=${amount.toFixed(6)}&approveAmount=${approveAmount}`;
+    const url = gatewayApiUrl(`/api/deposit-calldata/${account}?amount=${amount.toFixed(6)}&approveAmount=${approveAmount}`);
     const resp = await fetch(url);
     const data = await resp.json();
     if (!resp.ok) {
@@ -1026,6 +1038,7 @@ async function loadHealthInfo() {
         const resp = await fetch(apiUrl('/api/v1/health'));
         if (resp.ok) {
             const data = await resp.json();
+            setArcGatewayBaseUrl(data.arc_gateway);
             gatewayContractAddress = data.circle_deposit_contract;
             sellerWalletAddress = data.seller_wallet;
             const dataset = data.dataset || {};
@@ -1635,6 +1648,9 @@ payButton.addEventListener('click', async () => {
                     <div class="spinner" style="width: 16px; height: 16px;"></div>
                     <span>Checking Gateway balance...</span>
                 `;
+        if (!arcGatewayBaseUrl) {
+            await loadHealthInfo();
+        }
         const [gatewayBalance, walletStatus] = await Promise.all([
             checkGatewayBalance(account),
             getWalletStatus(account)
@@ -1642,7 +1658,11 @@ payButton.addEventListener('click', async () => {
         const walletBal = getOnChainUsdcBalance(walletStatus);
         updatePaymentFlowPanel({ stage: 'checking', buyerGatewayBal: gatewayBalance, buyerWalletBal: walletBal });
 
-        if (gatewayBalance !== null && gatewayBalance + 1e-9 < currentInvoiceAmount) {
+        if (gatewayBalance === null) {
+            throw new Error('Could not read Circle Gateway balance from the Arc Gateway service. Please retry after the Gateway health check is ready.');
+        }
+
+        if (gatewayBalance + 1e-9 < currentInvoiceAmount) {
             const defaultDeposit = Math.max(1, currentInvoiceAmount * 20);
             const requiredTopUp = Math.max(currentInvoiceAmount - gatewayBalance, 0);
             const depositAmount = Math.max(defaultDeposit, requiredTopUp);
@@ -1674,7 +1694,11 @@ payButton.addEventListener('click', async () => {
             const updatedWalletBal = getOnChainUsdcBalance(updatedWalletStatus);
             updatePaymentFlowPanel({ stage: 'checking', buyerGatewayBal: refreshedBalance, buyerWalletBal: updatedWalletBal });
 
-            if (refreshedBalance !== null && refreshedBalance + 1e-9 < currentInvoiceAmount) {
+            if (refreshedBalance === null) {
+                throw new Error(`Gateway deposit tx was mined, but QMA could not read Circle Gateway balance yet. Deposit tx: ${depositResult.depositHash}. Wait a bit and retry payment.`);
+            }
+
+            if (refreshedBalance + 1e-9 < currentInvoiceAmount) {
                 throw new Error(`Gateway deposit is mined but Circle balance has not updated enough yet. Current balance: ${refreshedBalance.toFixed(6)} USDC. Deposit tx: ${depositResult.depositHash}. Wait a bit and retry payment.`);
             }
         }
