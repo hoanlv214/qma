@@ -17,7 +17,7 @@ data/
 private_data/
 
 # Serve files directly from root
-# index.html, app.html, and public/ are deployed to Vercel.
+# index.html, app.html, user.html, and public/ are deployed to Vercel.
 
 .env
 .env.*

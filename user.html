@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QMA Wallet Profile</title>
+    <link rel="stylesheet" href="/public/styles.css">
+    <script>
+        window.QMA_API_BASE_URL = window.QMA_API_BASE_URL || "https://qma-api.onrender.com";
+    </script>
+</head>
+
+<body class="profile-body">
+    <main class="profile-shell">
+        <nav class="profile-nav">
+            <a href="/app" class="logo-item qma-logo-item" title="Back to QMA app">
+                <div class="logo-icon">QM</div>
+                <div class="logo-text">QMA</div>
+            </a>
+            <div class="profile-nav-actions">
+                <a href="/app" class="profile-page-link">Launch App</a>
+                <button type="button" class="wallet-button" id="profile-connect-btn">Connect Wallet</button>
+            </div>
+        </nav>
+
+        <section class="profile-hero">
+            <div>
+                <p class="profile-kicker">Wallet intelligence history</p>
+                <h1>Paid Reports Profile</h1>
+                <p>Review purchased QMA previews, full reports, Arc settlement references, and local wallet actions.</p>
+            </div>
+            <div class="profile-address-card">
+                <span>Wallet</span>
+                <strong id="profile-wallet-address">Not connected</strong>
+            </div>
+        </section>
+
+        <section class="profile-grid user-profile-grid">
+            <div class="profile-tile">
+                <span class="profile-label">On-chain USDC</span>
+                <span class="profile-value" id="user-chain-balance">n/a</span>
+            </div>
+            <div class="profile-tile">
+                <span class="profile-label">Gateway Balance</span>
+                <span class="profile-value" id="user-gateway-balance">n/a</span>
+            </div>
+            <div class="profile-tile">
+                <span class="profile-label">Reports Bought</span>
+                <span class="profile-value" id="user-payment-count">0</span>
+            </div>
+            <div class="profile-tile">
+                <span class="profile-label">Total Spent</span>
+                <span class="profile-value" id="user-spent">0.000 USDC</span>
+            </div>
+        </section>
+
+        <section class="profile-section">
+            <div class="section-header">Purchased Signals</div>
+            <div class="token-list" id="user-token-list">
+                <span class="token-chip">None yet</span>
+            </div>
+        </section>
+
+        <section class="profile-section">
+            <div class="section-header">Verified Web Payments</div>
+            <div style="overflow-x:auto;">
+                <table class="activity-table">
+                    <thead>
+                        <tr>
+                            <th>Symbol</th>
+                            <th>Tier</th>
+                            <th>Amount</th>
+                            <th>Status</th>
+                            <th>Settlement / Arcscan Tx</th>
+                        </tr>
+                    </thead>
+                    <tbody id="user-payments-body">
+                        <tr>
+                            <td colspan="5" style="color:var(--t3);">Connect a wallet to load history.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="table-pager">
+                <button type="button" class="refresh-btn" id="user-payments-prev">Prev</button>
+                <span id="user-payments-page">Page 1 / 1</span>
+                <button type="button" class="refresh-btn" id="user-payments-next">Next</button>
+            </div>
+        </section>
+
+        <section class="profile-section">
+            <div class="section-header">Local Wallet Actions</div>
+            <div style="overflow-x:auto;">
+                <table class="activity-table">
+                    <thead>
+                        <tr>
+                            <th>Action</th>
+                            <th>Amount</th>
+                            <th>Signal</th>
+                            <th>Reference</th>
+                        </tr>
+                    </thead>
+                    <tbody id="user-events-body">
+                        <tr>
+                            <td colspan="4" style="color:var(--t3);">No local wallet actions.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script src="/public/user.js"></script>
+</body>
+
+</html>

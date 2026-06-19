@@ -11,6 +11,10 @@
       "use": "@vercel/static"
     },
     {
+      "src": "user.html",
+      "use": "@vercel/static"
+    },
+    {
       "src": "public/**/*",
       "use": "@vercel/static"
     }
@@ -19,6 +23,10 @@
     {
       "source": "/app",
       "destination": "/app.html"
+    },
+    {
+      "source": "/user",
+      "destination": "/user.html"
     }
   ]
 }

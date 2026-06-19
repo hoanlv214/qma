@@ -70,7 +70,8 @@
                 <div class="wallet-menu" id="wallet-menu">
                     <div class="wallet-menu-address" id="wallet-menu-address">Not connected</div>
                     <button type="button" id="wallet-copy-btn" style="display:none;">Copy Address</button>
-                    <button type="button" id="wallet-profile-btn">View Profile</button>
+                    <button type="button" id="wallet-profile-btn">View Profile Page</button>
+                    <button type="button" id="wallet-quick-profile-btn">Quick Profile Modal</button>
                     <button type="button" id="wallet-withdraw-menu-btn"
                         style="display:none; color:var(--green);">Withdraw Funds</button>
                     <button type="button" id="wallet-disconnect-btn">Disconnect</button>
@@ -88,57 +89,59 @@
                 <span class="sidebar-title">Live Anomalies</span>
                 <button class="refresh-btn" id="refresh-anomalies-btn">↻ Refresh</button>
             </div>
-            <div class="agent-picks-panel">
-                <div class="sidebar-header agent-picks-header">
+            <div class="agent-picks-panel sidebar-panel" data-sidebar-panel>
+                <div class="sidebar-header agent-picks-header sidebar-panel-toggle" role="button" tabindex="0">
                     <span class="sidebar-title">Agent Picks</span>
                     <span class="agent-mode-pill">Suggest then pay</span>
                 </div>
-                <div class="agent-picks-list" id="agent-picks-container">
+                <div class="agent-picks-list sidebar-panel-body" id="agent-picks-container">
                     <div class="agent-empty">Ranking live signals...</div>
                 </div>
             </div>
-            <div class="provider-marketplace-panel">
-                <div class="sidebar-header provider-marketplace-header">
+            <div class="provider-marketplace-panel sidebar-panel is-collapsed" data-sidebar-panel>
+                <div class="sidebar-header provider-marketplace-header sidebar-panel-toggle" role="button" tabindex="0">
                     <span class="sidebar-title">Providers</span>
                     <span class="agent-mode-pill">Marketplace</span>
                 </div>
-                <div class="provider-marketplace-list" id="provider-marketplace-container">
+                <div class="provider-marketplace-list sidebar-panel-body" id="provider-marketplace-container">
                     <div class="agent-empty">Loading providers...</div>
                 </div>
             </div>
-            <div class="data-source-panel">
-                <div class="sidebar-header data-source-header">
+            <div class="data-source-panel sidebar-panel is-collapsed" data-sidebar-panel>
+                <div class="sidebar-header data-source-header sidebar-panel-toggle" role="button" tabindex="0">
                     <span class="sidebar-title">Data Source</span>
                     <span class="agent-mode-pill">Trust</span>
                 </div>
-                <div class="data-source-grid">
-                    <div>
-                        <span>Source</span>
-                        <strong>MEXC Futures API</strong>
+                <div class="sidebar-panel-body">
+                    <div class="data-source-grid">
+                        <div>
+                            <span>Source</span>
+                            <strong>MEXC Futures API</strong>
+                        </div>
+                        <div>
+                            <span>Provider</span>
+                            <strong id="ds-provider">funding_memory</strong>
+                        </div>
+                        <div>
+                            <span>Feature Rows</span>
+                            <strong id="ds-feature-rows">-</strong>
+                        </div>
+                        <div>
+                            <span>Clean Joined</span>
+                            <strong id="ds-clean-rows">-</strong>
+                        </div>
+                        <div>
+                            <span>Symbols</span>
+                            <strong id="ds-symbols">-</strong>
+                        </div>
+                        <div>
+                            <span>Date Range</span>
+                            <strong id="ds-range">-</strong>
+                        </div>
                     </div>
-                    <div>
-                        <span>Provider</span>
-                        <strong id="ds-provider">funding_memory</strong>
+                    <div class="data-source-note">
+                        Public repo uses sample CSVs. Demo backend can load the full private dataset via env paths.
                     </div>
-                    <div>
-                        <span>Feature Rows</span>
-                        <strong id="ds-feature-rows">-</strong>
-                    </div>
-                    <div>
-                        <span>Clean Joined</span>
-                        <strong id="ds-clean-rows">-</strong>
-                    </div>
-                    <div>
-                        <span>Symbols</span>
-                        <strong id="ds-symbols">-</strong>
-                    </div>
-                    <div>
-                        <span>Date Range</span>
-                        <strong id="ds-range">-</strong>
-                    </div>
-                </div>
-                <div class="data-source-note">
-                    Public repo uses sample CSVs. Demo backend can load the full private dataset via env paths.
                 </div>
             </div>
             <div class="anomalies-list" id="anomalies-container">
@@ -517,6 +520,11 @@
                                         </tbody>
                                     </table>
                                 </div>
+                                <div class="table-pager" id="payment-activity-pager">
+                                    <button type="button" class="refresh-btn" id="payment-prev-btn">Prev</button>
+                                    <span id="payment-page-label">Page 1 / 1</span>
+                                    <button type="button" class="refresh-btn" id="payment-next-btn">Next</button>
+                                </div>
                             </div>
                             <div>
                                 <div class="subsection-title">Wallet Usage</div>
@@ -535,6 +543,11 @@
                                             </tr>
                                         </tbody>
                                     </table>
+                                </div>
+                                <div class="table-pager" id="payer-breakdown-pager">
+                                    <button type="button" class="refresh-btn" id="payer-prev-btn">Prev</button>
+                                    <span id="payer-page-label">Page 1 / 1</span>
+                                    <button type="button" class="refresh-btn" id="payer-next-btn">Next</button>
                                 </div>
                             </div>
                         </div>
@@ -619,6 +632,12 @@
                         </tr>
                     </tbody>
                 </table>
+            </div>
+            <div class="table-pager profile-pager" id="profile-payments-pager">
+                <button type="button" class="refresh-btn" id="profile-payments-prev-btn">Prev</button>
+                <span id="profile-payments-page-label">Page 1 / 1</span>
+                <button type="button" class="refresh-btn" id="profile-payments-next-btn">Next</button>
+                <a class="profile-page-link" id="profile-page-link" href="/user">Open full profile</a>
             </div>
             <div class="subsection-title">Local Wallet Actions</div>
             <div style="overflow-x:auto;">

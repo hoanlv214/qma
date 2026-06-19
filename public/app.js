@@ -114,7 +114,17 @@ let connectedWallet = null;
 let gatewayContractAddress = null;
 let sellerWalletAddress = null;
 let arcGatewayBaseUrl = '';
+let paymentActivityPage = 1;
+let paymentActivityTotalPages = 1;
+let payerBreakdownPage = 1;
+let payerBreakdownTotalPages = 1;
+let profilePaymentsPage = 1;
+let profilePaymentsTotalPages = 1;
+let activeProfileWallet = null;
 const WITHDRAW_FEE_RESERVE_USDC = 0.0035;
+const PAYMENT_ACTIVITY_PAGE_SIZE = 10;
+const PAYER_BREAKDOWN_PAGE_SIZE = 10;
+const PROFILE_PAYMENTS_PAGE_SIZE = 10;
 const API_BASE_URL = String(window.QMA_API_BASE_URL || '').replace(/\/$/, '');
 
 function apiUrl(path) {
@@ -164,11 +174,18 @@ const metricsRevenue = document.getElementById('metrics-revenue');
 const metricsBalance = document.getElementById('metrics-balance');
 const paymentActivityBody = document.getElementById('payment-activity-body');
 const payerBreakdownBody = document.getElementById('payer-breakdown-body');
+const paymentPrevBtn = document.getElementById('payment-prev-btn');
+const paymentNextBtn = document.getElementById('payment-next-btn');
+const paymentPageLabel = document.getElementById('payment-page-label');
+const payerPrevBtn = document.getElementById('payer-prev-btn');
+const payerNextBtn = document.getElementById('payer-next-btn');
+const payerPageLabel = document.getElementById('payer-page-label');
 const walletButton = document.getElementById('wallet-button');
 const walletButtonLabel = document.getElementById('wallet-button-label');
 const walletMenu = document.getElementById('wallet-menu');
 const walletMenuAddress = document.getElementById('wallet-menu-address');
 const walletProfileBtn = document.getElementById('wallet-profile-btn');
+const walletQuickProfileBtn = document.getElementById('wallet-quick-profile-btn');
 const walletDisconnectBtn = document.getElementById('wallet-disconnect-btn');
 const walletProfileModal = document.getElementById('wallet-profile-modal');
 const walletProfileClose = document.getElementById('wallet-profile-close');
@@ -180,6 +197,10 @@ const profileSpent = document.getElementById('profile-spent');
 const profileTokenList = document.getElementById('profile-token-list');
 const profilePaymentsBody = document.getElementById('profile-payments-body');
 const profileEventsBody = document.getElementById('profile-events-body');
+const profilePaymentsPrevBtn = document.getElementById('profile-payments-prev-btn');
+const profilePaymentsNextBtn = document.getElementById('profile-payments-next-btn');
+const profilePaymentsPageLabel = document.getElementById('profile-payments-page-label');
+const profilePageLink = document.getElementById('profile-page-link');
 const actionModal = document.getElementById('action-modal');
 const actionModalTitle = document.getElementById('action-modal-title');
 const actionModalSubtitle = document.getElementById('action-modal-subtitle');
@@ -547,6 +568,7 @@ function updateWalletUi() {
     walletButtonLabel.textContent = isConnected ? shortAddress(connectedWallet) : 'Connect Wallet';
     walletMenuAddress.textContent = isConnected ? connectedWallet : 'Not connected';
     walletProfileBtn.disabled = !isConnected;
+    if (walletQuickProfileBtn) walletQuickProfileBtn.disabled = !isConnected;
     walletDisconnectBtn.disabled = !isConnected;
 
     // Copy button visibility
@@ -778,13 +800,74 @@ function renderProfilePayments(events) {
     }).join('');
 }
 
+function updatePagerControls(prefix, pageMeta) {
+    const page = Number(pageMeta?.page || 1);
+    const totalPages = Number(pageMeta?.total_pages || 1);
+    const total = Number(pageMeta?.total || 0);
+    const label = document.getElementById(`${prefix}-page-label`);
+    const prev = document.getElementById(`${prefix}-prev-btn`);
+    const next = document.getElementById(`${prefix}-next-btn`);
+    if (label) {
+        label.textContent = total ? `Page ${page} / ${totalPages} (${total})` : 'Page 1 / 1';
+        if (pageMeta?.legacy) {
+            label.textContent = totalPages > 1
+                ? `Page 1 / ${totalPages} (${total}) - API redeploy needed`
+                : 'Page 1 / 1';
+            label.title = 'The API response does not include pagination metadata yet. Restart local backend or redeploy Render from the latest commit.';
+        } else {
+            label.title = '';
+        }
+    }
+    if (prev) prev.disabled = page <= 1;
+    if (next) next.disabled = pageMeta?.legacy || page >= totalPages;
+}
+
+function fallbackPageMeta(meta, currentPage, pageSize, totalFallback, visibleCount) {
+    if (meta && Number.isFinite(Number(meta.total_pages))) {
+        return meta;
+    }
+    const total = Number(totalFallback || visibleCount || 0);
+    return {
+        page: 1,
+        page_size: pageSize,
+        total,
+        total_pages: Math.max(1, Math.ceil(total / pageSize)),
+        has_next: false,
+        has_prev: false,
+        legacy: total > visibleCount,
+    };
+}
+
+async function loadProfilePaymentsPage(account, page = profilePaymentsPage) {
+    const resp = await fetch(apiUrl(`/api/v1/metrics/wallet/${account}?payment_page=${page}&payment_page_size=${PROFILE_PAYMENTS_PAGE_SIZE}`));
+    const metrics = resp.ok ? await resp.json() : null;
+    if (!metrics) {
+        throw new Error('Could not load wallet profile.');
+    }
+    const pageMeta = fallbackPageMeta(
+        metrics?.recent_payments_page,
+        page,
+        PROFILE_PAYMENTS_PAGE_SIZE,
+        metrics?.payments,
+        (metrics?.recent_payments || []).length
+    );
+    profilePaymentsPage = Number(pageMeta.page || page || 1);
+    profilePaymentsTotalPages = Number(pageMeta.total_pages || 1);
+    renderProfilePayments(metrics?.recent_payments || []);
+    updatePagerControls('profile-payments', pageMeta);
+    return metrics;
+}
+
 async function openWalletProfile() {
     const account = connectedWallet || await connectWallet();
     if (!account) return;
     walletMenu.classList.remove('open');
+    activeProfileWallet = account;
+    profilePaymentsPage = 1;
     walletProfileModal.classList.add('open');
     walletProfileModal.setAttribute('aria-hidden', 'false');
     walletProfileAddress.textContent = account;
+    if (profilePageLink) profilePageLink.href = `/user?wallet=${encodeURIComponent(account)}`;
     profileGatewayBalance.textContent = 'loading...';
     profileChainBalance.textContent = 'loading...';
     profilePayments.textContent = 'loading...';
@@ -794,11 +877,10 @@ async function openWalletProfile() {
     renderProfileEvents(getWalletEvents(account));
 
     try {
-        const [metricsResp, walletStatus] = await Promise.all([
-            fetch(apiUrl(`/api/v1/metrics/wallet/${account}`)),
+        const [metrics, walletStatus] = await Promise.all([
+            loadProfilePaymentsPage(account, 1),
             getWalletStatus(account)
         ]);
-        const metrics = metricsResp.ok ? await metricsResp.json() : null;
         const gatewayBalance = metrics?.gateway_balance?.available_usdc;
         profileGatewayBalance.textContent = gatewayBalance === null || gatewayBalance === undefined
             ? 'n/a'
@@ -815,7 +897,6 @@ async function openWalletProfile() {
         profileTokenList.innerHTML = symbols.length
             ? symbols.map(symbol => `<span class="token-chip">${escapeHtml(symbol)}</span>`).join('')
             : '<span class="token-chip">None yet</span>';
-        renderProfilePayments(metrics?.recent_payments || []);
     } catch (err) {
         console.warn('Wallet profile unavailable', err);
         profileGatewayBalance.textContent = 'n/a';
@@ -825,6 +906,13 @@ async function openWalletProfile() {
         profileTokenList.innerHTML = '<span class="token-chip">Unavailable</span>';
         profilePaymentsBody.innerHTML = '<tr><td colspan="4" style="color: var(--color-danger);">Could not load wallet profile.</td></tr>';
     }
+}
+
+async function openWalletProfilePage() {
+    const account = connectedWallet || await connectWallet();
+    if (!account) return;
+    walletMenu.classList.remove('open');
+    window.location.href = `/user?wallet=${encodeURIComponent(account)}`;
 }
 
 // Load Live Feed
@@ -996,7 +1084,13 @@ const metricsPendingEl = document.getElementById('metrics-balance-pending');
 
 async function loadMetrics() {
     try {
-        const resp = await fetch(apiUrl('/api/v1/metrics'));
+        const params = new URLSearchParams({
+            payment_page: String(paymentActivityPage),
+            payment_page_size: String(PAYMENT_ACTIVITY_PAGE_SIZE),
+            payer_page: String(payerBreakdownPage),
+            payer_page_size: String(PAYER_BREAKDOWN_PAGE_SIZE)
+        });
+        const resp = await fetch(apiUrl(`/api/v1/metrics?${params.toString()}`));
         if (!resp.ok) return;
         const data = await resp.json();
         const tierCounts = data.tier_counts || {};
@@ -1028,6 +1122,26 @@ async function loadMetrics() {
 
         renderPaymentActivity(data.recent_payments || []);
         renderPayerBreakdown(data.payer_breakdown || []);
+        const paymentMeta = fallbackPageMeta(
+            data.recent_payments_page,
+            paymentActivityPage,
+            PAYMENT_ACTIVITY_PAGE_SIZE,
+            data.paid_count,
+            (data.recent_payments || []).length
+        );
+        const payerMeta = fallbackPageMeta(
+            data.payer_breakdown_page,
+            payerBreakdownPage,
+            PAYER_BREAKDOWN_PAGE_SIZE,
+            data.unique_payers,
+            (data.payer_breakdown || []).length
+        );
+        paymentActivityPage = Number(paymentMeta.page || paymentActivityPage || 1);
+        paymentActivityTotalPages = Number(paymentMeta.total_pages || 1);
+        payerBreakdownPage = Number(payerMeta.page || payerBreakdownPage || 1);
+        payerBreakdownTotalPages = Number(payerMeta.total_pages || 1);
+        updatePagerControls('payment', paymentMeta);
+        updatePagerControls('payer', payerMeta);
     } catch (err) {
         console.warn('Metrics unavailable', err);
     }
@@ -2241,7 +2355,8 @@ walletButton.addEventListener('click', async (event) => {
     }
     walletMenu.classList.toggle('open');
 });
-walletProfileBtn.addEventListener('click', openWalletProfile);
+walletProfileBtn.addEventListener('click', openWalletProfilePage);
+if (walletQuickProfileBtn) walletQuickProfileBtn.addEventListener('click', openWalletProfile);
 walletDisconnectBtn.addEventListener('click', disconnectWallet);
 paywallClose.addEventListener('click', () => {
     hidePaywall();
@@ -2269,6 +2384,56 @@ const wBtn = document.getElementById('wallet-withdraw-btn');
 const wMenuBtn = document.getElementById('wallet-withdraw-menu-btn');
 if (wBtn) wBtn.addEventListener('click', withdrawSellerGatewayFunds);
 if (wMenuBtn) wMenuBtn.addEventListener('click', withdrawSellerGatewayFunds);
+if (paymentPrevBtn) {
+    paymentPrevBtn.addEventListener('click', () => {
+        if (paymentActivityPage <= 1) return;
+        paymentActivityPage -= 1;
+        loadMetrics();
+    });
+}
+if (paymentNextBtn) {
+    paymentNextBtn.addEventListener('click', () => {
+        if (paymentActivityPage >= paymentActivityTotalPages) return;
+        paymentActivityPage += 1;
+        loadMetrics();
+    });
+}
+if (payerPrevBtn) {
+    payerPrevBtn.addEventListener('click', () => {
+        if (payerBreakdownPage <= 1) return;
+        payerBreakdownPage -= 1;
+        loadMetrics();
+    });
+}
+if (payerNextBtn) {
+    payerNextBtn.addEventListener('click', () => {
+        if (payerBreakdownPage >= payerBreakdownTotalPages) return;
+        payerBreakdownPage += 1;
+        loadMetrics();
+    });
+}
+if (profilePaymentsPrevBtn) {
+    profilePaymentsPrevBtn.addEventListener('click', () => {
+        if (!activeProfileWallet || profilePaymentsPage <= 1) return;
+        loadProfilePaymentsPage(activeProfileWallet, profilePaymentsPage - 1);
+    });
+}
+if (profilePaymentsNextBtn) {
+    profilePaymentsNextBtn.addEventListener('click', () => {
+        if (!activeProfileWallet || profilePaymentsPage >= profilePaymentsTotalPages) return;
+        loadProfilePaymentsPage(activeProfileWallet, profilePaymentsPage + 1);
+    });
+}
+document.querySelectorAll('[data-sidebar-panel] .sidebar-panel-toggle').forEach((header) => {
+    const toggle = () => header.closest('[data-sidebar-panel]')?.classList.toggle('is-collapsed');
+    header.addEventListener('click', toggle);
+    header.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            toggle();
+        }
+    });
+});
 walletProfileClose.addEventListener('click', () => {
     walletProfileModal.classList.remove('open');
     walletProfileModal.setAttribute('aria-hidden', 'true');

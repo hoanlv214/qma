@@ -294,6 +294,22 @@ def fetch_gateway_balance(address: str) -> dict:
         "raw": data,
     }
 
+def paginate_items(items: list, page: int, page_size: int) -> tuple[list, dict]:
+    total = len(items)
+    page_size = max(1, min(page_size, 100))
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * page_size
+    end = start + page_size
+    return items[start:end], {
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
+        "has_next": page < total_pages,
+        "has_prev": page > 1,
+    }
+
 def parse_iso_utc(value: str) -> float:
     if not value:
         return 0.0
@@ -523,6 +539,11 @@ def get_app():
     """Serves the front-end dashboard UI."""
     return serve_html_file("app.html", "<h1>QMA UI File not found</h1>", status_code=404)
 
+@app.get("/user", response_class=HTMLResponse)
+def get_user_profile():
+    """Serves the wallet profile/history UI."""
+    return serve_html_file("user.html", "<h1>QMA User Profile File not found</h1>", status_code=404)
+
 @app.get("/api/v1/health")
 def get_health():
     seller_balance = fetch_gateway_balance(PAYMENT_WALLET_ADDRESS)
@@ -581,7 +602,12 @@ def get_provider(provider_id: str):
     }
 
 @app.get("/api/v1/metrics")
-def get_metrics():
+def get_metrics(
+    payment_page: int = Query(default=1, ge=1),
+    payment_page_size: int = Query(default=10, ge=1, le=100),
+    payer_page: int = Query(default=1, ge=1),
+    payer_page_size: int = Query(default=10, ge=1, le=100),
+):
     refresh_unresolved_payment_events()
     paid_invoices = [invoice for invoice in invoices_db.values() if invoice.get("status") == "paid"]
     all_events = payment_events + [
@@ -666,6 +692,8 @@ def get_metrics():
         stats["symbols"] = sorted(stats["symbols"])
         payer_breakdown.append(stats)
     payer_breakdown = sorted(payer_breakdown, key=lambda item: item["spent_usdc"], reverse=True)
+    recent_payments, recent_payments_page = paginate_items(events, payment_page, payment_page_size)
+    payer_breakdown_page_items, payer_breakdown_page = paginate_items(payer_breakdown, payer_page, payer_page_size)
     seller_balance = fetch_gateway_balance(PAYMENT_WALLET_ADDRESS)
     return {
         "seller_address": PAYMENT_WALLET_ADDRESS,
@@ -687,12 +715,20 @@ def get_metrics():
             key=lambda item: item["payments"],
             reverse=True,
         )[:10],
-        "payer_breakdown": payer_breakdown[:25],
-        "recent_payments": events[:10],
+        "payer_breakdown": payer_breakdown_page_items,
+        "payer_breakdown_page": payer_breakdown_page,
+        "recent_payments": recent_payments,
+        "recent_payments_page": recent_payments_page,
     }
 
 @app.get("/api/v1/metrics/wallet/{address}")
-def get_wallet_metrics(address: str):
+def get_wallet_metrics(
+    address: str,
+    payment_page: int = Query(default=1, ge=1),
+    payment_page_size: int = Query(default=10, ge=1, le=100),
+    entitlement_page: int = Query(default=1, ge=1),
+    entitlement_page_size: int = Query(default=50, ge=1, le=100),
+):
     refresh_unresolved_payment_events()
     normalized = normalize_address(address)
     events = [
@@ -738,6 +774,8 @@ def get_wallet_metrics(address: str):
         provider_id = event.get("provider_id", "funding_memory")
         provider_counts[provider_id] = provider_counts.get(provider_id, 0) + 1
     entitlements = paid_kit.list_wallet_entitlements(paid_reports, address)
+    recent_payments, recent_payments_page = paginate_items(events, payment_page, payment_page_size)
+    entitlement_items, entitlements_page = paginate_items(entitlements, entitlement_page, entitlement_page_size)
     return {
         "address": address,
         "gateway_balance": fetch_gateway_balance(address),
@@ -747,8 +785,10 @@ def get_wallet_metrics(address: str):
         "buyer_type_counts": buyer_type_counts,
         "provider_counts": provider_counts,
         "purchased_symbols": purchased_symbols,
-        "entitlements": entitlements[:50],
-        "recent_payments": events[:50],
+        "entitlements": entitlement_items,
+        "entitlements_page": entitlements_page,
+        "recent_payments": recent_payments,
+        "recent_payments_page": recent_payments_page,
     }
 
 @app.get("/api/v1/entitlements/wallet/{address}")
