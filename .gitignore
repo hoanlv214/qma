@@ -10,6 +10,7 @@ __pycache__/
 .venv/
 payment_ledger.json
 paid_reports.json
+invoices.json
 private_data/
 data/full_*.csv
 *.key

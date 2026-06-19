@@ -32,6 +32,11 @@ try:
 except ImportError:
     from qma.providers import create_default_registry
 
+try:
+    from storage import create_storage_backend
+except ImportError:
+    from qma.storage import create_storage_backend
+
 # Configure Logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("QMA-API")
@@ -73,11 +78,9 @@ app.mount("/public", StaticFiles(directory=os.path.join(os.path.dirname(__file__
 # Initialize QMA Engine
 engine = QMAEngine()
 
-# In-memory store for invoices
-# format: {invoice_id: {"status": "pending"|"paid", "created_at": float, "symbol": str}}
-invoices_db: Dict[str, dict] = {}
 PAYMENT_LEDGER_PATH = os.path.join(os.path.dirname(__file__), "payment_ledger.json")
 PAID_REPORTS_PATH = os.path.join(os.path.dirname(__file__), "paid_reports.json")
+INVOICES_PATH = os.path.join(os.path.dirname(__file__), "invoices.json")
 PAYMENT_AMOUNT_USDC = float(os.getenv("QMA_PAYMENT_AMOUNT_USDC", os.getenv("QMA_PRICE_FULL_USDC", "0.005")))
 PAYMENT_RESOURCE_TYPE = os.getenv("QMA_PAYMENT_RESOURCE_TYPE", "qma_signal_report")
 PAYMENT_NETWORK = os.getenv("QMA_PAYMENT_NETWORK", "eip155:5042002")
@@ -94,46 +97,64 @@ ACCESS_TOKEN_SECRET = os.getenv("QMA_ACCESS_TOKEN_SECRET") or os.getenv("QMA_SES
 # Default False = unlock immediately on "received" (x402 UX). Set to "true" in .env for strict.
 REQUIRE_COMPLETED_SETTLEMENT = os.getenv("QMA_REQUIRE_COMPLETED_SETTLEMENT", "false").lower() in ("true", "1", "yes")
 provider_registry = create_default_registry(engine=engine, default_owner_wallet=PAYMENT_WALLET_ADDRESS)
+storage_backend = create_storage_backend(
+    ledger_path=PAYMENT_LEDGER_PATH,
+    reports_path=PAID_REPORTS_PATH,
+    invoices_path=INVOICES_PATH,
+)
 
 def load_payment_ledger() -> list:
-    if not os.path.exists(PAYMENT_LEDGER_PATH):
-        return []
     try:
-        with open(PAYMENT_LEDGER_PATH, "r", encoding="utf-8") as ledger_file:
-            data = json.load(ledger_file)
-        return data if isinstance(data, list) else []
+        return storage_backend.load_payment_events()
     except Exception as exc:
         logger.warning(f"Could not load payment ledger: {exc}")
         return []
 
 def save_payment_ledger(events: list) -> None:
     try:
-        with open(PAYMENT_LEDGER_PATH, "w", encoding="utf-8") as ledger_file:
-            json.dump(events[-500:], ledger_file, indent=2)
+        storage_backend.save_payment_events(events)
     except Exception as exc:
         logger.warning(f"Could not save payment ledger: {exc}")
 
 payment_events = load_payment_ledger()
 
 def load_paid_reports() -> dict:
-    if not os.path.exists(PAID_REPORTS_PATH):
-        return {}
     try:
-        with open(PAID_REPORTS_PATH, "r", encoding="utf-8") as reports_file:
-            data = json.load(reports_file)
-        return data if isinstance(data, dict) else {}
+        return storage_backend.load_paid_reports()
     except Exception as exc:
         logger.warning(f"Could not load paid reports: {exc}")
         return {}
 
 def save_paid_reports(reports: dict) -> None:
     try:
-        with open(PAID_REPORTS_PATH, "w", encoding="utf-8") as reports_file:
-            json.dump(reports, reports_file, indent=2)
+        storage_backend.save_paid_reports(reports)
     except Exception as exc:
         logger.warning(f"Could not save paid reports: {exc}")
 
 paid_reports = load_paid_reports()
+
+def load_invoices() -> dict:
+    try:
+        return storage_backend.load_invoices()
+    except Exception as exc:
+        logger.warning(f"Could not load invoices: {exc}")
+        return {}
+
+def save_invoice(invoice: dict) -> None:
+    try:
+        storage_backend.save_invoice(invoice)
+    except Exception as exc:
+        logger.warning(f"Could not save invoice: {exc}")
+
+# format: {invoice_id: {"status": "pending"|"paid", "created_at": float, "symbol": str}}
+invoices_db: Dict[str, dict] = load_invoices()
+
+def reload_persistent_state(include_invoices: bool = False) -> None:
+    global payment_events, paid_reports, invoices_db
+    payment_events = load_payment_ledger()
+    paid_reports = load_paid_reports()
+    if include_invoices:
+        invoices_db = load_invoices()
 
 # Simple Cache for Live MEXC Anomalies
 live_anomalies_cache = {
@@ -550,6 +571,7 @@ def get_health():
     return {
         "status": "ok",
         "engine": "ready",
+        "storage_backend": storage_backend.backend_name,
         "dataset": engine.dataset_profile,
         "payment_network": PAYMENT_NETWORK,
         "payment_network_name": PAYMENT_NETWORK_NAME,
@@ -608,6 +630,7 @@ def get_metrics(
     payer_page: int = Query(default=1, ge=1),
     payer_page_size: int = Query(default=10, ge=1, le=100),
 ):
+    reload_persistent_state()
     refresh_unresolved_payment_events()
     paid_invoices = [invoice for invoice in invoices_db.values() if invoice.get("status") == "paid"]
     all_events = payment_events + [
@@ -729,6 +752,7 @@ def get_wallet_metrics(
     entitlement_page: int = Query(default=1, ge=1),
     entitlement_page_size: int = Query(default=50, ge=1, le=100),
 ):
+    reload_persistent_state()
     refresh_unresolved_payment_events()
     normalized = normalize_address(address)
     events = [
@@ -797,6 +821,7 @@ def get_wallet_entitlements(
     symbol: Optional[str] = Query(default=None),
     provider_id: Optional[str] = Query(default=None),
 ):
+    reload_persistent_state()
     records = paid_kit.list_wallet_entitlements(paid_reports, address, symbol=symbol, provider_id=provider_id)
     return {
         "address": address,
@@ -902,6 +927,7 @@ def create_invoice(req: InvoiceRequest):
         ttl_seconds=INVOICE_TTL_SECONDS,
     )
     invoices_db[invoice["invoice_id"]] = invoice
+    save_invoice(invoice)
     return {
         "invoice_id": invoice["invoice_id"],
         "amount": invoice["amount"],
@@ -945,7 +971,9 @@ def verify_payment(invoice_id: str = Query(...), proof: Optional[PaymentVerifyRe
     invoice["gateway_status"] = settlement.get("status")
     invoice["amount_raw"] = settlement.get("amount")
     invoice["verification_mode"] = "circle-gateway-arc-testnet"
+    save_invoice(invoice)
 
+    reload_persistent_state()
     if not any(event.get("settlement_id") == proof.settlement_id for event in payment_events):
         payment_events.append({
             "invoice_id": invoice_id,
@@ -968,6 +996,7 @@ def verify_payment(invoice_id: str = Query(...), proof: Optional[PaymentVerifyRe
             "paid_at": invoice.get("paid_at"),
         })
         save_payment_ledger(payment_events)
+        save_invoice(invoice)
 
     # Fetch seller gateway balance breakdown so UI can display where funds are
     seller_balance = fetch_gateway_balance(PAYMENT_WALLET_ADDRESS)
@@ -1194,6 +1223,7 @@ def run_paid_provider_report(
         report = full_report
 
     invoice["used_at"] = time.time()
+    save_invoice(invoice)
     paid_kit.record_entitlement(paid_reports, invoice=invoice, report=jsonable_encoder(report))
     save_paid_reports(paid_reports)
     return report
