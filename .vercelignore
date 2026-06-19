@@ -16,9 +16,8 @@ arc_gateway/
 data/
 private_data/
 
-# Root HTML files are for Render/FastAPI. Vercel uses frontend/.
-/index.html
-/landing.html
+# Serve files directly from root
+# index.html, app.html, and public/ are deployed to Vercel.
 
 .env
 .env.*

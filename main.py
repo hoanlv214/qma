@@ -516,12 +516,12 @@ def serve_html_file(filename: str, fallback: str, status_code: int = 200):
 @app.get("/", response_class=HTMLResponse)
 def get_landing():
     """Serves the short Lepton landing page."""
-    return serve_html_file("landing.html", "<h1>QMA Landing File not found</h1>", status_code=404)
+    return serve_html_file("index.html", "<h1>QMA Landing File not found</h1>", status_code=404)
 
 @app.get("/app", response_class=HTMLResponse)
 def get_app():
     """Serves the front-end dashboard UI."""
-    return serve_html_file("index.html", "<h1>QMA UI File not found</h1>", status_code=404)
+    return serve_html_file("app.html", "<h1>QMA UI File not found</h1>", status_code=404)
 
 @app.get("/api/v1/health")
 def get_health():

@@ -3,33 +3,22 @@
   "cleanUrls": true,
   "builds": [
     {
-      "src": "frontend/**",
+      "src": "index.html",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "app.html",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "public/**/*",
       "use": "@vercel/static"
     }
   ],
-  "routes": [
+  "rewrites": [
     {
-      "src": "/",
-      "dest": "/frontend/index.html"
-    },
-    {
-      "src": "/landing",
-      "dest": "/frontend/index.html"
-    },
-    {
-      "src": "/lading",
-      "dest": "/frontend/index.html"
-    },
-    {
-      "src": "/app",
-      "dest": "/frontend/app/index.html"
-    },
-    {
-      "src": "/public/(.*)",
-      "dest": "/frontend/public/$1"
-    },
-    {
-      "handle": "filesystem"
+      "source": "/app",
+      "destination": "/app.html"
     }
   ]
 }
