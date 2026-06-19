@@ -25,41 +25,59 @@
                 <div class="logo-text">QMA</div>
             </a>
             <div class="landing-nav-links">
-                <a href="/app">Launch App</a>
-                <a href="/docs" data-api-path="/docs" target="_blank" rel="noopener noreferrer">API Docs</a>
-                <a href="/api/v1/providers" data-api-path="/api/v1/providers" target="_blank" rel="noopener noreferrer">Providers API</a>
+                <a href="/docs" data-api-path="/docs" target="_blank" rel="noopener noreferrer">Docs</a>
+                <a href="https://github.com/hoanlv214/qma" target="_blank" rel="noopener noreferrer">GitHub</a>
+                <a href="/app" class="nav-cta">Launch App</a>
             </div>
         </nav>
 
         <section class="landing-hero">
-            <div class="landing-kicker">Arc Testnet + Circle x402 + Paid Intelligence API Kit</div>
-            <h1>QMA - Paid Market Intelligence Agent</h1>
+            <div class="landing-kicker">Arc Testnet / Circle x402 / Micropayments</div>
+            <h1>Paid Market Intelligence Agent</h1>
             <p>
-                Humans and AI agents buy historical crypto market-memory reports one query at a time using Arc USDC
-                micropayments.
+                Humans and autonomous agents buy historical crypto market-memory reports one query at a time,
+                settled with Arc USDC micropayments.
             </p>
             <div class="landing-actions">
                 <a class="landing-primary" href="/app" target="_blank" rel="noopener noreferrer">Launch App</a>
-                <a class="landing-secondary" href="/docs" data-api-path="/docs" target="_blank" rel="noopener noreferrer">API Docs</a>
-                <a class="landing-secondary" href="https://github.com/hoanlv214/qma" target="_blank" rel="noopener noreferrer">GitHub</a>
+                <a class="landing-secondary" href="/docs" data-api-path="/docs" target="_blank"
+                    rel="noopener noreferrer">API Docs</a>
+                <a class="landing-secondary" href="https://github.com/hoanlv214/qma" target="_blank"
+                    rel="noopener noreferrer">GitHub</a>
             </div>
         </section>
 
         <section class="landing-grid">
             <article>
-                <span>01</span>
+                <div class="feature-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" />
+                        <circle cx="12" cy="12" r="3" />
+                    </svg>
+                </div>
                 <h2>Agent Picks</h2>
-                <p>QMA scans live MEXC funding anomalies and ranks which reports are worth buying.</p>
+                <p>QMA scans live MEXC funding anomalies and ranks which reports are worth buying before you spend.</p>
             </article>
             <article>
-                <span>02</span>
-                <h2>Pay Per Call</h2>
-                <p>Preview reports cost 0.001 USDC. Full reports cost 0.005 USDC through Circle Gateway/x402.</p>
+                <div class="feature-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24">
+                        <rect x="2" y="5" width="20" height="14" rx="2" />
+                        <path d="M2 10h20" />
+                    </svg>
+                </div>
+                <h2>Pay Per Query</h2>
+                <p>Previews cost 0.001 USDC. Full reports cost 0.005 USDC through Circle Gateway x402.</p>
             </article>
             <article>
-                <span>03</span>
+                <div class="feature-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+                        <polyline points="10 17 15 12 10 7" />
+                        <line x1="15" y1="12" x2="3" y2="12" />
+                    </svg>
+                </div>
                 <h2>Unlock Memory</h2>
-                <p>Paid entitlements unlock query-bound historical analog reports and survive refreshes/restarts.</p>
+                <p>Paid entitlements unlock query-bound historical analog reports tied to your wallet.</p>
             </article>
         </section>
 
@@ -68,14 +86,16 @@
                 <div class="landing-section-label">Provider marketplace primitive</div>
                 <h2>Funding Memory is the first provider.</h2>
                 <p>
-                    The reusable layer is the provider-aware payment and entitlement kit. Researchers can expose private
-                    datasets as paid APIs while the public repo ships sample data and crawler code for transparency.
+                    The reusable layer is the provider-aware payment and entitlement kit. Researchers can expose
+                    private datasets as paid APIs while the public repo ships sample data and crawler code.
                 </p>
             </div>
             <div class="landing-proof-card">
                 <div><span>Provider</span><strong>funding_memory</strong></div>
                 <div><span>Source</span><strong>MEXC Futures public API</strong></div>
                 <div><span>Mode</span><strong>Suggest then pay</strong></div>
+                <div><span>Preview price</span><strong>0.001 USDC <span class="proof-badge">x402</span></strong></div>
+                <div><span>Full report</span><strong>0.005 USDC <span class="proof-badge">x402</span></strong></div>
                 <div><span>Settlement</span><strong>Arc Testnet USDC</strong></div>
             </div>
         </section>
@@ -83,15 +103,18 @@
         <section class="landing-flow">
             <div class="landing-section-label">How it works</div>
             <div class="landing-flow-steps">
-                <div>
+                <div class="flow-step">
+                    <div class="flow-step-num">Step 1</div>
                     <span>Detect anomaly</span>
                     <p>QMA watches live funding dislocations and turns each market snapshot into a query.</p>
                 </div>
-                <div>
+                <div class="flow-step">
+                    <div class="flow-step-num">Step 2</div>
                     <span>Pay with Arc USDC</span>
-                    <p>The buyer pays a provider-bound preview or full invoice through Circle Gateway/x402.</p>
+                    <p>The buyer pays a provider-bound preview or full invoice through Circle Gateway x402.</p>
                 </div>
-                <div>
+                <div class="flow-step">
+                    <div class="flow-step-num">Step 3</div>
                     <span>Unlock report</span>
                     <p>The entitlement unlocks the exact historical analog report for that wallet and query.</p>
                 </div>
@@ -126,10 +149,10 @@
         </section>
 
         <section class="landing-source" id="source-code">
-            <div class="landing-section-label">Open source shape</div>
+            <div class="landing-section-label">Open source</div>
             <p>
-                Public repo should include the frontend, FastAPI provider API, Paid Intelligence Kit, sample datasets,
-                and crawler scripts. The full production dataset should stay private and load through environment paths
+                The public repo includes the frontend, FastAPI provider API, Paid Intelligence Kit, sample datasets,
+                and crawler scripts. The full production dataset stays private and loads through environment paths
                 on the deployed backend.
             </p>
         </section>
@@ -142,23 +165,25 @@
                         <div class="logo-text">QMA</div>
                     </a>
                     <div class="landing-socials footer-socials" aria-label="QMA footer social links">
-                        <a href="http://x.com/hoanlv21" target="_blank" rel="noopener noreferrer" aria-label="X">X</a>
-                        <a href="https://github.com/hoanlv214/qma" target="_blank" rel="noopener noreferrer" aria-label="GitHub">GitHub</a>
-                        <a href="https://discordapp.com/users/711257217483014206" target="_blank" rel="noopener noreferrer" aria-label="Discord">Discord</a>
+                        <a href="http://x.com/hoanlv21" target="_blank" rel="noopener noreferrer">X</a>
+                        <a href="https://github.com/hoanlv214/qma" target="_blank" rel="noopener noreferrer">GitHub</a>
+                        <a href="https://discordapp.com/users/711257217483014206" target="_blank"
+                            rel="noopener noreferrer">Discord</a>
                     </div>
                 </div>
                 <p>
                     QMA is not a trading bot. It retrieves historical market analogs and sells paid intelligence reports
-                    through Arc USDC micropayments.
+                    through Arc USDC micropayments. Arc Testnet demo, not financial advice.
                 </p>
             </div>
+
             <div class="landing-footer-cols">
                 <div>
                     <h3>Product</h3>
                     <a href="/app">Agent Picks</a>
                     <a href="/app">Preview Reports</a>
                     <a href="/app">Full Reports</a>
-                    <a href="/app">Wallet History</a>
+                    <a href="/user">Wallet History</a>
                 </div>
                 <div>
                     <h3>Platform</h3>
@@ -166,30 +191,32 @@
                     <a href="/api/v1/providers" data-api-path="/api/v1/providers" target="_blank"
                         rel="noopener noreferrer">Provider API</a>
                     <a href="/docs" data-api-path="/docs" target="_blank" rel="noopener noreferrer">API Docs</a>
-                    <a href="https://testnet.arcscan.app/" target="_blank" rel="noopener noreferrer">Arc Payment Flow</a>
+                    <a href="https://testnet.arcscan.app/" target="_blank" rel="noopener noreferrer">Arcscan Explorer</a>
                 </div>
                 <div>
                     <h3>Developers</h3>
-                    <a href="https://github.com/hoanlv214" target="_blank" rel="noopener noreferrer">GitHub</a>
+                    <a href="https://github.com/hoanlv214" target="_blank" rel="noopener noreferrer">GitHub Profile</a>
                     <a href="#source-code">Sample Data</a>
                     <a href="/openapi.json" data-api-path="/openapi.json" target="_blank"
                         rel="noopener noreferrer">OpenAPI</a>
                     <a href="/docs" data-api-path="/docs" target="_blank" rel="noopener noreferrer">Integration Guide</a>
                 </div>
                 <div>
-                    <h3>Legal / Notes</h3>
+                    <h3>Notes</h3>
                     <span>Not financial advice</span>
                     <span>Arc Testnet demo</span>
-                    <span>Source: MEXC Futures API</span>
-                    <span>Full data is provider-owned</span>
+                    <span>Source: MEXC Futures</span>
+                    <span>Data is provider-owned</span>
                 </div>
             </div>
+
             <div class="landing-footer-bottom">
                 <span>2026 QMA. All rights reserved.</span>
-                <span class="landing-status-dot">Arc Testnet ready</span>
+                <span class="landing-status-dot">Arc Testnet live</span>
             </div>
         </footer>
     </main>
+
     <script>
         const base = String(window.QMA_API_BASE_URL || "").replace(/\/$/, "");
         if (base) {

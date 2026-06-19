@@ -7,7 +7,6 @@ let totalPages = 1;
 let arcGatewayBaseUrl = '';
 
 const connectBtn = document.getElementById('profile-connect-btn');
-const walletAddressEl = document.getElementById('profile-wallet-address');
 const chainBalanceEl = document.getElementById('user-chain-balance');
 const gatewayBalanceEl = document.getElementById('user-gateway-balance');
 const paymentCountEl = document.getElementById('user-payment-count');
@@ -53,15 +52,15 @@ function tierLabel(tier) {
 }
 
 function gatewayStatusBadge(status) {
-    if (!status) return '<span style="color:var(--t3);">n/a</span>';
+    if (!status) return '<span class="badge badge-muted">n/a</span>';
     const s = String(status).toLowerCase();
     if (s === 'completed' || s === 'confirmed') {
-        return `<span style="color:var(--green);font-weight:600;">confirmed</span>`;
+        return '<span class="badge badge-confirmed">confirmed</span>';
     }
     if (s === 'received' || s === 'batched') {
-        return `<span style="color:var(--amber);font-weight:600;">pending batch</span>`;
+        return '<span class="badge badge-pending">pending batch</span>';
     }
-    return `<span style="color:var(--t2);">${escapeHtml(status)}</span>`;
+    return `<span class="badge badge-muted">${escapeHtml(status)}</span>`;
 }
 
 function getWalletEvents(account) {
@@ -78,16 +77,16 @@ function getWalletEvents(account) {
 function renderEvents(account) {
     const events = getWalletEvents(account);
     if (!events.length) {
-        eventsBody.innerHTML = '<tr><td colspan="4" style="color:var(--t3);">No local wallet actions.</td></tr>';
+        eventsBody.innerHTML = '<tr class="empty-row"><td colspan="4">No local wallet actions recorded.</td></tr>';
         return;
     }
     eventsBody.innerHTML = events.map((event) => {
         const ref = event.explorer_url && event.tx_hash
             ? `<a class="tx-link" href="${event.explorer_url}" target="_blank" rel="noreferrer">${shortAddress(event.tx_hash)}</a>`
-            : '<span style="color:var(--t3);">n/a</span>';
+            : '<span class="muted-ref">n/a</span>';
         return `
             <tr title="${escapeHtml(formatDateTime(event.at))}">
-                <td>${escapeHtml(event.type || 'event')}</td>
+                <td><span class="action-label">${escapeHtml(event.type || 'event')}</span></td>
                 <td>${escapeHtml(event.amount_usdc || 'n/a')}${event.amount_usdc ? ' USDC' : ''}</td>
                 <td class="mono-td">${escapeHtml(event.symbol || 'n/a')}</td>
                 <td>${ref}</td>
@@ -98,18 +97,18 @@ function renderEvents(account) {
 
 function renderPayments(events) {
     if (!events.length) {
-        paymentsBody.innerHTML = '<tr><td colspan="5" style="color:var(--t3);">No verified payments yet.</td></tr>';
+        paymentsBody.innerHTML = '<tr class="empty-row"><td colspan="5">No verified payments yet.</td></tr>';
         return;
     }
     paymentsBody.innerHTML = events.map((event) => {
         const ref = event.explorer_url && event.transaction_hash
             ? `<a class="tx-link" href="${event.explorer_url}" target="_blank" rel="noreferrer">${shortAddress(event.transaction_hash)}</a>`
             : event.settlement_id
-                ? `<span class="mono-td" title="${escapeHtml(event.settlement_id)}">${shortAddress(event.settlement_id)}</span><div style="color:var(--amber);font-size:0.72rem;margin-top:2px;">Arcscan tx pending</div>`
-                : '<span style="color:var(--t3);">n/a</span>';
+                ? `<span class="mono-td" title="${escapeHtml(event.settlement_id)}">${shortAddress(event.settlement_id)}</span><div class="badge badge-pending tx-pending-badge">Arcscan pending</div>`
+                : '<span class="badge badge-muted">n/a</span>';
         return `
             <tr title="${escapeHtml(formatDateTime(event.paid_at))}">
-                <td class="mono-td">${escapeHtml(event.symbol || 'n/a')}<div style="color:var(--t3);font-size:0.66rem;margin-top:2px;">${escapeHtml(formatDateTime(event.paid_at))}</div></td>
+                <td class="mono-td">${escapeHtml(event.symbol || 'n/a')}<div class="row-subtitle">${escapeHtml(formatDateTime(event.paid_at))}</div></td>
                 <td>${escapeHtml(tierLabel(event.tier))}</td>
                 <td>${Number(event.amount_usdc || 0).toFixed(3)} USDC</td>
                 <td>${gatewayStatusBadge(event.gateway_status)}</td>
@@ -171,7 +170,6 @@ function fallbackPageMeta(meta, pageSize, totalFallback, visibleCount) {
 async function loadProfile(account, page = 1) {
     if (!account) return;
     currentWallet = account;
-    if (walletAddressEl) walletAddressEl.textContent = account;
     connectBtn.textContent = shortAddress(account);
     connectBtn.title = account;
     renderEvents(account);
@@ -186,7 +184,7 @@ async function loadProfile(account, page = 1) {
         loadWalletStatus(account)
     ]);
     if (!metricsResp.ok) {
-        paymentsBody.innerHTML = '<tr><td colspan="5" style="color:var(--red);">Could not load wallet history.</td></tr>';
+        paymentsBody.innerHTML = '<tr class="empty-row"><td colspan="5">Could not load wallet history.</td></tr>';
         return;
     }
     const metrics = await metricsResp.json();
@@ -200,7 +198,7 @@ async function loadProfile(account, page = 1) {
     const symbols = metrics.purchased_symbols || [];
     tokenListEl.innerHTML = symbols.length
         ? symbols.map((symbol) => `<span class="token-chip">${escapeHtml(symbol)}</span>`).join('')
-        : '<span class="token-chip">None yet</span>';
+        : '<span class="token-chip token-chip-muted">No signals purchased yet</span>';
     renderPayments(metrics.recent_payments || []);
     updatePage(fallbackPageMeta(
         metrics.recent_payments_page,

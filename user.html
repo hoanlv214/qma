@@ -6,6 +6,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>QMA Wallet Profile</title>
     <link rel="icon" href="/public/favicon.ico" sizes="any">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
     <link rel="stylesheet" href="/public/styles.css">
     <script>
         window.QMA_API_BASE_URL = window.QMA_API_BASE_URL || "https://qma-api.onrender.com";
@@ -15,7 +20,7 @@
 <body class="profile-body">
     <main class="profile-shell">
         <nav class="profile-nav">
-            <a href="/app" class="logo-item qma-logo-item" title="Back to QMA app">
+            <a href="/" class="logo-item qma-logo-item" title="Back to QMA">
                 <div class="logo-icon">QM</div>
                 <div class="logo-text">QMA</div>
             </a>
@@ -26,11 +31,9 @@
         </nav>
 
         <section class="profile-hero">
-            <div>
-                <p class="profile-kicker">Wallet intelligence history</p>
-                <h1>Paid Reports Profile</h1>
-                <p>Review purchased QMA previews, full reports, Arc settlement references, and local wallet actions.</p>
-            </div>
+            <p class="profile-kicker">Wallet intelligence history</p>
+            <h1>Paid Reports Profile</h1>
+            <p>Review purchased QMA previews, full reports, Arc settlement references, and local wallet actions.</p>
         </section>
 
         <section class="profile-grid user-profile-grid">
@@ -44,7 +47,7 @@
             </div>
             <div class="profile-tile">
                 <span class="profile-label">Reports Bought</span>
-                <span class="profile-value" id="user-payment-count">0</span>
+                <span class="profile-value profile-value-highlight" id="user-payment-count">0</span>
             </div>
             <div class="profile-tile">
                 <span class="profile-label">Total Spent</span>
@@ -55,13 +58,13 @@
         <section class="profile-section">
             <div class="section-header">Purchased Signals</div>
             <div class="token-list" id="user-token-list">
-                <span class="token-chip">None yet</span>
+                <span class="token-chip token-chip-muted">No signals purchased yet</span>
             </div>
         </section>
 
         <section class="profile-section">
             <div class="section-header">Verified Web Payments</div>
-            <div style="overflow-x:auto;">
+            <div class="table-wrap">
                 <table class="activity-table">
                     <thead>
                         <tr>
@@ -73,8 +76,8 @@
                         </tr>
                     </thead>
                     <tbody id="user-payments-body">
-                        <tr>
-                            <td colspan="5" style="color:var(--t3);">Connect a wallet to load history.</td>
+                        <tr class="empty-row">
+                            <td colspan="5">Connect a wallet to load payment history.</td>
                         </tr>
                     </tbody>
                 </table>
@@ -88,7 +91,7 @@
 
         <section class="profile-section">
             <div class="section-header">Local Wallet Actions</div>
-            <div style="overflow-x:auto;">
+            <div class="table-wrap">
                 <table class="activity-table">
                     <thead>
                         <tr>
@@ -99,8 +102,8 @@
                         </tr>
                     </thead>
                     <tbody id="user-events-body">
-                        <tr>
-                            <td colspan="4" style="color:var(--t3);">No local wallet actions.</td>
+                        <tr class="empty-row">
+                            <td colspan="4">No local wallet actions recorded.</td>
                         </tr>
                     </tbody>
                 </table>
