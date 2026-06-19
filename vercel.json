@@ -1,43 +1,25 @@
 {
-  "version": 2,
   "cleanUrls": true,
-  "builds": [
+  "rewrites": [
     {
-      "src": "frontend/index.html",
-      "use": "@vercel/static"
+      "source": "/",
+      "destination": "/frontend/index.html"
     },
     {
-      "src": "frontend/app/index.html",
-      "use": "@vercel/static"
+      "source": "/landing",
+      "destination": "/frontend/index.html"
     },
     {
-      "src": "frontend/public/**",
-      "use": "@vercel/static"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/",
-      "dest": "/frontend/index.html"
+      "source": "/lading",
+      "destination": "/frontend/index.html"
     },
     {
-      "src": "/landing",
-      "dest": "/frontend/index.html"
+      "source": "/app",
+      "destination": "/frontend/app/index.html"
     },
     {
-      "src": "/lading",
-      "dest": "/frontend/index.html"
-    },
-    {
-      "src": "/app",
-      "dest": "/frontend/app/index.html"
-    },
-    {
-      "src": "/public/(.*)",
-      "dest": "/frontend/public/$1"
-    },
-    {
-      "handle": "filesystem"
+      "source": "/public/:path*",
+      "destination": "/frontend/public/:path*"
     }
   ]
 }
