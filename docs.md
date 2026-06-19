@@ -331,7 +331,7 @@ If the landing/dashboard is served from a different origin than FastAPI, set the
 
 ```html
 <script>
-  window.QMA_API_BASE_URL = "https://your-qma-api.example.com";
+  window.QMA_API_BASE_URL = "https://qma-api.onrender.com";
 </script>
 ```
 

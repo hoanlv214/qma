@@ -74,7 +74,7 @@ After Render creates both services, set these environment variables:
 # qma-api service
 QMA_ARC_SELLER_ADDRESS=<seller-wallet>
 QMA_FUNDING_MEMORY_OWNER_WALLET=<seller-wallet>
-QMA_ARC_GATEWAY_URL=https://<qma-arc-gateway>.onrender.com
+QMA_ARC_GATEWAY_URL=https://qma-arc-gateway.onrender.com
 
 # qma-arc-gateway service
 QMA_ARC_SELLER_ADDRESS=<seller-wallet>
@@ -83,7 +83,7 @@ QMA_ARC_SELLER_ADDRESS=<seller-wallet>
 After Vercel deploys the static frontend, set the API base in `landing.html` and `index.html` or inject it before build:
 
 ```html
-window.QMA_API_BASE_URL = "https://<qma-api>.onrender.com";
+window.QMA_API_BASE_URL = "https://qma-api.onrender.com";
 ```
 
 If the static UI is deployed separately from the API, set:

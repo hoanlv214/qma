@@ -12,9 +12,8 @@
         rel="stylesheet">
     <link rel="stylesheet" href="/public/styles.css">
     <script>
-        // Set this when serving the static UI from Vercel while the FastAPI backend lives elsewhere.
-        // Example: window.QMA_API_BASE_URL = "https://qma-api.example.com";
-        window.QMA_API_BASE_URL = window.QMA_API_BASE_URL || "";
+        // Static frontend talks to the Render-hosted FastAPI backend.
+        window.QMA_API_BASE_URL = window.QMA_API_BASE_URL || "https://qma-api.onrender.com";
     </script>
 </head>
 
