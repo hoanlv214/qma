@@ -171,8 +171,9 @@ function fallbackPageMeta(meta, pageSize, totalFallback, visibleCount) {
 async function loadProfile(account, page = 1) {
     if (!account) return;
     currentWallet = account;
-    walletAddressEl.textContent = account;
+    if (walletAddressEl) walletAddressEl.textContent = account;
     connectBtn.textContent = shortAddress(account);
+    connectBtn.title = account;
     renderEvents(account);
 
     const params = new URLSearchParams({
