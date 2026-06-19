@@ -66,6 +66,7 @@ This repo includes:
 ```text
 render.yaml   Render blueprint for qma-api + qma-arc-gateway
 vercel.json   Static landing/dashboard routes: / and /app
+.vercelignore Keeps Vercel from deploying the Python/Node backend files
 ```
 
 After Render creates both services, set these environment variables:
@@ -95,6 +96,17 @@ If the static UI is deployed separately from the API, set:
 ```
 
 The same variable is supported by both `landing.html` and `index.html`.
+
+In Vercel project settings, use:
+
+```text
+Framework Preset: Other
+Build Command: empty
+Output Directory: empty
+Install Command: empty
+```
+
+If Vercel shows "This Serverless Function has crashed", it is trying to deploy the backend. The static frontend deployment should only include `landing.html`, `index.html`, `public/`, `vercel.json`, and `.vercelignore`.
 
 Vercel notes: their docs support FastAPI/Python deployments, but Python functions have a 500 MB uncompressed bundle size limit and Python files are not tree-shaken automatically. For QMA, that makes split deployment the practical default.
 

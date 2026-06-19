@@ -1,0 +1,26 @@
+# Vercel deploys only the static frontend.
+# Render owns the FastAPI backend and Arc Gateway sidecar.
+
+main.py
+qma_engine.py
+providers.py
+requirements.txt
+render.yaml
+ARC_PAYMENT.md
+LEPTON_DEMO.md
+docs.md
+README.md
+
+paid_intelligence_kit/
+arc_gateway/
+data/
+private_data/
+
+.env
+.env.*
+*.log
+*.pyc
+__pycache__/
+*/__pycache__/
+payment_ledger.json
+paid_reports.json
