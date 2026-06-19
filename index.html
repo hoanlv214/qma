@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QMA // Quant Memory Agent</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="/public/styles.css">
+    <script>
+        // Set this when serving the static UI from Vercel while the FastAPI backend lives elsewhere.
+        // Example: window.QMA_API_BASE_URL = "https://qma-api.example.com";
+        window.QMA_API_BASE_URL = window.QMA_API_BASE_URL || "";
+    </script>
+</head>
+
+<body>
+
+    <!-- ═══ HEADER ═══ -->
+    <header>
+        <div class="logo-section">
+            <a href="/" class="logo-item qma-logo-item" title="QMA">
+                <div class="logo-icon">QM</div>
+                <div class="logo-text">QMA</div>
+            </a>
+            <a href="https://thecanteenapp.com/" target="_blank" rel="noopener noreferrer"
+                class="logo-item logo-img-item canteen-logo-item" title="Canteen">
+                <img src="/public/canteen-logo.png" alt="Canteen">
+            </a>
+            <a href="https://www.circle.com/" target="_blank" rel="noopener noreferrer"
+                class="logo-item logo-img-item" title="Circle">
+                <img src="/public/circle-logo-white.svg" alt="Circle">
+            </a>
+            <a href="https://www.arc.network/" target="_blank" rel="noopener noreferrer"
+                class="logo-item logo-img-item arc-logo-item" title="Arc Testnet">
+                <img src="/public/arc-logo-white.svg" alt="Arc Testnet">
+            </a>
+            <span class="logo-tag">v1.0.0</span>
+
+        </div>
+
+        <div class="status-indicators">
+            <div class="indicator">
+                <span class="indicator-dot"></span>
+                <span>Ledoit-Wolf Active</span>
+            </div>
+            <div class="indicator">
+                <span>Half-life: 180d</span>
+            </div>
+            <div class="indicator">
+                <span id="metrics-payments">Paid: 0</span>
+            </div>
+            <div class="indicator" style="color: var(--green);">
+                <span id="metrics-revenue">Rev: 0.00 USDC</span>
+            </div>
+            <div class="indicator" title="Seller Gateway: funds confirmed on-chain and available to withdraw">
+                <span id="metrics-balance">Avail: 0.00</span>
+            </div>
+            <div class="indicator" title="Seller Gateway: funds deducted from buyers but not yet batched on-chain">
+                <span id="metrics-balance-pending" style="color: var(--t3);">Batch: —</span>
+            </div>
+            <div class="indicator" id="clock">00:00:00</div>
+            <div class="wallet-area">
+                <button class="wallet-button" id="wallet-button" type="button">
+                    <span id="wallet-button-label">Connect Wallet</span>
+                </button>
+                <div class="wallet-menu" id="wallet-menu">
+                    <div class="wallet-menu-address" id="wallet-menu-address">Not connected</div>
+                    <button type="button" id="wallet-copy-btn" style="display:none;">Copy Address</button>
+                    <button type="button" id="wallet-profile-btn">View Profile</button>
+                    <button type="button" id="wallet-withdraw-menu-btn"
+                        style="display:none; color:var(--green);">Withdraw Funds</button>
+                    <button type="button" id="wallet-disconnect-btn">Disconnect</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- ═══ WORKSPACE ═══ -->
+    <div class="workspace">
+
+        <!-- ── LEFT SIDEBAR — Live Anomalies ── -->
+        <div class="live-feed-sidebar">
+            <div class="sidebar-header">
+                <span class="sidebar-title">Live Anomalies</span>
+                <button class="refresh-btn" id="refresh-anomalies-btn">↻ Refresh</button>
+            </div>
+            <div class="agent-picks-panel">
+                <div class="sidebar-header agent-picks-header">
+                    <span class="sidebar-title">Agent Picks</span>
+                    <span class="agent-mode-pill">Suggest then pay</span>
+                </div>
+                <div class="agent-picks-list" id="agent-picks-container">
+                    <div class="agent-empty">Ranking live signals...</div>
+                </div>
+            </div>
+            <div class="provider-marketplace-panel">
+                <div class="sidebar-header provider-marketplace-header">
+                    <span class="sidebar-title">Providers</span>
+                    <span class="agent-mode-pill">Marketplace</span>
+                </div>
+                <div class="provider-marketplace-list" id="provider-marketplace-container">
+                    <div class="agent-empty">Loading providers...</div>
+                </div>
+            </div>
+            <div class="data-source-panel">
+                <div class="sidebar-header data-source-header">
+                    <span class="sidebar-title">Data Source</span>
+                    <span class="agent-mode-pill">Trust</span>
+                </div>
+                <div class="data-source-grid">
+                    <div>
+                        <span>Source</span>
+                        <strong>MEXC Futures API</strong>
+                    </div>
+                    <div>
+                        <span>Provider</span>
+                        <strong id="ds-provider">funding_memory</strong>
+                    </div>
+                    <div>
+                        <span>Feature Rows</span>
+                        <strong id="ds-feature-rows">-</strong>
+                    </div>
+                    <div>
+                        <span>Clean Joined</span>
+                        <strong id="ds-clean-rows">-</strong>
+                    </div>
+                    <div>
+                        <span>Symbols</span>
+                        <strong id="ds-symbols">-</strong>
+                    </div>
+                    <div>
+                        <span>Date Range</span>
+                        <strong id="ds-range">-</strong>
+                    </div>
+                </div>
+                <div class="data-source-note">
+                    Public repo uses sample CSVs. Demo backend can load the full private dataset via env paths.
+                </div>
+            </div>
+            <div class="anomalies-list" id="anomalies-container">
+                <div style="text-align:center; color:var(--t3); margin-top:48px;">
+                    <div class="spinner" style="margin:0 auto 12px;"></div>
+                    <span style="font-family:var(--mono); font-size:0.72rem;">Scanning MEXC…</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── RIGHT: QUERY + REPORT ── -->
+        <div class="main-panel">
+
+            <!-- Query Bar -->
+            <div class="query-editor-bar">
+                <form class="query-form" id="query-form">
+                    <div class="form-group">
+                        <label class="form-label">Symbol</label>
+                        <input type="text" class="form-input" id="q-symbol" value="HYPE" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Funding Rate</label>
+                        <input type="number" step="0.0001" class="form-input" id="q-funding" value="-0.0120" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Mkt Cap ($)</label>
+                        <input type="number" step="1" class="form-input" id="q-mcap" value="8000000" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">FDV ($)</label>
+                        <input type="number" step="1" class="form-input" id="q-fdv" value="60000000" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Circ Ratio</label>
+                        <input type="number" step="0.01" min="0.01" max="1.5" class="form-input" id="q-circ"
+                            value="0.15" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">ATH Dist (%)</label>
+                        <input type="number" step="0.01" class="form-input" id="q-ath" value="-92.00" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">24h Vol ($)</label>
+                        <input type="number" step="1" class="form-input" id="q-vol" value="5200000" required>
+                    </div>
+                    <div class="tier-actions">
+                        <button type="submit" class="submit-btn tier-btn preview-tier" data-tier="preview">
+                            <span>Preview 0.001</span>
+                        </button>
+                        <button type="submit" class="submit-btn tier-btn full-tier" data-tier="full">
+                            <span>Full 0.005</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Report Viewport -->
+            <div class="report-viewport" id="viewport-container">
+
+                <!-- ── PAYWALL ── -->
+                <div class="paywall-overlay" id="paywall-element">
+                    <div class="paywall-card">
+                        <button class="paywall-close" id="paywall-close" type="button" title="Close">x</button>
+                        <div class="paywall-layout">
+                            <div class="paywall-main">
+                                <div class="paywall-title" id="paywall-title">USDC Micro-Payment Required</div>
+                                <div class="paywall-desc" id="paywall-desc">
+                                    Unlock a regime analog report for this token. QMA matches the live vector against
+                                    historical
+                                    funding events in Mahalanobis space with Ledoit-Wolf covariance and evidence-quality
+                                    diagnostics.
+                                </div>
+
+                                <div class="circle-invoice-details">
+                                    <div class="invoice-row">
+                                        <span class="invoice-label">Signal</span>
+                                        <span class="invoice-val" id="invoice-signal-display">n/a</span>
+                                    </div>
+                                    <div class="invoice-row">
+                                        <span class="invoice-label">Amount</span>
+                                        <span class="invoice-val" id="invoice-amount-display">0.005 USDC</span>
+                                    </div>
+                                    <div class="invoice-row">
+                                        <span class="invoice-label">Tier</span>
+                                        <span class="invoice-val" id="invoice-tier-display">Full Report</span>
+                                    </div>
+                                    <div class="invoice-row">
+                                        <span class="invoice-label">Network</span>
+                                        <span class="invoice-val" id="invoice-network-display">Arc Testnet</span>
+                                    </div>
+                                    <div class="invoice-row" id="inv-id-row" style="display:none;">
+                                        <span class="invoice-label">Invoice ID</span>
+                                        <span class="invoice-val" id="inv-id-display">pending…</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Payment Pipeline -->
+                            <div id="payment-flow-panel" class="payment-flow-panel" style="display:none;">
+                                <div class="pf-header-label">Payment Flow</div>
+                                <div id="pf-buyer-wallet" class="pf-row">
+                                    <div class="pf-body">
+                                        <div class="pf-label">Buyer Wallet <span class="pf-sublabel">(MetaMask,
+                                                on-chain)</span></div>
+                                        <div class="pf-val" id="pf-buyer-wallet-bal">—</div>
+                                    </div>
+                                    <div class="pf-arrow">↓</div>
+                                </div>
+                                <div id="pf-buyer-gateway" class="pf-row">
+                                    <div class="pf-body">
+                                        <div class="pf-label">Circle Gateway Contract <span class="pf-sublabel">(deposit
+                                                target)</span></div>
+                                        <div class="pf-val pf-addr" id="pf-gateway-contract">—</div>
+                                        <div class="pf-sub" id="pf-buyer-gateway-bal">Gateway balance: —</div>
+                                    </div>
+                                    <div class="pf-arrow">↓</div>
+                                </div>
+                                <div id="pf-settlement" class="pf-row">
+                                    <div class="pf-body">
+                                        <div class="pf-label">Circle Settlement</div>
+                                        <div class="pf-val" id="pf-settlement-status">—</div>
+                                        <div class="pf-sub" id="pf-settlement-id">—</div>
+                                    </div>
+                                    <div class="pf-arrow">↓</div>
+                                </div>
+                                <div id="pf-seller-gateway" class="pf-row" style="border-bottom:none;">
+                                    <div class="pf-body">
+                                        <div class="pf-label">Seller Treasury <span class="pf-sublabel">(final
+                                                destination)</span></div>
+                                        <div class="pf-addr" id="pf-seller-wallet-addr">—</div>
+                                        <div class="pf-sub" style="margin-top:4px;">
+                                            <span style="color:var(--green);">✔ Available: </span><span
+                                                id="pf-seller-available">—</span>
+                                            &nbsp;·&nbsp;
+                                            <span style="color:var(--t3);">⏳ Pending: </span><span
+                                                id="pf-seller-pending">—</span>
+                                        </div>
+                                        <div class="pf-sub" id="pf-arcscan-tx" style="margin-top:4px; display:none;">
+                                            Arcscan: <a class="tx-link" id="pf-arcscan-link" href="#" target="_blank"
+                                                rel="noreferrer">—</a>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button class="simulate-pay-btn" id="pay-button">
+                            <span>Pay on Arc Testnet - 0.005 USDC</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ── REPORT ── -->
+                <div class="report-container" id="report-view-element">
+
+                    <!-- KPI: Win Rate & PnL — spans 2 cols -->
+                    <div class="report-section section-span-2">
+                        <div class="section-header">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                                <polyline points="22 4 12 14.01 9 11.01" />
+                            </svg>
+                            Historical Analog Outcome (Weighted)
+                        </div>
+                        <div class="kpi-grid">
+                            <div class="kpi-card">
+                                <span class="kpi-title">Analog Win Rate</span>
+                                <div class="kpi-value" id="res-win-rate" style="color:var(--green);">0.0%</div>
+                                <span class="kpi-sub" id="res-win-rate-ci">95% CI: [0.0% – 0.0%]</span>
+                            </div>
+                            <div class="kpi-card">
+                                <span class="kpi-title">Avg Historical Peak PnL</span>
+                                <div class="kpi-value" id="res-avg-pnl">+0.00%</div>
+                                <span class="kpi-sub" id="res-avg-pnl-ci">95% CI: [+0.0% – +0.0%]</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- KPI: Regime Cluster -->
+                    <div class="report-section">
+                        <div class="section-header">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                                <polyline points="2 17 12 22 22 17" />
+                                <polyline points="2 12 12 17 22 12" />
+                            </svg>
+                            Similar Historical Regime
+                        </div>
+                        <div class="info-list">
+                            <div class="info-item">
+                                <span class="info-label" style="font-weight:600; font-size:0.9rem; color:var(--t1);"
+                                    id="res-regime-name">Mid-cap Emerging</span>
+                            </div>
+                            <div class="info-desc" style="font-size:0.76rem; line-height:1.5;" id="res-regime-desc">
+                                Loading…</div>
+                            <div style="border-top:1px solid var(--bdr); padding-top:10px; margin-top:4px;">
+                                <div class="info-item">
+                                    <span class="info-label">OOD Status</span>
+                                    <span class="pnl-badge" id="res-ood-status"
+                                        style="font-size:0.68rem;">In-Distribution</span>
+                                </div>
+                                <div class="info-item" style="margin-top:6px;">
+                                    <span class="info-label">Chi² p-value</span>
+                                    <span class="mono-td" id="res-ood-p"
+                                        style="color:var(--t1); font-size:0.78rem;">1.00000</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Return Distribution -->
+                    <div class="report-section">
+                        <div class="section-header">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <line x1="18" y1="20" x2="18" y2="10" />
+                                <line x1="12" y1="20" x2="12" y2="4" />
+                                <line x1="6" y1="20" x2="6" y2="14" />
+                            </svg>
+                            Historical Outcome Percentiles
+                        </div>
+                        <div class="dist-chart">
+                            <div class="dist-row">
+                                <span class="dist-label">P90 Best</span>
+                                <div class="dist-bar-bg">
+                                    <div class="dist-bar-fill" id="pb-p90" style="width:0%;"></div>
+                                </div>
+                                <span class="dist-val" id="res-p90">0%</span>
+                            </div>
+                            <div class="dist-row">
+                                <span class="dist-label">P75</span>
+                                <div class="dist-bar-bg">
+                                    <div class="dist-bar-fill" id="pb-p75" style="width:0%;"></div>
+                                </div>
+                                <span class="dist-val" id="res-p75">0%</span>
+                            </div>
+                            <div class="dist-row">
+                                <span class="dist-label">P50 Med</span>
+                                <div class="dist-bar-bg">
+                                    <div class="dist-bar-fill" id="pb-p50" style="width:0%;"></div>
+                                </div>
+                                <span class="dist-val" id="res-p50">0%</span>
+                            </div>
+                            <div class="dist-row">
+                                <span class="dist-label">P25</span>
+                                <div class="dist-bar-bg">
+                                    <div class="dist-bar-fill" id="pb-p25" style="width:0%;"></div>
+                                </div>
+                                <span class="dist-val" id="res-p25">0%</span>
+                            </div>
+                            <div class="dist-row">
+                                <span class="dist-label">P10 Worst</span>
+                                <div class="dist-bar-bg">
+                                    <div class="dist-bar-fill" id="pb-p10" style="width:0%;"></div>
+                                </div>
+                                <span class="dist-val" id="res-p10">0%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Historical Analogs Table — spans 2 cols -->
+                    <div class="report-section section-span-2">
+                        <div class="section-header">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <line x1="8" y1="6" x2="21" y2="6" />
+                                <line x1="8" y1="12" x2="21" y2="12" />
+                                <line x1="8" y1="18" x2="21" y2="18" />
+                                <line x1="3" y1="6" x2="3.01" y2="6" />
+                                <line x1="3" y1="12" x2="3.01" y2="12" />
+                                <line x1="3" y1="18" x2="3.01" y2="18" />
+                            </svg>
+                            Closest Historical Funding Events
+                        </div>
+                        <div style="overflow-x:auto;">
+                            <table class="analogs-table">
+                                <thead>
+                                    <tr>
+                                        <th>Asset</th>
+                                        <th>Historical Funding</th>
+                                        <th>Market Cap</th>
+                                        <th>Settle Age</th>
+                                        <th>Decay Wt.</th>
+                                        <th>Similarity</th>
+                                        <th>Outcome PnL</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="analogs-table-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Evidence Quality -->
+                    <div class="report-section section-span-all">
+                        <div class="section-header">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <path d="M12 20h9" />
+                                <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                            </svg>
+                            Evidence Quality Diagnostics
+                        </div>
+                        <div class="diagnostic-grid">
+                            <div class="diagnostic-tile">
+                                <span class="diagnostic-label">Clean Joined Rows</span>
+                                <span class="diagnostic-value" id="diag-clean-rows">0</span>
+                            </div>
+                            <div class="diagnostic-tile">
+                                <span class="diagnostic-label">Matched K / ESS</span>
+                                <span class="diagnostic-value" id="diag-ess">0 / 0.0</span>
+                            </div>
+                            <div class="diagnostic-tile">
+                                <span class="diagnostic-label">Nearest Distance</span>
+                                <span class="diagnostic-value" id="diag-distance">0.000</span>
+                            </div>
+                            <div class="diagnostic-tile">
+                                <span class="diagnostic-label">Empirical OOD %ile</span>
+                                <span class="diagnostic-value" id="diag-ood">0.0%</span>
+                            </div>
+                        </div>
+                        <div class="risk-list" id="risk-list">
+                            <div class="risk-item">Submit and unlock a report to view diagnostics.</div>
+                        </div>
+                    </div>
+
+                    <!-- Payment Activity -->
+                    <div class="report-section section-span-all">
+                        <div class="section-header">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <rect x="2" y="5" width="20" height="14" rx="2" />
+                                <line x1="2" y1="10" x2="22" y2="10" />
+                            </svg>
+                            Payment Activity
+                        </div>
+
+                        <!-- Seller balance summary -->
+                        <div class="seller-balance-grid">
+                            <div class="balance-tile green">
+                                <span class="balance-tile-label">Seller Gateway — Available</span>
+                                <span class="balance-tile-val" id="sb-available">—</span>
+                                <span class="balance-tile-sub">On-chain confirmed, withdrawable</span>
+                            </div>
+                            <div class="balance-tile amber">
+                                <span class="balance-tile-label">Seller Gateway — Pending Batch</span>
+                                <span class="balance-tile-val" id="sb-pending">—</span>
+                                <span class="balance-tile-sub">Circle accepted, awaiting on-chain batch</span>
+                            </div>
+                            <div class="balance-tile neutral">
+                                <span class="balance-tile-label">Seller Treasury Wallet</span>
+                                <span class="balance-tile-val" id="sb-wallet-addr">—</span>
+                                <span class="balance-tile-sub">Final destination after batch settlement</span>
+                            </div>
+                        </div>
+
+                        <div class="split-tables">
+                            <div>
+                                <div class="subsection-title">Recent Settlements</div>
+                                <div style="overflow-x:auto;">
+                                    <table class="activity-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Symbol</th>
+                                                <th>Payer</th>
+                                                <th>Amount</th>
+                                                <th>Circle Status</th>
+                                                <th>Settlement / Arcscan Tx</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="payment-activity-body">
+                                            <tr>
+                                                <td colspan="5" style="color:var(--t3);">No payments yet.</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="subsection-title">Wallet Usage</div>
+                                <div style="overflow-x:auto;">
+                                    <table class="activity-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Wallet</th>
+                                                <th>Signals</th>
+                                                <th>Spent</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="payer-breakdown-body">
+                                            <tr>
+                                                <td colspan="3" style="color:var(--t3);">No wallet activity yet.</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div><!-- /report-container -->
+
+            </div><!-- /report-viewport -->
+        </div><!-- /main-panel -->
+    </div><!-- /workspace -->
+
+    <!-- ═══ WALLET PROFILE MODAL ═══ -->
+    <div class="modal-backdrop" id="action-modal" aria-hidden="true">
+        <div class="wallet-profile-modal action-modal" role="dialog" aria-modal="true"
+            aria-labelledby="action-modal-title">
+            <div class="modal-header">
+                <div>
+                    <div class="modal-title" id="action-modal-title">Confirm Action</div>
+                    <div class="modal-subtitle" id="action-modal-subtitle">Review before opening your wallet</div>
+                </div>
+                <button class="icon-button" id="action-modal-close" type="button" title="Close">x</button>
+            </div>
+            <div class="action-modal-body" id="action-modal-body"></div>
+            <div class="withdraw-actions">
+                <button class="refresh-btn" id="action-modal-cancel" type="button">Cancel</button>
+                <button class="submit-btn" id="action-modal-confirm" type="button">Continue</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-backdrop" id="wallet-profile-modal" aria-hidden="true">
+        <div class="wallet-profile-modal" role="dialog" aria-modal="true" aria-labelledby="wallet-profile-title">
+            <div class="modal-header">
+                <div>
+                    <div class="modal-title" id="wallet-profile-title">Wallet Profile</div>
+                    <div class="modal-subtitle" id="wallet-profile-address">Not connected</div>
+                </div>
+                <button class="icon-button" id="wallet-profile-close" type="button" title="Close">✕</button>
+            </div>
+            <div class="profile-grid">
+                <div class="profile-tile">
+                    <span class="profile-label">Wallet On-chain USDC</span>
+                    <span class="profile-value" id="profile-chain-balance">n/a</span>
+                    <span
+                        style="font-size:0.62rem; color:var(--t3); margin-top:4px; display:block; font-family:var(--mono);">MetaMask
+                        balance</span>
+                </div>
+                <div class="profile-tile">
+                    <span class="profile-label">Buyer Gateway Balance</span>
+                    <span class="profile-value" id="profile-gateway-balance">n/a</span>
+                    <span
+                        style="font-size:0.62rem; color:var(--t3); margin-top:4px; display:block; font-family:var(--mono);">Circle
+                        Gateway contract</span>
+                </div>
+                <div class="profile-tile">
+                    <span class="profile-label">Reports Bought</span>
+                    <span class="profile-value" id="profile-payments">0</span>
+                </div>
+                <div class="profile-tile">
+                    <span class="profile-label">Total Spent</span>
+                    <span class="profile-value" id="profile-spent">0.00 USDC</span>
+                </div>
+            </div>
+            <div class="subsection-title">Purchased Signals</div>
+            <div class="token-list" id="profile-token-list">
+                <span class="token-chip">None yet</span>
+            </div>
+            <div class="subsection-title">Verified Web Payments</div>
+            <div style="overflow-x:auto; margin-bottom:16px;">
+                <table class="activity-table">
+                    <thead>
+                        <tr>
+                            <th>Symbol</th>
+                            <th>Amount</th>
+                            <th>Status</th>
+                            <th>Settlement / Tx</th>
+                        </tr>
+                    </thead>
+                    <tbody id="profile-payments-body">
+                        <tr>
+                            <td colspan="4" style="color:var(--t3);">No verified payments.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="subsection-title">Local Wallet Actions</div>
+            <div style="overflow-x:auto;">
+                <table class="activity-table">
+                    <thead>
+                        <tr>
+                            <th>Action</th>
+                            <th>Amount</th>
+                            <th>Signal</th>
+                            <th>Reference</th>
+                        </tr>
+                    </thead>
+                    <tbody id="profile-events-body">
+                        <tr>
+                            <td colspan="4" style="color:var(--t3);">No local wallet actions.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ WITHDRAW MODAL ═══ -->
+    <div class="modal-backdrop" id="withdraw-modal" aria-hidden="true">
+        <div class="wallet-profile-modal withdraw-modal" role="dialog" aria-modal="true"
+            aria-labelledby="withdraw-modal-title">
+            <div class="modal-header">
+                <div>
+                    <div class="modal-title" id="withdraw-modal-title">Withdraw Seller Gateway Funds</div>
+                    <div class="modal-subtitle" id="withdraw-modal-address">Seller wallet</div>
+                </div>
+                <button class="icon-button" id="withdraw-modal-close" type="button" title="Close">✕</button>
+            </div>
+            <div class="profile-grid withdraw-summary-grid">
+                <div class="profile-tile">
+                    <span class="profile-label">Available</span>
+                    <span class="profile-value" id="withdraw-available">0.000000 USDC</span>
+                </div>
+                <div class="profile-tile">
+                    <span class="profile-label">Destination</span>
+                    <span class="profile-value" id="withdraw-destination">n/a</span>
+                </div>
+            </div>
+            <label class="withdraw-label" for="withdraw-amount-input">Amount to withdraw</label>
+            <div class="withdraw-input-row">
+                <input class="withdraw-input" id="withdraw-amount-input" type="number" min="0" step="0.000001"
+                    inputmode="decimal">
+                <button class="refresh-btn" id="withdraw-max-btn" type="button">Max</button>
+            </div>
+            <div class="withdraw-help" id="withdraw-help">
+                This signs a Circle Gateway burn intent first. Your wallet will only open for the mint transaction after
+                Circle returns a real attestation.
+            </div>
+            <div class="withdraw-actions">
+                <button class="refresh-btn" id="withdraw-cancel-btn" type="button">Cancel</button>
+                <button class="submit-btn" id="withdraw-confirm-btn" type="button">Continue</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/public/app.js" defer></script>
+</body>
+
+</html>

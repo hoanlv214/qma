@@ -1,0 +1,15 @@
+*.log
+*.pyc
+.env
+node_modules/
+arc_gateway/node_modules/
+_refs/
+__pycache__/
+*/__pycache__/
+.pytest_cache/
+.venv/
+payment_ledger.json
+paid_reports.json
+private_data/
+data/full_*.csv
+*.key

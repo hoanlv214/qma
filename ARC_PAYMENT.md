@@ -1,0 +1,85 @@
+# QMA Arc Testnet Payment
+
+QMA now uses Circle x402 batching on Arc Testnet instead of a simulated payment.
+
+## Services
+
+Run both services:
+
+```powershell
+python qma\main.py
+```
+
+```powershell
+cd qma\arc_gateway
+npm.cmd install
+npm.cmd start
+```
+
+Default URLs:
+
+- QMA app: `http://127.0.0.1:8000`
+- Arc Gateway sidecar: `http://127.0.0.1:3000`
+- Circle facilitator: `https://gateway-api-testnet.circle.com`
+- Arc explorer: `https://testnet.arcscan.app`
+
+## Environment
+
+Optional overrides:
+
+```env
+QMA_PRICE_PREVIEW_USDC=0.001
+QMA_PRICE_FULL_USDC=0.005
+QMA_PAYMENT_AMOUNT_USDC=0.005
+QMA_ARC_SELLER_ADDRESS=0x23e7c029a287a83d80b2e084e008211658dda11d
+QMA_ARC_GATEWAY_URL=http://127.0.0.1:3000
+QMA_CIRCLE_GATEWAY_API=https://gateway-api-testnet.circle.com
+QMA_ARC_EXPLORER=https://testnet.arcscan.app
+```
+
+The seller address must be the wallet that should receive USDC through Circle Gateway. For this demo, keep buyer and seller separate. If `acc1` is your test buyer, use `acc2` or a fresh treasury wallet as `QMA_ARC_SELLER_ADDRESS`.
+
+## Demo Flow
+
+1. Open `http://127.0.0.1:8000`.
+2. Submit a QMA query as either Preview or Full Report to create a tier-bound invoice.
+3. Click `Pay on Arc Testnet`.
+4. MetaMask switches/adds Arc Testnet and asks you to sign `TransferWithAuthorization`.
+5. The Arc Gateway sidecar settles the signed authorization through Circle Gateway.
+6. QMA verifies the returned settlement UUID through Circle's transfer API.
+7. The report unlocks once Circle accepts the settlement.
+
+If your Circle Gateway balance on Arc is lower than the report price, the UI now asks MetaMask to send two real transactions first:
+
+1. `approve(USDC, GatewayWallet, amount)`
+2. `GatewayWallet.deposit(USDC, amount)`
+
+This is required because x402 settlement spends from Circle Gateway balance, not directly from the wallet's plain on-chain USDC balance.
+
+For UX, QMA preloads Gateway balance instead of depositing exactly one report at a time:
+
+- Default deposit: `1.00 USDC`
+- Default allowance approval: `10.00 USDC`
+- Preview price: `0.001 USDC`
+- Full report price: `0.005 USDC`
+
+After the first preload, the next reports only need the final x402 signature until the buyer's Gateway balance drops below the report price.
+
+The Arc gateway sidecar reads `amount_usdc` from the invoice resource URL, so the wallet signs the exact tier amount. QMA still verifies the Circle settlement amount against the server-side invoice before issuing access.
+
+Invoices are provider-aware:
+
+- `provider_id`: currently `funding_memory`
+- `buyer_type`: `human` for UI purchases, `agent` for external API buyers
+- `tier`: `preview` or `full`
+- `query_hash`: exact market snapshot fingerprint
+
+This prevents one settlement from being reused for another provider, another tier, or changed signal data.
+
+The settlement UUID is immediate. The on-chain `submitBatch` transaction may appear several minutes later on testnet because Circle batches low-volume payments. Use:
+
+```text
+GET /api/v1/payment/settlement/{settlement_id}
+```
+
+to poll Circle status and resolve the Arcscan tx link when available.
