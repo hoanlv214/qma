@@ -114,9 +114,20 @@ Vercel notes: their docs support FastAPI/Python deployments, but Python function
 
 ## Local Run
 
+Use local first, then push to GitHub only after the wallet/payment flow is OK. The HTML files auto-detect the environment:
+
+```text
+http://127.0.0.1:8000  -> same-origin local FastAPI API
+https://qma-three.vercel.app -> https://qma-api.onrender.com
+```
+
+Local terminal 1:
+
 ```powershell
 python qma\main.py
 ```
+
+Local terminal 2:
 
 ```powershell
 cd qma\arc_gateway
@@ -124,10 +135,17 @@ npm.cmd install
 npm.cmd start
 ```
 
+Local `.env` should point FastAPI at the local Arc Gateway:
+
+```env
+QMA_ARC_GATEWAY_URL=http://127.0.0.1:3000
+```
+
 Open:
 
 ```text
 http://127.0.0.1:8000
+http://127.0.0.1:8000/app
 ```
 
 Useful endpoints:

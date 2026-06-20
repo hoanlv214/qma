@@ -142,6 +142,60 @@ function gatewayApiUrl(path) {
     return `${arcGatewayBaseUrl}${path}`;
 }
 
+const WALLET_REQUEST_TIMEOUT_MS = 45000;
+let walletRequestInFlight = null;
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function describeWalletError(err) {
+    const msg = String(err?.message || err || '');
+    const lower = msg.toLowerCase();
+    if (err?.code === -32002 || lower.includes('already pending')) {
+        return 'MetaMask already has a pending request. Open MetaMask, finish or reject it, then retry.';
+    }
+    if (err?.code === 4001 || lower.includes('user rejected') || lower.includes('rejected')) {
+        return 'Wallet request was rejected.';
+    }
+    return msg || 'Wallet request failed.';
+}
+
+function normalizeWalletError(err) {
+    const wrapped = new Error(describeWalletError(err));
+    if (err?.code !== undefined) wrapped.code = err.code;
+    return wrapped;
+}
+
+function withTimeout(promise, ms, label) {
+    let timer = null;
+    const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+            reject(new Error(`${label} timed out. Open MetaMask and finish any pending request, then retry.`));
+        }, ms);
+    });
+    return Promise.race([promise, timeout]).finally(() => {
+        if (timer) clearTimeout(timer);
+    });
+}
+
+async function walletRequest(args, label, timeoutMs = WALLET_REQUEST_TIMEOUT_MS) {
+    if (!window.ethereum?.request) {
+        throw new Error('MetaMask is required.');
+    }
+    if (walletRequestInFlight) {
+        throw new Error('A wallet request is already in progress. Open MetaMask, finish it, then retry.');
+    }
+    walletRequestInFlight = withTimeout(window.ethereum.request(args), timeoutMs, label);
+    try {
+        return await walletRequestInFlight;
+    } catch (err) {
+        throw normalizeWalletError(err);
+    } finally {
+        walletRequestInFlight = null;
+    }
+}
+
 // Fetch elements
 const anomaliesContainer = document.getElementById('anomalies-container');
 const queryForm = document.getElementById('query-form');
@@ -303,19 +357,29 @@ const ARC_TESTNET = {
 };
 
 async function ensureArcTestnet() {
-    const current = await ethereum.request({ method: 'eth_chainId' });
+    const current = await withTimeout(
+        ethereum.request({ method: 'eth_chainId' }),
+        15000,
+        'Arc network check'
+    );
     if (current === ARC_TESTNET_HEX) return;
     try {
-        await ethereum.request({
-            method: 'wallet_switchEthereumChain',
-            params: [{ chainId: ARC_TESTNET_HEX }]
-        });
+        await walletRequest(
+            {
+                method: 'wallet_switchEthereumChain',
+                params: [{ chainId: ARC_TESTNET_HEX }]
+            },
+            'Arc network switch'
+        );
     } catch (err) {
         if (err && err.code === 4902) {
-            await ethereum.request({
-                method: 'wallet_addEthereumChain',
-                params: [ARC_TESTNET]
-            });
+            await walletRequest(
+                {
+                    method: 'wallet_addEthereumChain',
+                    params: [ARC_TESTNET]
+                },
+                'Add Arc Testnet'
+            );
             return;
         }
         throw err;
@@ -591,11 +655,30 @@ async function connectWallet(options = {}) {
         return null;
     }
     const method = options.silent ? 'eth_accounts' : 'eth_requestAccounts';
-    const accounts = await ethereum.request({ method });
+    let accounts = [];
+    try {
+        accounts = options.silent
+            ? await withTimeout(ethereum.request({ method }), 15000, 'Wallet session restore')
+            : await walletRequest({ method }, 'Wallet connection');
+    } catch (err) {
+        const message = describeWalletError(err);
+        if (options.notify === false) {
+            throw err;
+        }
+        if (!options.silent) {
+            alert(message);
+        } else {
+            console.warn('Wallet session restore failed', err);
+        }
+        return null;
+    }
     const account = accounts && accounts[0] ? accounts[0] : null;
     if (account) {
         setConnectedWallet(account);
         syncWalletEntitlements(account);
+        if (!options.silent) {
+            await sleep(250);
+        }
     } else if (!options.silent) {
         alert('No wallet account returned by MetaMask.');
     }
@@ -710,10 +793,13 @@ async function depositToGateway(account, amount, walletStatus = null) {
                     <div class="spinner" style="width: 16px; height: 16px;"></div>
                     <span>Approve USDC allowance...</span>
                 `;
-        approvalHash = await ethereum.request({
-            method: 'eth_sendTransaction',
-            params: [data.approveTx]
-        });
+        approvalHash = await walletRequest(
+            {
+                method: 'eth_sendTransaction',
+                params: [data.approveTx]
+            },
+            'USDC allowance approval'
+        );
         await waitForReceipt(approvalHash);
         saveWalletEvent(account, {
             type: 'approve',
@@ -729,10 +815,13 @@ async function depositToGateway(account, amount, walletStatus = null) {
                 <div class="spinner" style="width: 16px; height: 16px;"></div>
                 <span>Deposit to Gateway...</span>
             `;
-    const depositHash = await ethereum.request({
-        method: 'eth_sendTransaction',
-        params: [data.depositTx]
-    });
+    const depositHash = await walletRequest(
+        {
+            method: 'eth_sendTransaction',
+            params: [data.depositTx]
+        },
+        'Circle Gateway deposit'
+    );
     await waitForReceipt(depositHash);
     saveWalletEvent(account, {
         type: 'deposit',
@@ -1384,10 +1473,13 @@ async function withdrawSellerGatewayFunds() {
                 }
             });
 
-            const signature = await ethereum.request({
-                method: 'eth_signTypedData_v4',
-                params: [connectedWallet, msgParams]
-            });
+            const signature = await walletRequest(
+                {
+                    method: 'eth_signTypedData_v4',
+                    params: [connectedWallet, msgParams]
+                },
+                'Gateway withdrawal signature'
+            );
 
             // 2. Submit the signed burnIntent to Circle Gateway
             if (withdrawBtn) withdrawBtn.innerHTML = `<span>Withdrawing...</span>`;
@@ -1409,15 +1501,18 @@ async function withdrawSellerGatewayFunds() {
             if (withdrawBtn) withdrawBtn.innerHTML = `<span>Minting...</span>`;
             const mintCalldata = encodeGatewayMintCalldata(submitResult.attestation, submitResult.signature);
 
-            const txHash = await ethereum.request({
-                method: 'eth_sendTransaction',
-                params: [{
-                    from: connectedWallet,
-                    to: gatewayMinter,
-                    data: mintCalldata,
-                    gas: '0x493e0'
-                }]
-            });
+            const txHash = await walletRequest(
+                {
+                    method: 'eth_sendTransaction',
+                    params: [{
+                        from: connectedWallet,
+                        to: gatewayMinter,
+                        data: mintCalldata,
+                        gas: '0x493e0'
+                    }]
+                },
+                'Gateway withdrawal mint'
+            );
 
             if (withdrawBtn) withdrawBtn.innerHTML = `<span>Confirming...</span>`;
             await waitForReceipt(txHash);
@@ -1744,16 +1839,33 @@ payButton.addEventListener('click', async () => {
     payButton.disabled = true;
     payButton.innerHTML = `
                 <div class="spinner" style="width: 16px; height: 16px;"></div>
-                <span>Waiting for MetaMask...</span>
+                <span>Preparing wallet...</span>
             `;
 
     let account = null;
     try {
-        account = connectedWallet || await connectWallet();
+        const accounts = await withTimeout(
+            ethereum.request({ method: 'eth_accounts' }),
+            15000,
+            'Wallet account lookup'
+        );
+        account = accounts && accounts[0] ? accounts[0] : connectedWallet;
+        if (!account) {
+            payButton.innerHTML = `
+                        <div class="spinner" style="width: 16px; height: 16px;"></div>
+                        <span>Open MetaMask to connect...</span>
+                    `;
+            account = await connectWallet({ notify: false });
+        }
         if (!account) {
             throw new Error('Connect a buyer wallet first.');
         }
+        if (!sameAddress(account, connectedWallet)) {
+            setConnectedWallet(account);
+            syncWalletEntitlements(account);
+        }
         await ensureArcTestnet();
+        await sleep(250);
         if (sameAddress(account, currentSellerAddress)) {
             throw new Error(`Connected wallet is the seller wallet (${currentSellerAddress}). Circle rejects self-transfer payments. Switch MetaMask to a buyer wallet such as acc1, or set QMA_ARC_SELLER_ADDRESS to a separate treasury wallet.`);
         }
@@ -1878,10 +1990,13 @@ payButton.addEventListener('click', async () => {
                     <div class="spinner" style="width: 16px; height: 16px;"></div>
                     <span>Sign payment authorization...</span>
                 `;
-        const signature = await ethereum.request({
-            method: 'eth_signTypedData_v4',
-            params: [account, JSON.stringify(typedData)]
-        });
+        const signature = await walletRequest(
+            {
+                method: 'eth_signTypedData_v4',
+                params: [account, JSON.stringify(typedData)]
+            },
+            'x402 payment authorization'
+        );
 
         const paymentPayload = {
             x402Version: 2,
