@@ -23,6 +23,14 @@ Default URLs:
 - Circle facilitator: `https://gateway-api-testnet.circle.com`
 - Arc explorer: `https://testnet.arcscan.app`
 
+New buyer wallets can request Arc Testnet USDC from the Circle Faucet:
+
+```text
+https://faucet.circle.com/
+```
+
+Faucet USDC lands in the wallet first. QMA may still ask for an approve/deposit step because x402 spends from Circle Gateway balance, not directly from plain wallet balance.
+
 ## Environment
 
 Optional overrides:

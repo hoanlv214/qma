@@ -4,6 +4,26 @@ QMA is a pay-per-call market intelligence agent on Arc.
 
 Humans and AI agents can buy historical crypto market-memory reports one query at a time using Arc Testnet USDC through Circle Gateway/x402.
 
+## Judge TL;DR
+
+- Live app: https://qma-three.vercel.app
+- API: https://qma-api.onrender.com
+- Arc Gateway: https://qma-arc-gateway.onrender.com
+- Core flow: Agent Picks -> Preview or Full invoice -> Circle Gateway/x402 payment -> wallet-bound entitlement -> paid JSON report.
+- Agent demo: see [AGENT_API.md](AGENT_API.md) and `examples/agent_buyer.mjs`.
+- Security model: frontend cache is convenience only; backend verifies invoice secret, query hash, tier, payer wallet, x402 settlement, access token expiry, and wallet-bound entitlements.
+
+Try:
+
+```text
+1. Open the live app and click Launch App.
+2. Connect a buyer wallet on Arc Testnet.
+3. If the wallet needs testnet USDC, use the Circle Faucet: https://faucet.circle.com/
+4. Buy Preview for 0.001 USDC or Full for 0.005 USDC.
+5. Open Wallet Profile to see report history and spend.
+6. Run npm run agent:dry to see an external buyer agent choose and invoice a report.
+```
+
 ## What This Repo Contains
 
 - FastAPI backend with OpenAPI docs at `/docs`

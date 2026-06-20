@@ -1,0 +1,14 @@
+{
+  "name": "qma",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "agent:dry": "node examples/agent_buyer.mjs --dry-run",
+    "agent:preview": "node examples/agent_buyer.mjs --live --tier preview",
+    "agent:full": "node examples/agent_buyer.mjs --live --tier full"
+  },
+  "dependencies": {
+    "viem": "^2.48.11"
+  }
+}
