@@ -445,9 +445,16 @@ function legacySignalCacheKey(source = {}) {
     return `qma_paid_signal_v2_${payload.symbol}_${signalFingerprint(payload)}`;
 }
 
-function signalCacheKey(source = {}, tier = 'full', providerId = currentProviderId || 'funding_memory') {
+function walletCacheScope(account = connectedWallet) {
+    const normalized = String(account || '').trim().toLowerCase();
+    return normalized || null;
+}
+
+function signalCacheKey(source = {}, tier = 'full', providerId = currentProviderId || 'funding_memory', account = connectedWallet) {
     const payload = normalizeSignalPayload(source);
-    return `qma_paid_signal_v4_${providerId}_${normalizeTier(tier)}_${payload.symbol}_${signalFingerprint(payload)}`;
+    const wallet = walletCacheScope(account);
+    if (!wallet) return null;
+    return `qma_paid_signal_v5_${wallet}_${providerId}_${normalizeTier(tier)}_${payload.symbol}_${signalFingerprint(payload)}`;
 }
 
 function legacyTierSignalCacheKey(source = {}, tier = 'full') {
@@ -464,20 +471,15 @@ function signalSummary(source = {}) {
 
 function getCachedReport(source, tier = 'full') {
     try {
+        if (!walletCacheScope()) return null;
         const normalizedTier = normalizeTier(tier);
-        const exact = localStorage.getItem(signalCacheKey(source, normalizedTier));
+        const exactKey = signalCacheKey(source, normalizedTier);
+        const exact = exactKey ? localStorage.getItem(exactKey) : null;
         if (exact) return JSON.parse(exact);
-        const legacyTier = localStorage.getItem(legacyTierSignalCacheKey(source, normalizedTier));
-        if (legacyTier) return JSON.parse(legacyTier);
         if (normalizedTier === 'preview') {
-            const full = localStorage.getItem(signalCacheKey(source, 'full'));
+            const fullKey = signalCacheKey(source, 'full');
+            const full = fullKey ? localStorage.getItem(fullKey) : null;
             if (full) return JSON.parse(full);
-            const legacyFull = localStorage.getItem(legacyTierSignalCacheKey(source, 'full'));
-            if (legacyFull) return JSON.parse(legacyFull);
-        }
-        if (normalizedTier === 'full') {
-            const legacy = localStorage.getItem(legacySignalCacheKey(source));
-            if (legacy) return JSON.parse(legacy);
         }
         return null;
     } catch {
@@ -510,27 +512,19 @@ function getLegacyCachedReport(symbol) {
 
 function getCachedReportsForSymbol(symbol) {
     const normalizedSymbol = String(symbol || '').trim().toUpperCase();
-    if (!normalizedSymbol) return [];
+    const wallet = walletCacheScope();
+    if (!normalizedSymbol || !wallet) return [];
     const reports = [];
     const seen = new Set();
+    const keyFragment = `qma_paid_signal_v5_${wallet}_`;
 
     try {
         for (let i = 0; i < localStorage.length; i += 1) {
             const key = localStorage.key(i);
-            if (!key || (
-                !key.includes(`_${normalizedSymbol}_`) &&
-                !key.startsWith(`qma_paid_signal_v3_preview_${normalizedSymbol}_`) &&
-                !key.startsWith(`qma_paid_signal_v3_full_${normalizedSymbol}_`) &&
-                !key.startsWith(`qma_paid_signal_v2_${normalizedSymbol}_`)
-            )) continue;
-            if (
-                !key.startsWith('qma_paid_signal_v4_') &&
-                !key.startsWith(`qma_paid_signal_v3_preview_${normalizedSymbol}_`) &&
-                !key.startsWith(`qma_paid_signal_v3_full_${normalizedSymbol}_`) &&
-                !key.startsWith(`qma_paid_signal_v2_${normalizedSymbol}_`)
-            ) continue;
+            if (!key || !key.startsWith(keyFragment) || !key.includes(`_${normalizedSymbol}_`)) continue;
             const cached = JSON.parse(localStorage.getItem(key));
             if (!cached?.report) continue;
+            if (!sameAddress(cached.payer_address, connectedWallet)) continue;
             const cacheId = cached.report.query_hash || cached.report.invoice?.settlement_id || key;
             if (seen.has(cacheId)) continue;
             seen.add(cacheId);
@@ -543,25 +537,24 @@ function getCachedReportsForSymbol(symbol) {
         console.warn('Could not scan cached reports', err);
     }
 
-    const legacy = getLegacyCachedReport(normalizedSymbol);
-    if (legacy) {
-        const legacyId = legacy.report.query_hash || legacy.report.invoice?.settlement_id || `legacy-${normalizedSymbol}`;
-        if (!seen.has(legacyId)) reports.push(legacy);
-    }
-
     return reports.sort((a, b) => Number(b.saved_at || 0) - Number(a.saved_at || 0));
 }
 
-function saveCachedReport(report) {
+function saveCachedReport(report, account = connectedWallet || report?.invoice?.payer_address) {
     try {
+        const wallet = walletCacheScope(account);
+        if (!wallet) return;
         const query = report.query || activeQuery || { symbol: report.query_symbol };
         const tier = normalizeTier(report.tier || report.invoice?.tier || currentInvoiceTier || 'full');
         const providerId = report.provider_id || report.invoice?.provider_id || currentProviderId || 'funding_memory';
-        localStorage.setItem(signalCacheKey(query, tier, providerId), JSON.stringify({
+        const key = signalCacheKey(query, tier, providerId, wallet);
+        if (!key) return;
+        localStorage.setItem(key, JSON.stringify({
             saved_at: Date.now(),
             signal: normalizeSignalPayload(query),
             tier,
             provider_id: providerId,
+            payer_address: wallet,
             report
         }));
     } catch (err) {
@@ -607,7 +600,7 @@ async function syncWalletEntitlements(account) {
             const previousProvider = currentProviderId;
             currentInvoiceTier = normalizeTier(report.tier);
             currentProviderId = report.provider_id || previousProvider;
-            saveCachedReport(report);
+            saveCachedReport(report, account);
             currentInvoiceTier = previousTier;
             currentProviderId = previousProvider;
         });
@@ -2565,8 +2558,15 @@ document.addEventListener('click', (event) => {
     }
 });
 if (window.ethereum?.on) {
-    ethereum.on('accountsChanged', (accounts) => {
-        setConnectedWallet(accounts && accounts[0] ? accounts[0] : null);
+    ethereum.on('accountsChanged', async (accounts) => {
+        const account = accounts && accounts[0] ? accounts[0] : null;
+        setConnectedWallet(account);
+        hasUnlockedReport = false;
+        document.getElementById('viewport-container').classList.remove('unlocked');
+        if (account) {
+            await syncWalletEntitlements(account);
+        }
+        loadLiveAnomalies();
     });
     ethereum.on('chainChanged', () => {
         updateWalletUi();
