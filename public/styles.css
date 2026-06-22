@@ -372,8 +372,7 @@ body::before {
 }
 
 .landing-grid article,
-.landing-proof-card,
-.landing-source {
+.landing-proof-card {
     background: var(--bg-0);
     border: none;
     border-radius: 0;
@@ -489,11 +488,6 @@ body::before {
     font-size: 0.62rem;
 }
 
-.landing-source {
-    margin-top: 0;
-    max-width: 760px;
-}
-
 .landing-flow,
 .landing-builders,
 .landing-footer {
@@ -510,6 +504,7 @@ body::before {
 }
 
 .landing-source {
+    margin-top: 0;
     padding: 48px 0;
     border-top: 1px solid var(--bdr);
 }

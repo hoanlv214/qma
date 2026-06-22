@@ -434,6 +434,7 @@ function normalizeTier(tier = 'full') {
 }
 
 function tierLabel(tier = 'full') {
+    if (String(tier || '').toLowerCase() === 'legacy') return 'Legacy Report';
     return normalizeTier(tier) === 'preview' ? 'Preview' : 'Full Report';
 }
 
@@ -875,7 +876,7 @@ function renderProfilePayments(events) {
         return `
                     <tr title="${escapeHtml(formatDateTime(event.paid_at))}">
                         <td class="mono-td">${escapeHtml(event.symbol || 'n/a')}<div style="color:var(--green); font-size:0.62rem; margin-top:2px;">${escapeHtml(event.provider_id || 'funding_memory')}</div><div style="color:var(--t3); font-size:0.66rem; margin-top:2px;">${escapeHtml(formatDateTime(event.paid_at))}</div></td>
-                        <td>${Number(event.amount_usdc || 0).toFixed(3)} USDC<div style="color:var(--t3); font-size:0.66rem;">${escapeHtml(tierLabel(event.tier || 'full'))} / ${escapeHtml(event.buyer_type || 'human')}</div></td>
+                        <td>${Number(event.amount_usdc || 0).toFixed(3)} USDC<div style="color:var(--t3); font-size:0.66rem;">${escapeHtml(tierLabel(event.tier_category || event.tier || 'legacy'))} / ${escapeHtml(event.buyer_type || 'human')}</div></td>
                         <td>${gatewayStatusBadge(event.gateway_status)}</td>
                         <td>${ref}</td>
                     </tr>
@@ -973,7 +974,8 @@ async function openWalletProfile() {
             ? `${Number(chainBalance).toFixed(6)} USDC`
             : 'n/a';
         const tierCounts = metrics?.tier_counts || {};
-        profilePayments.textContent = `${metrics?.payments || 0} (P:${tierCounts.preview || 0} F:${tierCounts.full || 0})`;
+        const legacyProfile = Number(tierCounts.legacy || 0);
+        profilePayments.textContent = `${metrics?.current_payments ?? metrics?.payments ?? 0} (P:${tierCounts.preview || 0} F:${tierCounts.full || 0}${legacyProfile ? ` L:${legacyProfile}` : ''})`;
         profileSpent.textContent = `${Number(metrics?.spent_usdc || 0).toFixed(3)} USDC`;
 
         const symbols = metrics?.purchased_symbols || [];
@@ -1199,7 +1201,9 @@ async function loadMetrics() {
         if (!resp.ok) return;
         const data = await resp.json();
         const tierCounts = data.tier_counts || {};
-        metricsPayments.textContent = `Paid: ${data.paid_count} (P:${tierCounts.preview || 0} F:${tierCounts.full || 0})`;
+        const legacyCount = Number(tierCounts.legacy || 0);
+        const currentPaid = data.current_paid_count ?? data.paid_count ?? 0;
+        metricsPayments.textContent = `Paid: ${currentPaid} (P:${tierCounts.preview || 0} F:${tierCounts.full || 0}${legacyCount ? ` L:${legacyCount}` : ''})`;
         metricsRevenue.textContent = `Revenue: ${Number(data.revenue_usdc || 0).toFixed(3)} USDC`;
 
         const sellerBal = data.seller_gateway_balance;
@@ -1231,7 +1235,7 @@ async function loadMetrics() {
             data.recent_payments_page,
             paymentActivityPage,
             PAYMENT_ACTIVITY_PAGE_SIZE,
-            data.paid_count,
+            currentPaid,
             (data.recent_payments || []).length
         );
         const payerMeta = fallbackPageMeta(
@@ -1585,7 +1589,7 @@ function renderPaymentActivity(events) {
                     <tr>
                         <td class="mono-td">${escapeHtml(event.symbol || 'n/a')}<div style="color:var(--t3); font-size:0.66rem; margin-top:2px;">${escapeHtml(formatDateTime(event.paid_at))}</div></td>
                         <td title="${escapeHtml(event.payer_address || '')}">${shortAddress(event.payer_address)}</td>
-                        <td>${Number(event.amount_usdc || 0).toFixed(3)} USDC<div style="color:var(--t3); font-size:0.66rem;">${escapeHtml(tierLabel(event.tier || 'full'))}</div></td>
+                        <td>${Number(event.amount_usdc || 0).toFixed(3)} USDC<div style="color:var(--t3); font-size:0.66rem;">${escapeHtml(tierLabel(event.tier_category || event.tier || 'legacy'))}</div></td>
                         <td>${gatewayStatusBadge(event.gateway_status)}</td>
                         <td>${ref}</td>
                     </tr>

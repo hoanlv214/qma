@@ -261,6 +261,37 @@
     border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
 }
 
+/* Payment activity needs full-width tables; tx hashes and wallet stats get cramped in a split grid. */
+.redesign-body .seller-balance-grid {
+    grid-template-columns: minmax(180px, 0.85fr) minmax(180px, 0.85fr) minmax(260px, 1.3fr);
+}
+
+.redesign-body .split-tables {
+    grid-template-columns: 1fr !important;
+    gap: 18px;
+}
+
+.redesign-body .split-tables > div {
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 8px;
+    background: rgba(6, 8, 16, 0.32);
+}
+
+.redesign-body .split-tables > div:first-child .activity-table {
+    min-width: 860px;
+}
+
+.redesign-body .split-tables > div:nth-child(2) .activity-table {
+    min-width: 680px;
+}
+
+.redesign-body .activity-table th,
+.redesign-body .activity-table td {
+    padding: 8px 10px;
+}
+
 /* Make workspace containers fit nicely */
 .main-panel {
     display: flex;
@@ -447,6 +478,10 @@
     .split-tables {
         grid-template-columns: 1fr !important;
         gap: 20px !important;
+    }
+
+    .redesign-body .split-tables > div {
+        padding: 10px;
     }
 }
 

@@ -323,7 +323,7 @@
                 const tierCounts = metrics.tier_counts || {};
                 const buyerTypes = metrics.buyer_type_counts || {};
                 setTractionValue("unique_payers", compactNumber(metrics.unique_payers || 0));
-                setTractionValue("paid_count", compactNumber(metrics.paid_count || 0));
+                setTractionValue("paid_count", compactNumber(metrics.current_paid_count ?? metrics.paid_count ?? 0));
                 setTractionValue("agent_unlocks", compactNumber(buyerTypes.agent || 0));
                 setTractionValue("revenue_usdc", `${Number(metrics.revenue_usdc || 0).toFixed(3)}`);
                 setTractionValue("preview_count", compactNumber(tierCounts.preview || 0));

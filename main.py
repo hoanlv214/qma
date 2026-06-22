@@ -7,6 +7,7 @@ import json
 import base64
 import hashlib
 import hmac
+import threading
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 from typing import Dict, Optional
@@ -241,6 +242,12 @@ live_anomalies_cache = {
     "last_updated": 0.0
 }
 CACHE_TTL_SECONDS = 30.0
+live_scan_lock = threading.Lock()
+MEXC_FETCH_CONTRACT_DETAILS = os.getenv("QMA_MEXC_FETCH_CONTRACT_DETAILS", "false").lower() in ("true", "1", "yes")
+MEXC_HEADERS = {
+    "Accept": "application/json, text/plain, */*",
+    "User-Agent": "QMA-Lepton-Agent/1.0 (+https://qma-three.vercel.app)",
+}
 
 class QueryModel(BaseModel):
     symbol: str = Field(..., min_length=1, max_length=32)
@@ -427,6 +434,12 @@ def paginate_items(items: list, page: int, page_size: int) -> tuple[list, dict]:
         "has_prev": page > 1,
     }
 
+def payment_event_tier(event: dict) -> str:
+    tier = str(event.get("tier") or "").strip().lower()
+    if tier in {"preview", "full"}:
+        return tier
+    return "legacy"
+
 def parse_iso_utc(value: str) -> float:
     if not value:
         return 0.0
@@ -572,49 +585,88 @@ def validate_arc_payment(invoice: dict, settlement: dict, payer_address: Optiona
     if payer_address and normalize_address(settlement.get("fromAddress")) != normalize_address(payer_address):
         raise HTTPException(status_code=400, detail="Settlement payer does not match connected wallet.")
 
+def fetch_json_or_none(url: str, *, params: Optional[dict] = None, timeout: float = 5.0, context: str = "request") -> Optional[dict]:
+    try:
+        resp = requests.get(url, params=params, headers=MEXC_HEADERS, timeout=timeout)
+        content_type = (resp.headers.get("content-type") or "").lower()
+        if resp.status_code >= 400:
+            logger.warning("MEXC %s returned HTTP %s", context, resp.status_code)
+            return None
+        if "json" not in content_type and not resp.text.strip().startswith(("{", "[")):
+            logger.warning("MEXC %s returned non-JSON content-type=%s", context, content_type or "unknown")
+            return None
+        return resp.json()
+    except requests.Timeout:
+        logger.warning("MEXC %s timed out", context)
+    except ValueError:
+        logger.warning("MEXC %s returned invalid JSON", context)
+    except requests.RequestException as exc:
+        logger.warning("MEXC %s request failed: %s", context, exc)
+    return None
+
+
 # Live Scanner Helpers
 def scan_mexc_live() -> list:
-    """Scans MEXC Futures tickers in real-time, matching against introduce parameters"""
+    """Scans MEXC Futures tickers in real-time, using ticker fallbacks if metadata is unavailable."""
     try:
-        ticker_resp = requests.get("https://futures.mexc.com/api/v1/contract/ticker", timeout=5).json()
+        ticker_resp = fetch_json_or_none(
+            "https://futures.mexc.com/api/v1/contract/ticker",
+            timeout=5,
+            context="ticker scan",
+        )
+        if not ticker_resp:
+            return live_anomalies_cache.get("data", [])
         tickers = ticker_resp.get("data", [])
         if not tickers:
-            return []
+            return live_anomalies_cache.get("data", [])
             
         anomalies = []
+        def safe_float(value, default=0.0):
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return default
+
         # Filter for negative funding rate of <= -0.25% to catch signals
-        filtered_tickers = [t for t in tickers if float(t.get("fundingRate", 0)) <= -0.0025]
+        filtered_tickers = [t for t in tickers if safe_float(t.get("fundingRate")) <= -0.0025]
         
         # Sort by most negative funding rate and take top 12 to prevent rate limits
-        filtered_tickers = sorted(filtered_tickers, key=lambda x: float(x.get("fundingRate", 0)))[:12]
+        filtered_tickers = sorted(filtered_tickers, key=lambda x: safe_float(x.get("fundingRate")))[:12]
 
         for ticker in filtered_tickers:
-            symbol = ticker["symbol"].replace("_USDT", "")
-            contract_id = ticker["contractId"]
+            raw_symbol = ticker.get("symbol")
+            if not raw_symbol:
+                continue
+            symbol = raw_symbol.replace("_USDT", "")
+            contract_id = ticker.get("contractId")
             
-            # Fetch coin details
-            try:
+            info = {}
+            if MEXC_FETCH_CONTRACT_DETAILS and contract_id:
                 intro_params = {"language": "vi-VN", "contractId": contract_id}
-                intro_resp = requests.get("https://www.mexc.com/api/activity/contract/coin/introduce/v2", params=intro_params, timeout=3).json()
-                info = intro_resp.get("data", {})
-            except Exception as e:
-                logger.error(f"Error fetching contract info for {symbol}: {e}")
-                info = {}
+                intro_resp = fetch_json_or_none(
+                    "https://www.mexc.com/api/activity/contract/coin/introduce/v2",
+                    params=intro_params,
+                    timeout=3,
+                    context=f"contract info for {symbol}",
+                )
+                info = (intro_resp or {}).get("data", {}) if isinstance(intro_resp, dict) else {}
 
-            last_price = float(ticker["lastPrice"])
-            funding_rate = float(ticker["fundingRate"])
-            hold_vol = float(ticker["holdVol"])
+            last_price = safe_float(ticker.get("lastPrice"))
+            funding_rate = safe_float(ticker.get("fundingRate"))
+            hold_vol = safe_float(ticker.get("holdVol"))
+            if last_price <= 0:
+                continue
 
             # Read parameters with safe fallbacks
-            volume_24h = float(info.get("volume24h", 0)) if info.get("volume24h") else hold_vol * last_price * 0.2
-            circulation = float(info.get("circulationAmount", 0)) if info.get("circulationAmount") else 100000000.0
-            issue = float(info.get("issueAmount", 0)) if info.get("issueAmount") else circulation * 1.5
+            volume_24h = safe_float(info.get("volume24h")) if info.get("volume24h") else hold_vol * last_price * 0.2
+            circulation = safe_float(info.get("circulationAmount")) if info.get("circulationAmount") else 100000000.0
+            issue = safe_float(info.get("issueAmount")) if info.get("issueAmount") else circulation * 1.5
 
             market_cap = circulation * last_price if circulation else 10000000.0
             fdv = issue * last_price if issue else market_cap * 1.5
             circ_ratio = (circulation / issue) if (circulation and issue) else 0.5
 
-            ath = float(info.get("historicalHigh", 0)) if info.get("historicalHigh") else last_price * 2.0
+            ath = safe_float(info.get("historicalHigh")) if info.get("historicalHigh") else last_price * 2.0
             from_ath = (last_price / ath - 1) * 100 if ath else -50.0
 
             # OI amount
@@ -755,11 +807,11 @@ def build_provider_stats(provider_id: str) -> dict:
     events = payment_events_for_provider(provider_id)
     revenue = sum(float(event.get("amount_usdc") or 0) for event in events)
     share_bps = int(getattr(provider, "revenue_share_bps", 8000))
-    tier_counts = {"preview": 0, "full": 0}
+    tier_counts = {"preview": 0, "full": 0, "legacy": 0}
     buyer_type_counts = {"human": 0, "agent": 0}
     top_symbols = {}
     for event in events:
-        tier = paid_kit.normalize_tier(event.get("tier") or "full")
+        tier = payment_event_tier(event)
         tier_counts[tier] = tier_counts.get(tier, 0) + 1
         buyer_type = event.get("buyer_type", "human")
         buyer_type_counts[buyer_type] = buyer_type_counts.get(buyer_type, 0) + 1
@@ -932,14 +984,15 @@ def get_metrics(
     events = sorted(unique_events.values(), key=lambda item: item.get("paid_at") or 0, reverse=True)
     unique_payers = {normalize_address(event.get("payer_address")) for event in events if event.get("payer_address")}
     revenue = sum(float(event.get("amount_usdc") or 0) for event in events)
-    tier_counts = {"preview": 0, "full": 0}
+    tier_counts = {"preview": 0, "full": 0, "legacy": 0}
     buyer_type_counts = {"human": 0, "agent": 0}
-    revenue_by_tier = {"preview": 0.0, "full": 0.0}
+    revenue_by_tier = {"preview": 0.0, "full": 0.0, "legacy": 0.0}
     revenue_by_provider = {}
     top_symbols = {}
     payer_stats = {}
     for event in events:
-        tier = paid_kit.normalize_tier(event.get("tier") or "full")
+        tier = payment_event_tier(event)
+        event["tier_category"] = tier
         provider_id = event.get("provider_id", "funding_memory")
         buyer_type = event.get("buyer_type", "human")
         tier_counts[tier] = tier_counts.get(tier, 0) + 1
@@ -976,6 +1029,8 @@ def get_metrics(
         if event.get("symbol"):
             stats["symbols"].add(event.get("symbol"))
         stats["last_paid_at"] = max(stats["last_paid_at"] or 0, event.get("paid_at") or 0)
+    current_paid_count = tier_counts.get("preview", 0) + tier_counts.get("full", 0)
+    current_revenue = revenue_by_tier.get("preview", 0.0) + revenue_by_tier.get("full", 0.0)
     payer_breakdown = []
     for stats in payer_stats.values():
         stats["symbols"] = sorted(stats["symbols"])
@@ -989,8 +1044,12 @@ def get_metrics(
         "seller_gateway_balance": seller_balance,
         "invoice_count": len(invoices_db),
         "paid_count": len(events),
+        "current_paid_count": current_paid_count,
+        "legacy_paid_count": tier_counts.get("legacy", 0),
         "unique_payers": len(unique_payers),
         "revenue_usdc": revenue,
+        "current_revenue_usdc": current_revenue,
+        "legacy_revenue_usdc": revenue_by_tier.get("legacy", 0.0),
         "tier_counts": tier_counts,
         "buyer_type_counts": buyer_type_counts,
         "revenue_by_tier": revenue_by_tier,
@@ -1053,11 +1112,12 @@ def get_wallet_metrics(
     events = sorted(events, key=lambda item: item.get("paid_at") or 0, reverse=True)
     spent = sum(float(event.get("amount_usdc") or 0) for event in events)
     purchased_symbols = sorted({event.get("symbol") for event in events if event.get("symbol")})
-    tier_counts = {"preview": 0, "full": 0}
+    tier_counts = {"preview": 0, "full": 0, "legacy": 0}
     buyer_type_counts = {"human": 0, "agent": 0}
     provider_counts = {}
     for event in events:
-        tier = paid_kit.normalize_tier(event.get("tier") or "full")
+        tier = payment_event_tier(event)
+        event["tier_category"] = tier
         tier_counts[tier] = tier_counts.get(tier, 0) + 1
         buyer_type = event.get("buyer_type", "human")
         buyer_type_counts[buyer_type] = buyer_type_counts.get(buyer_type, 0) + 1
@@ -1070,6 +1130,8 @@ def get_wallet_metrics(
         "address": address,
         "gateway_balance": fetch_gateway_balance(address),
         "payments": len(events),
+        "current_payments": tier_counts.get("preview", 0) + tier_counts.get("full", 0),
+        "legacy_payments": tier_counts.get("legacy", 0),
         "spent_usdc": spent,
         "tier_counts": tier_counts,
         "buyer_type_counts": buyer_type_counts,
@@ -1102,9 +1164,12 @@ def get_live_anomalies():
     """Returns real-time MEXC funding anomalies with caching"""
     now = time.time()
     if now - live_anomalies_cache["last_updated"] > CACHE_TTL_SECONDS:
-        logger.info("Cache expired. Scanning MEXC live...")
-        live_anomalies_cache["data"] = scan_mexc_live()
-        live_anomalies_cache["last_updated"] = now
+        with live_scan_lock:
+            now = time.time()
+            if now - live_anomalies_cache["last_updated"] > CACHE_TTL_SECONDS:
+                logger.info("Cache expired. Scanning MEXC live...")
+                live_anomalies_cache["data"] = scan_mexc_live()
+                live_anomalies_cache["last_updated"] = time.time()
     else:
         logger.info("Serving live anomalies from cache.")
         

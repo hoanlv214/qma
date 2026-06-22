@@ -48,7 +48,10 @@ function formatDateTime(timestamp) {
 }
 
 function tierLabel(tier) {
-    return String(tier || 'full').toLowerCase() === 'preview' ? 'Preview' : 'Full';
+    const normalized = String(tier || 'legacy').toLowerCase();
+    if (normalized === 'preview') return 'Preview';
+    if (normalized === 'full') return 'Full';
+    return 'Legacy';
 }
 
 function gatewayStatusBadge(status) {
@@ -109,7 +112,7 @@ function renderPayments(events) {
         return `
             <tr title="${escapeHtml(formatDateTime(event.paid_at))}">
                 <td class="mono-td">${escapeHtml(event.symbol || 'n/a')}<div class="row-subtitle">${escapeHtml(formatDateTime(event.paid_at))}</div></td>
-                <td>${escapeHtml(tierLabel(event.tier))}</td>
+                <td>${escapeHtml(tierLabel(event.tier_category || event.tier))}</td>
                 <td>${Number(event.amount_usdc || 0).toFixed(3)} USDC</td>
                 <td>${gatewayStatusBadge(event.gateway_status)}</td>
                 <td>${ref}</td>
@@ -193,7 +196,8 @@ async function loadProfile(account, page = 1) {
     chainBalanceEl.textContent = chainBalance ? `${Number(chainBalance).toFixed(6)} USDC` : 'n/a';
     gatewayBalanceEl.textContent = gatewayBalance == null ? 'n/a' : `${Number(gatewayBalance).toFixed(6)} USDC`;
     const tierCounts = metrics.tier_counts || {};
-    paymentCountEl.textContent = `${metrics.payments || 0} (P:${tierCounts.preview || 0} F:${tierCounts.full || 0})`;
+    const legacyCount = Number(tierCounts.legacy || 0);
+    paymentCountEl.textContent = `${metrics.current_payments ?? metrics.payments ?? 0} (P:${tierCounts.preview || 0} F:${tierCounts.full || 0}${legacyCount ? ` L:${legacyCount}` : ''})`;
     spentEl.textContent = `${Number(metrics.spent_usdc || 0).toFixed(3)} USDC`;
     const symbols = metrics.purchased_symbols || [];
     tokenListEl.innerHTML = symbols.length
