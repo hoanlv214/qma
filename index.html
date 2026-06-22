@@ -12,69 +12,13 @@
         href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap"
         rel="stylesheet">
     <link rel="stylesheet" href="/public/styles.css">
+    <link rel="stylesheet" href="/public/index.css">
     <script>
         (() => {
             const isLocal = ["localhost", "127.0.0.1", "0.0.0.0"].includes(window.location.hostname);
             window.QMA_API_BASE_URL = window.QMA_API_BASE_URL || (isLocal ? "" : "https://qma-api.onrender.com");
         })();
     </script>
-    <style>
-        .landing-partners-strip {
-            display: flex;
-            align-items: center;
-            gap: 20px;
-            padding: 20px 0;
-            border-top: 1px solid rgba(255, 255, 255, 0.05);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            margin: 32px 0 48px;
-        }
-        .partners-label {
-            font-family: var(--mono);
-            font-size: 0.72rem;
-            color: var(--t3);
-            text-transform: uppercase;
-            letter-spacing: 1.2px;
-            white-space: nowrap;
-        }
-        .partners-logos {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            flex-wrap: wrap;
-        }
-        .partners-logos a {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 28px;
-            padding: 4px 12px;
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 6px;
-            transition: all 0.2s ease;
-        }
-        .partners-logos a:hover {
-            border-color: rgba(124, 111, 255, 0.35);
-            background: rgba(124, 111, 255, 0.08);
-            transform: translateY(-1px);
-        }
-        .partners-logos img {
-            max-height: 18px;
-            width: auto;
-            display: block;
-        }
-        @media (max-width: 600px) {
-            .landing-partners-strip {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 12px;
-                padding: 16px 0;
-            }
-            .partners-logos {
-                gap: 10px;
-            }
-        }
-    </style>
 </head>
 
 <body class="landing-body">

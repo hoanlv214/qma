@@ -1,0 +1,24 @@
+/* Wallet profile page overrides. Shared UI foundation lives in styles.css. */
+
+.profile-body {
+    letter-spacing: 0;
+}
+
+.profile-shell {
+    padding-bottom: 44px;
+}
+
+.profile-hero {
+    margin-top: 34px;
+}
+
+@media (max-width: 720px) {
+    .profile-nav {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .profile-nav-actions {
+        width: 100%;
+    }
+}

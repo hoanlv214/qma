@@ -99,8 +99,11 @@ qma/
     app.js                Frontend state, wallet, payment, profile, report rendering
     user.js               Wallet profile page logic
     marketplace.js        Provider marketplace page logic
-    styles.css            Terminal UI styles
-    design_styles.css     Dashboard redesign overrides
+    styles.css            Shared tokens, reset, and common UI styles
+    index.css             Landing-only polish and supported-by logo rail
+    app.css               Dashboard layout and responsive overrides
+    user.css              Wallet profile page overrides
+    marketplace.css       Provider marketplace page overrides
     assets/               Favicon and partner logos
   arc_gateway/
     server.ts             Circle x402 batching sidecar

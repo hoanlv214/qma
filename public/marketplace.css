@@ -1,0 +1,23 @@
+/* Provider marketplace page overrides. Shared UI foundation lives in styles.css. */
+
+.marketplace-body {
+    letter-spacing: 0;
+}
+
+.marketplace-shell {
+    padding-bottom: 52px;
+}
+
+.marketplace-summary,
+.creator-apply-card,
+.marketplace-section {
+    box-sizing: border-box;
+}
+
+@media (max-width: 920px) {
+    .marketplace-body > header {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 12px;
+    }
+}
