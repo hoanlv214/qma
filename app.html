@@ -15,6 +15,13 @@
         (() => {
             const isLocal = ["localhost", "127.0.0.1", "0.0.0.0"].includes(window.location.hostname);
             window.QMA_API_BASE_URL = window.QMA_API_BASE_URL || (isLocal ? "" : "https://qma-api.onrender.com");
+            window.addEventListener("DOMContentLoaded", () => {
+                const base = String(window.QMA_API_BASE_URL || "").replace(/\/$/, "");
+                if (!base) return;
+                document.querySelectorAll("[data-api-path]").forEach((link) => {
+                    link.href = `${base}${link.dataset.apiPath}`;
+                });
+            });
         })();
     </script>
 </head>

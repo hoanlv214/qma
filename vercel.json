@@ -19,6 +19,10 @@
       "use": "@vercel/static"
     },
     {
+      "src": "docs.html",
+      "use": "@vercel/static"
+    },
+    {
       "src": "public/**/*",
       "use": "@vercel/static"
     }
@@ -39,6 +43,10 @@
     {
       "src": "/marketplace",
       "dest": "/marketplace.html"
+    },
+    {
+      "src": "/docs",
+      "dest": "/docs.html"
     },
     {
       "src": "/public/(.*)",
