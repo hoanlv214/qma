@@ -542,26 +542,69 @@ function getCachedReportsForSymbol(symbol) {
     return reports.sort((a, b) => Number(b.saved_at || 0) - Number(a.saved_at || 0));
 }
 
+function paidBadgeText(entry) {
+    if (!entry) return 'Pay to unlock';
+    const tier = normalizeTier(entry.tier || entry.report?.tier || entry.report?.invoice?.tier || 'full');
+    return tier === 'preview' ? 'Paid Preview' : 'Paid Full';
+}
+
+function updateAnomalyPaidState(signalSource, entry = null) {
+    const signal = normalizeSignalPayload(signalSource || activeQuery || {});
+    if (!signal.symbol) return;
+    const cachedEntry = entry || getCachedReport(signal, 'full') || getCachedReport(signal, 'preview');
+    const historyEntries = cachedEntry ? [] : getCachedReportsForSymbol(signal.symbol);
+    const hasHistory = historyEntries.length > 0;
+    const summary = signalSummary(signal);
+
+    document.querySelectorAll('.anomaly-card').forEach((card) => {
+        const cardSummary = card.dataset.signalSummary || '';
+        const cardSymbol = card.dataset.symbol || '';
+        const isExact = cardSummary === summary;
+        const isSameSymbol = cardSymbol === signal.symbol;
+        if (!isExact && !isSameSymbol) return;
+
+        const badge = card.querySelector('.signal-badge');
+        const metaTime = card.querySelector('[data-card-paid-at]');
+        if (!badge) return;
+
+        if (isExact && cachedEntry) {
+            badge.className = 'signal-badge paid';
+            badge.textContent = paidBadgeText(cachedEntry);
+            if (metaTime) metaTime.textContent = `Bought ${formatDateTime(cachedEntry.saved_at)}`;
+        } else if (hasHistory || isSameSymbol) {
+            badge.className = 'signal-badge history';
+            badge.textContent = 'Paid history';
+            if (metaTime && historyEntries[0]?.saved_at) {
+                metaTime.textContent = `Last paid ${formatDateTime(historyEntries[0].saved_at)}`;
+            }
+        }
+    });
+}
+
 function saveCachedReport(report, account = connectedWallet || report?.invoice?.payer_address) {
+    let cachedEntry = null;
     try {
         const wallet = walletCacheScope(account);
-        if (!wallet) return;
+        if (!wallet) return null;
         const query = report.query || activeQuery || { symbol: report.query_symbol };
         const tier = normalizeTier(report.tier || report.invoice?.tier || currentInvoiceTier || 'full');
         const providerId = report.provider_id || report.invoice?.provider_id || currentProviderId || 'funding_memory';
         const key = signalCacheKey(query, tier, providerId, wallet);
-        if (!key) return;
-        localStorage.setItem(key, JSON.stringify({
+        if (!key) return null;
+        cachedEntry = {
             saved_at: Date.now(),
             signal: normalizeSignalPayload(query),
             tier,
             provider_id: providerId,
             payer_address: wallet,
             report
-        }));
+        };
+        localStorage.setItem(key, JSON.stringify(cachedEntry));
+        updateAnomalyPaidState(query, cachedEntry);
     } catch (err) {
         console.warn('Could not cache report', err);
     }
+    return cachedEntry;
 }
 
 function saveWalletEvent(account, event) {
@@ -1022,7 +1065,9 @@ async function loadLiveAnomalies() {
                 const mcapMillions = (item.marketCap / 1000000).toFixed(1);
                 const volMillions = (item.volume24h / 1000000).toFixed(1);
                 const signal = formSignalFromAnomaly(item);
-                const cachedEntry = getCachedReport(signal);
+                card.dataset.symbol = signal.symbol;
+                card.dataset.signalSummary = signalSummary(signal);
+                const cachedEntry = getCachedReport(signal, 'full') || getCachedReport(signal, 'preview');
                 const isPaid = Boolean(cachedEntry?.report);
                 const historyEntries = isPaid ? [] : getCachedReportsForSymbol(signal.symbol);
                 const hasHistory = historyEntries.length > 0;
@@ -1032,7 +1077,7 @@ async function loadLiveAnomalies() {
                         ? `Last paid ${formatDateTime(historyEntries[0].saved_at)}`
                         : `Live ${formatDateTime(data.last_updated)}`;
                 const badgeClass = isPaid ? 'paid' : hasHistory ? 'history' : 'unpaid';
-                const badgeText = isPaid ? 'Paid snapshot' : hasHistory ? 'Paid history' : 'Pay to unlock';
+                const badgeText = isPaid ? paidBadgeText(cachedEntry) : hasHistory ? 'Paid history' : 'Pay to unlock';
 
                 card.innerHTML = `
                             <div class="card-header">
@@ -1046,7 +1091,7 @@ async function loadLiveAnomalies() {
                                 <div>ATH Dist: <span class="card-stat-val">${item.fromATH.toFixed(2)}%</span></div>
                             </div>
                             <div class="card-meta-row">
-                                <span>${escapeHtml(cardSeenAt)}</span>
+                                <span data-card-paid-at>${escapeHtml(cardSeenAt)}</span>
                                 <span class="signal-badge ${badgeClass}">${badgeText}</span>
                             </div>
                         `;
@@ -2134,6 +2179,8 @@ payButton.addEventListener('click', async () => {
             } else {
                 renderReport(reportData);
             }
+            await syncWalletEntitlements(account);
+            updateAnomalyPaidState(activeQuery);
         } else {
             alert("Payment was not accepted by QMA.");
         }
@@ -2260,7 +2307,7 @@ function renderPreviewReport(report, cachedEntry = null) {
         report.query = normalizeSignalPayload(activeQuery);
     }
     if (!cachedEntry) {
-        saveCachedReport(report);
+        cachedEntry = saveCachedReport(report);
     }
     paywallElement.style.display = 'none';
     paywallElement.classList.remove('compact-paywall');
@@ -2352,7 +2399,7 @@ function renderReport(report, cachedEntry = null) {
         report.query = normalizeSignalPayload(activeQuery);
     }
     if (!cachedEntry) {
-        saveCachedReport(report);
+        cachedEntry = saveCachedReport(report);
     }
     // Hide paywall and unlock viewport
     paywallElement.style.display = 'none';
