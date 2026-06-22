@@ -17,8 +17,7 @@ examples/
 private_data/
 scripts/
 
-# Serve root HTML compatibility entrypoints and public assets.
-# Source pages are kept in pages/ for the FastAPI/Render layout.
+# Serve root HTML entrypoints and public assets.
 
 .env
 .env.*

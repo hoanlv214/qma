@@ -91,11 +91,10 @@ qma/
   providers.py            Provider interface, registry, FundingMemoryProvider
   qma_engine.py           Quant retrieval engine
   storage.py              JSON/Supabase persistence backend
-  pages/
-    index.html            Short Lepton landing page served at /
-    app.html              QMA dashboard served at /app
-    user.html             Wallet history page served at /user
-    marketplace.html      Provider marketplace served at /marketplace
+  index.html              Short Lepton landing page served at /
+  app.html                QMA dashboard served at /app
+  user.html               Wallet history page served at /user
+  marketplace.html        Provider marketplace served at /marketplace
   public/
     app.js                Frontend state, wallet, payment, profile, report rendering
     user.js               Wallet profile page logic

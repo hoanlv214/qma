@@ -44,7 +44,10 @@ qma/
   qma_engine.py           historical analog engine
   providers.py            paid intelligence provider registry
   storage.py              JSON/Supabase persistence layer
-  pages/                  landing, app, user profile, marketplace HTML
+  index.html              landing page served at /
+  app.html                QMA dashboard served at /app
+  user.html               wallet profile/history served at /user
+  marketplace.html        provider marketplace served at /marketplace
   public/                 shared JS, CSS, and image assets
   docs/                   Arc, Supabase, API security, Cloudflare, demo notes
   examples/               autonomous buyer agent example
@@ -113,9 +116,9 @@ This repo includes:
 
 ```text
 render.yaml   Render blueprint for qma-api + qma-arc-gateway
-vercel.json   Static landing/dashboard routes from pages/: /, /app, /user, /marketplace
+vercel.json   Static landing/dashboard routes: /, /app, /user, /marketplace
 .vercelignore Keeps Vercel from deploying the Python/Node backend files
-pages/        Vercel and FastAPI served HTML pages
+*.html        Vercel and FastAPI served HTML entrypoints
 public/       Shared CSS, JS, and assets
 ```
 
@@ -131,7 +134,7 @@ QMA_ARC_GATEWAY_URL=https://qma-arc-gateway.onrender.com
 QMA_ARC_SELLER_ADDRESS=<seller-wallet>
 ```
 
-After Vercel deploys the static frontend, set the API base in `pages/index.html`, `pages/app.html`, `pages/user.html`, and `pages/marketplace.html` or inject it before build:
+After Vercel deploys the static frontend, set the API base in `index.html`, `app.html`, `user.html`, and `marketplace.html` or inject it before build:
 
 ```html
 window.QMA_API_BASE_URL = "https://qma-api.onrender.com";
@@ -157,7 +160,7 @@ Output Directory: empty
 Install Command: empty
 ```
 
-If Vercel shows "This Serverless Function has crashed", it is trying to deploy the backend. The static frontend deployment should include `pages/`, `public/`, `vercel.json`, and `.vercelignore`.
+If Vercel shows "This Serverless Function has crashed", it is trying to deploy the backend. The static frontend deployment should include the root HTML entrypoints, `public/`, `vercel.json`, and `.vercelignore`.
 
 Vercel notes: their docs support FastAPI/Python deployments, but Python functions have a 500 MB uncompressed bundle size limit and Python files are not tree-shaken automatically. For QMA, that makes split deployment the practical default.
 
