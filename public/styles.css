@@ -250,6 +250,115 @@ body::before {
     font-weight: 800;
 }
 
+.landing-traction-strip {
+    position: relative;
+    width: 100%;
+    border: 1px solid var(--bdr);
+    border-radius: 12px;
+    background:
+        linear-gradient(90deg, rgba(6, 8, 15, 0.78), transparent 12%, transparent 88%, rgba(6, 8, 15, 0.78)),
+        rgba(255, 255, 255, 0.018);
+    overflow: hidden;
+    margin: -18px 0 34px;
+    backdrop-filter: blur(8px);
+}
+
+.landing-traction-label {
+    position: absolute;
+    top: 10px;
+    left: 14px;
+    z-index: 3;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--green);
+    border: 1px solid rgba(34, 211, 160, 0.18);
+    background: rgba(6, 8, 15, 0.72);
+    border-radius: 999px;
+    padding: 5px 10px;
+    font-family: var(--mono);
+    font-size: 0.64rem;
+    font-weight: 700;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    backdrop-filter: blur(12px);
+}
+
+.traction-marquee {
+    display: flex;
+    width: max-content;
+    min-width: 100%;
+    padding: 44px 0 30px;
+    mask-image: linear-gradient(90deg, transparent 0, #000 7%, #000 93%, transparent 100%);
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 7%, #000 93%, transparent 100%);
+}
+
+.traction-track {
+    display: flex;
+    align-items: center;
+    gap: clamp(30px, 5.5vw, 78px);
+    min-width: max-content;
+    padding-right: clamp(30px, 5.5vw, 78px);
+    animation: qma-traction-scroll 36s linear infinite;
+}
+
+.traction-marquee:hover .traction-track {
+    animation-play-state: paused;
+}
+
+.traction-item {
+    display: grid;
+    grid-template-columns: auto auto;
+    column-gap: 12px;
+    row-gap: 2px;
+    align-items: end;
+    min-width: max-content;
+}
+
+.traction-item strong {
+    grid-row: span 2;
+    color: var(--t1);
+    font-family: var(--sans);
+    font-size: clamp(1.9rem, 3.4vw, 2.95rem);
+    font-weight: 560;
+    line-height: 0.92;
+    letter-spacing: 0;
+}
+
+.traction-item span {
+    color: var(--t2);
+    font-size: 0.78rem;
+    line-height: 1.1;
+    white-space: nowrap;
+}
+
+.traction-item em {
+    color: var(--t3);
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    font-style: normal;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+@keyframes qma-traction-scroll {
+    from {
+        transform: translateX(0);
+    }
+
+    to {
+        transform: translateX(-100%);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .traction-track {
+        animation: none;
+    }
+}
+
 .landing-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -804,6 +913,25 @@ header {
     letter-spacing: 0.5px;
 }
 
+.header-link {
+    border: 1px solid rgba(124, 111, 255, 0.24);
+    background: rgba(124, 111, 255, 0.08);
+    color: var(--t2);
+    border-radius: 6px;
+    padding: 6px 9px;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.header-link:hover {
+    color: var(--t1);
+    border-color: rgba(124, 111, 255, 0.5);
+    background: rgba(124, 111, 255, 0.14);
+}
+
 .logo-img-item {
     height: 24px;
     min-width: 40px;
@@ -1118,10 +1246,21 @@ header {
 
 .query-form {
     display: grid;
-    grid-template-columns:
-        minmax(78px, 0.75fr) minmax(108px, 0.95fr) minmax(112px, 0.95fr) minmax(112px, 0.95fr) minmax(90px, 0.8fr) minmax(98px, 0.85fr) minmax(112px, 0.95fr) minmax(196px, 0.9fr);
+    grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
     gap: 8px;
     align-items: flex-end;
+}
+
+.provider-select-group {
+    min-width: 150px;
+}
+
+.provider-select {
+    color: var(--green);
+}
+
+.tier-actions {
+    grid-column: span 2;
 }
 
 .form-group {
@@ -1710,6 +1849,239 @@ header {
         width: 100%;
         text-align: center;
     }
+}
+
+/* ===== MARKETPLACE PAGE ===== */
+.marketplace-body {
+    min-height: 100vh;
+    background: var(--bg-0);
+    color: var(--t1);
+    overflow-y: auto;
+}
+
+.marketplace-shell {
+    --marketplace-left-col: minmax(0, 0.62fr);
+    --marketplace-right-col: minmax(360px, 0.38fr);
+    --marketplace-gap: 18px;
+    width: min(1180px, calc(100% - 32px));
+    margin: 0 auto;
+    padding: 44px 0 72px;
+}
+
+.marketplace-hero {
+    display: grid;
+    grid-template-columns: var(--marketplace-left-col) var(--marketplace-right-col);
+    gap: var(--marketplace-gap);
+    align-items: center;
+    margin-bottom: 34px;
+}
+
+.marketplace-hero h1 {
+    max-width: 700px;
+    margin: 14px 0 18px;
+    font-family: var(--mono);
+    font-size: clamp(2.65rem, 5.2vw, 4.65rem);
+    line-height: 0.94;
+    letter-spacing: 0;
+}
+
+.marketplace-hero p,
+.marketplace-section-head p {
+    color: var(--t2);
+    line-height: 1.65;
+    margin: 0;
+}
+
+.marketplace-summary,
+.marketplace-section,
+.marketplace-provider-card {
+    border: 1px solid var(--bdr);
+    background: rgba(15, 18, 34, 0.72);
+    border-radius: 8px;
+}
+
+.marketplace-summary {
+    display: grid;
+    gap: 11px;
+    align-self: center;
+    padding: 18px;
+    min-height: 304px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.marketplace-summary div,
+.marketplace-stats-grid div {
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(255, 255, 255, 0.025);
+    border-radius: 6px;
+    padding: 10px;
+}
+
+.marketplace-summary span,
+.marketplace-stats-grid span {
+    display: block;
+    color: var(--t3);
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 5px;
+}
+
+.marketplace-summary strong,
+.marketplace-stats-grid strong {
+    color: var(--t1);
+    font-family: var(--mono);
+    font-size: 0.82rem;
+}
+
+.marketplace-layout {
+    display: grid;
+    grid-template-columns: var(--marketplace-left-col) var(--marketplace-right-col);
+    gap: var(--marketplace-gap);
+    align-items: start;
+}
+
+.marketplace-section {
+    padding: 18px;
+    min-width: 0;
+}
+
+.marketplace-section-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    min-height: 50px;
+    margin-bottom: 16px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--bdr);
+}
+
+.marketplace-provider-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.marketplace-provider-card {
+    padding: 16px;
+    min-width: 0;
+}
+
+.marketplace-provider-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.marketplace-provider-card h2 {
+    margin: 8px 0 4px;
+    font-family: var(--mono);
+    font-size: 0.96rem;
+    line-height: 1.25;
+    letter-spacing: 0;
+}
+
+.provider-id-line,
+.marketplace-provider-desc {
+    margin: 0;
+    color: var(--t2);
+    font-size: 0.78rem;
+    line-height: 1.55;
+    min-height: 72px;
+}
+
+.provider-status {
+    display: inline-flex;
+    border: 1px solid rgba(34, 211, 160, 0.26);
+    background: rgba(34, 211, 160, 0.08);
+    color: var(--green);
+    border-radius: 999px;
+    padding: 3px 8px;
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    font-weight: 700;
+}
+
+.provider-status.experimental,
+.provider-status.pending,
+.provider-status.needs_changes {
+    border-color: rgba(245, 158, 11, 0.28);
+    background: rgba(245, 158, 11, 0.08);
+    color: #f59e0b;
+}
+
+.provider-status.rejected {
+    border-color: rgba(244, 63, 94, 0.28);
+    background: rgba(244, 63, 94, 0.08);
+    color: #fb7185;
+}
+
+.marketplace-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin: 14px 0;
+}
+
+.marketplace-owner {
+    margin-bottom: 10px;
+}
+
+.marketplace-symbols {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.marketplace-symbols span {
+    border: 1px solid rgba(124, 111, 255, 0.2);
+    background: rgba(124, 111, 255, 0.08);
+    color: var(--accent);
+    border-radius: 5px;
+    padding: 3px 7px;
+    font-family: var(--mono);
+    font-size: 0.62rem;
+}
+
+.creator-form {
+    display: grid;
+    gap: 11px;
+}
+
+.creator-form label {
+    display: grid;
+    gap: 6px;
+    color: var(--t3);
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.creator-form textarea.form-input {
+    min-height: 90px;
+    resize: vertical;
+    line-height: 1.5;
+}
+
+.creator-form-status {
+    min-height: 22px;
+    color: var(--t3);
+    font-size: 0.76rem;
+    line-height: 1.45;
+}
+
+.creator-form-status.success {
+    color: var(--green);
+}
+
+.creator-form-status.error {
+    color: #fb7185;
 }
 
 /* Payment flow pipeline */
@@ -2947,7 +3319,9 @@ header {
     .landing-proof,
     .landing-flow-steps,
     .landing-builders,
-    .landing-footer-brand {
+    .landing-footer-brand,
+    .marketplace-hero,
+    .marketplace-layout {
         grid-template-columns: 1fr;
     }
 
@@ -2957,6 +3331,10 @@ header {
 
     .landing-hero {
         padding: 78px 0 58px;
+    }
+
+    .landing-traction-strip {
+        margin-top: -10px;
     }
 
     .landing-proof,
@@ -2980,6 +3358,18 @@ header {
 
     .landing-footer-cols {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .marketplace-shell {
+        width: min(100% - 28px, 760px);
+    }
+
+    .marketplace-provider-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .marketplace-summary {
+        min-height: auto;
     }
 
     .profile-hero {
@@ -3038,6 +3428,30 @@ header {
     .profile-shell {
         width: min(100% - 24px, 100%);
         padding-top: 0;
+    }
+
+    .marketplace-shell {
+        width: min(100% - 24px, 100%);
+        padding-top: 24px;
+    }
+
+    .marketplace-section,
+    .marketplace-provider-card,
+    .marketplace-summary {
+        padding: 14px;
+    }
+
+    .marketplace-section-head,
+    .marketplace-provider-top {
+        flex-direction: column;
+    }
+
+    .marketplace-section-head {
+        min-height: 0;
+    }
+
+    .marketplace-stats-grid {
+        grid-template-columns: 1fr;
     }
 
     .profile-nav {
@@ -3123,6 +3537,38 @@ header {
 
     .landing-hero {
         padding: 48px 0 34px;
+    }
+
+    .landing-traction-label {
+        left: 12px;
+        top: 8px;
+        font-size: 0.58rem;
+    }
+
+    .traction-marquee {
+        padding: 40px 0 24px;
+    }
+
+    .traction-track {
+        gap: 34px;
+        padding-right: 34px;
+        animation-duration: 28s;
+    }
+
+    .traction-item {
+        column-gap: 8px;
+    }
+
+    .traction-item strong {
+        font-size: 2rem;
+    }
+
+    .traction-item span {
+        font-size: 0.7rem;
+    }
+
+    .traction-item em {
+        font-size: 0.56rem;
     }
 
     .landing-hero h1 {

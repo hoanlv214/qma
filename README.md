@@ -9,9 +9,10 @@ Humans and AI agents can buy historical crypto market-memory reports one query a
 - Live app: https://qma-three.vercel.app
 - API: https://qma-api.onrender.com
 - Arc Gateway: https://qma-arc-gateway.onrender.com
+- Marketplace: `/marketplace`
 - Core flow: Agent Picks -> Preview or Full invoice -> Circle Gateway/x402 payment -> wallet-bound entitlement -> paid JSON report.
-- Agent demo: see [AGENT_API.md](AGENT_API.md) and `examples/agent_buyer.mjs`.
-- Security model: frontend cache is convenience only; backend verifies invoice secret, query hash, tier, payer wallet, x402 settlement, access token expiry, and wallet-bound entitlements.
+- Agent demo: see [docs/AGENT_API.md](docs/AGENT_API.md) and `examples/agent_buyer.mjs`.
+- Security model: frontend cache is convenience only; backend verifies invoice secret, query hash, tier, provider, payer wallet, x402 settlement, access token expiry, rate limits, and wallet-bound entitlements.
 
 Try:
 
@@ -28,17 +29,44 @@ Try:
 
 - FastAPI backend with OpenAPI docs at `/docs`
 - Terminal-style QMA dashboard at `/app`
+- Provider marketplace and creator application page at `/marketplace`
 - Short hackathon landing page at `/`
 - Paid Intelligence API Kit
-- Provider interface and `funding_memory` example provider
+- Provider interface with `funding_memory` and experimental `oi_memory` providers
 - Arc/Circle x402 gateway sidecar
 - Public sample datasets for local testing
+
+## Repository Layout
+
+```text
+qma/
+  main.py                 FastAPI backend and HTML/API routes
+  qma_engine.py           historical analog engine
+  providers.py            paid intelligence provider registry
+  storage.py              JSON/Supabase persistence layer
+  pages/                  landing, app, user profile, marketplace HTML
+  public/                 shared JS, CSS, and image assets
+  docs/                   Arc, Supabase, API security, Cloudflare, demo notes
+  examples/               autonomous buyer agent example
+  scripts/                migration/util scripts
+  data/                   public sample datasets
+  paid_intelligence_kit/  reusable paid API primitive
+```
+
+## Docs
+
+- [docs/AGENT_API.md](docs/AGENT_API.md): external autonomous buyer example.
+- [examples/README.md](examples/README.md): CLI buyer demo commands.
+- [docs/ARC_PAYMENT.md](docs/ARC_PAYMENT.md): Circle Gateway/x402 payment lifecycle.
+- [docs/SUPABASE.md](docs/SUPABASE.md): durable payment/entitlement/creator storage.
+- [docs/API_SECURITY.md](docs/API_SECURITY.md): backend authorization, rate limits, and marketplace endpoints.
+- [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md): Cloudflare setup for edge protection.
 
 ## Product Flow
 
 1. QMA scans live MEXC funding anomalies.
 2. Agent Picks ranks which reports are worth buying.
-3. User or external agent creates a provider-bound invoice.
+3. User or external agent selects a provider and creates a provider-bound invoice.
 4. Buyer pays `0.001 USDC` for Preview or `0.005 USDC` for Full.
 5. QMA verifies Circle Gateway settlement and records a wallet entitlement.
 6. The exact query-bound report unlocks.
@@ -85,9 +113,10 @@ This repo includes:
 
 ```text
 render.yaml   Render blueprint for qma-api + qma-arc-gateway
-vercel.json   Static landing/dashboard routes from frontend/: / and /app
+vercel.json   Static landing/dashboard routes from pages/: /, /app, /user, /marketplace
 .vercelignore Keeps Vercel from deploying the Python/Node backend files
-frontend/     Vercel-only static bundle. Render/FastAPI still serves root HTML files.
+pages/        Vercel and FastAPI served HTML pages
+public/       Shared CSS, JS, and assets
 ```
 
 After Render creates both services, set these environment variables:
@@ -102,7 +131,7 @@ QMA_ARC_GATEWAY_URL=https://qma-arc-gateway.onrender.com
 QMA_ARC_SELLER_ADDRESS=<seller-wallet>
 ```
 
-After Vercel deploys the static frontend, set the API base in `landing.html` and `index.html` or inject it before build:
+After Vercel deploys the static frontend, set the API base in `pages/index.html`, `pages/app.html`, `pages/user.html`, and `pages/marketplace.html` or inject it before build:
 
 ```html
 window.QMA_API_BASE_URL = "https://qma-api.onrender.com";
@@ -116,19 +145,19 @@ If the static UI is deployed separately from the API, set:
 </script>
 ```
 
-The same variable is supported by both `landing.html` and `index.html`.
+The same variable is supported by all static pages.
 
 In Vercel project settings, use:
 
 ```text
 Framework Preset: Other
-Root Directory: repo root, or frontend if you prefer the dedicated static bundle
+Root Directory: repo root
 Build Command: empty
 Output Directory: empty
 Install Command: empty
 ```
 
-If Vercel shows "This Serverless Function has crashed", it is trying to deploy the backend. The static frontend deployment should only include `landing.html`, `index.html`, `public/`, `vercel.json`, and `.vercelignore`.
+If Vercel shows "This Serverless Function has crashed", it is trying to deploy the backend. The static frontend deployment should include `pages/`, `public/`, `vercel.json`, and `.vercelignore`.
 
 Vercel notes: their docs support FastAPI/Python deployments, but Python functions have a 500 MB uncompressed bundle size limit and Python files are not tree-shaken automatically. For QMA, that makes split deployment the practical default.
 

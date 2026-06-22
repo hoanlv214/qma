@@ -18,10 +18,11 @@ class JsonStorage:
 
     backend_name = "json"
 
-    def __init__(self, *, ledger_path: str, reports_path: str, invoices_path: str):
+    def __init__(self, *, ledger_path: str, reports_path: str, invoices_path: str, creators_path: str):
         self.ledger_path = ledger_path
         self.reports_path = reports_path
         self.invoices_path = invoices_path
+        self.creators_path = creators_path
 
     def _load_json(self, path: str, fallback):
         if not os.path.exists(path):
@@ -62,6 +63,17 @@ class JsonStorage:
         if invoice_id:
             invoices[invoice_id] = invoice
             self._save_json(self.invoices_path, invoices)
+
+    def load_creator_applications(self) -> dict:
+        data = self._load_json(self.creators_path, {})
+        return data if isinstance(data, dict) else {}
+
+    def save_creator_application(self, application: dict) -> None:
+        applications = self.load_creator_applications()
+        application_id = application.get("application_id")
+        if application_id:
+            applications[application_id] = application
+            self._save_json(self.creators_path, applications)
 
 
 class SupabaseStorage:
@@ -209,11 +221,47 @@ class SupabaseStorage:
             "invoice": invoice,
         }], "invoice_id")
 
+    def load_creator_applications(self) -> dict:
+        try:
+            rows = self._request(
+                "GET",
+                "qma_creator_applications",
+                params={"select": "application_id,application", "order": "created_at.desc.nullslast", "limit": "1000"},
+            ) or []
+        except RuntimeError:
+            return {}
+        applications = {}
+        for row in rows:
+            application = row.get("application")
+            application_id = row.get("application_id") or (application or {}).get("application_id")
+            if application_id and isinstance(application, dict):
+                applications[application_id] = application
+        return applications
 
-def create_storage_backend(*, ledger_path: str, reports_path: str, invoices_path: str):
+    def save_creator_application(self, application: dict) -> None:
+        application_id = application.get("application_id")
+        if not application_id:
+            return
+        self._upsert("qma_creator_applications", [{
+            "application_id": application_id,
+            "creator_wallet": normalize_address(application.get("creator_wallet")),
+            "provider_id": application.get("provider_id"),
+            "status": application.get("status", "pending"),
+            "created_at": application.get("created_at"),
+            "updated_at": application.get("updated_at"),
+            "application": application,
+        }], "application_id")
+
+
+def create_storage_backend(*, ledger_path: str, reports_path: str, invoices_path: str, creators_path: str):
     supabase_url = os.getenv("SUPABASE_URL") or os.getenv("QMA_SUPABASE_URL")
     service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("QMA_SUPABASE_SERVICE_ROLE_KEY")
     schema = os.getenv("SUPABASE_SCHEMA", "public")
     if supabase_url and service_key:
         return SupabaseStorage(url=supabase_url, service_role_key=service_key, schema=schema)
-    return JsonStorage(ledger_path=ledger_path, reports_path=reports_path, invoices_path=invoices_path)
+    return JsonStorage(
+        ledger_path=ledger_path,
+        reports_path=reports_path,
+        invoices_path=invoices_path,
+        creators_path=creators_path,
+    )

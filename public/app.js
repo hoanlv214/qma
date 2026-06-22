@@ -103,7 +103,7 @@ let currentArcGatewayUrl = null;
 let currentSettlementId = null;
 let currentInvoiceAmount = 0.005;
 let currentInvoiceTier = 'full';
-let currentProviderId = 'funding_memory';
+let currentProviderId = urlParams.get('provider') || 'funding_memory';
 let pricingConfig = { preview: 0.001, full: 0.005 };
 let providerCatalog = {};
 let currentSellerAddress = null;
@@ -209,6 +209,7 @@ const invoiceSignalDisplay = document.getElementById('invoice-signal-display');
 const refreshBtn = document.getElementById('refresh-anomalies-btn');
 const agentPicksContainer = document.getElementById('agent-picks-container');
 const providerMarketplaceContainer = document.getElementById('provider-marketplace-container');
+const providerSelect = document.getElementById('q-provider');
 const dsProvider = document.getElementById('ds-provider');
 const dsFeatureRows = document.getElementById('ds-feature-rows');
 const dsCleanRows = document.getElementById('ds-clean-rows');
@@ -1101,6 +1102,9 @@ async function loadAgentRecommendations() {
                 applySignalToForm(pick.query);
                 activeQuery = normalizeSignalPayload(pick.query);
                 currentProviderId = pick.provider_id || 'funding_memory';
+                if (providerSelect && providerCatalog[currentProviderId]) {
+                    providerSelect.value = currentProviderId;
+                }
                 currentInvoiceTier = normalizeTier(pick.suggested_tier);
                 currentInvoiceAmount = tierPrice(currentInvoiceTier);
                 const submitBtn = document.querySelector(`[data-tier="${currentInvoiceTier}"]`) || document.querySelector('[data-tier="full"]');
@@ -1115,8 +1119,9 @@ async function loadAgentRecommendations() {
 }
 
 async function loadProviders() {
-    if (!providerMarketplaceContainer) return;
-    providerMarketplaceContainer.innerHTML = '<div class="agent-empty">Loading providers...</div>';
+    if (providerMarketplaceContainer) {
+        providerMarketplaceContainer.innerHTML = '<div class="agent-empty">Loading providers...</div>';
+    }
     try {
         const resp = await fetch(apiUrl('/api/v1/providers'));
         if (!resp.ok) throw new Error(`Providers endpoint returned ${resp.status}`);
@@ -1127,9 +1132,24 @@ async function loadProviders() {
             providerCatalog[provider.provider_id] = provider;
         });
         if (!providers.length) {
-            providerMarketplaceContainer.innerHTML = '<div class="agent-empty">No providers registered.</div>';
+            if (providerMarketplaceContainer) {
+                providerMarketplaceContainer.innerHTML = '<div class="agent-empty">No providers registered.</div>';
+            }
             return;
         }
+        if (providerSelect) {
+            providerSelect.innerHTML = providers.map((provider) => {
+                const status = provider.status && provider.status !== 'approved' ? ` (${provider.status})` : '';
+                return `<option value="${escapeHtml(provider.provider_id)}">${escapeHtml(provider.provider_id)}${escapeHtml(status)}</option>`;
+            }).join('');
+            providerSelect.value = providerCatalog[currentProviderId] ? currentProviderId : providers[0].provider_id;
+            currentProviderId = providerSelect.value || currentProviderId;
+            providerSelect.addEventListener('change', () => {
+                currentProviderId = providerSelect.value || 'funding_memory';
+                showToast(`Provider selected: ${providerCatalog[currentProviderId]?.provider_name || currentProviderId}`, 'info');
+            });
+        }
+        if (!providerMarketplaceContainer) return;
         providerMarketplaceContainer.innerHTML = providers.map((provider) => {
             const preview = provider.pricing?.preview?.amount_usdc ?? pricingConfig.preview;
             const full = provider.pricing?.full?.amount_usdc ?? pricingConfig.full;
@@ -1151,6 +1171,7 @@ async function loadProviders() {
         providerMarketplaceContainer.querySelectorAll('.provider-card').forEach((card) => {
             card.addEventListener('click', () => {
                 currentProviderId = card.dataset.providerId || 'funding_memory';
+                if (providerSelect) providerSelect.value = currentProviderId;
                 providerMarketplaceContainer.querySelectorAll('.provider-card').forEach((el) => el.classList.remove('active'));
                 card.classList.add('active');
                 showToast(`Provider selected: ${providerCatalog[currentProviderId]?.provider_name || currentProviderId}`, 'info');
@@ -1158,7 +1179,9 @@ async function loadProviders() {
         });
     } catch (err) {
         console.warn('Provider marketplace unavailable', err);
-        providerMarketplaceContainer.innerHTML = '<div class="agent-empty">Provider marketplace unavailable.</div>';
+        if (providerMarketplaceContainer) {
+            providerMarketplaceContainer.innerHTML = '<div class="agent-empty">Provider marketplace unavailable.</div>';
+        }
     }
 }
 
@@ -1731,6 +1754,7 @@ queryForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
     activeQuery = getFormQuery();
+    currentProviderId = providerSelect?.value || currentProviderId || 'funding_memory';
     currentInvoiceTier = normalizeTier(e.submitter?.dataset?.tier || 'full');
     currentInvoiceAmount = tierPrice(currentInvoiceTier);
     const cachedEntry = getCachedReport(activeQuery, currentInvoiceTier);

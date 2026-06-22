@@ -7,11 +7,12 @@ import json
 import base64
 import hashlib
 import hmac
+from collections import defaultdict, deque
 from datetime import datetime, timezone
 from typing import Dict, Optional
-from fastapi import FastAPI, HTTPException, status, Query, Header
+from fastapi import FastAPI, HTTPException, status, Query, Header, Request
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -81,6 +82,7 @@ engine = QMAEngine()
 PAYMENT_LEDGER_PATH = os.path.join(os.path.dirname(__file__), "payment_ledger.json")
 PAID_REPORTS_PATH = os.path.join(os.path.dirname(__file__), "paid_reports.json")
 INVOICES_PATH = os.path.join(os.path.dirname(__file__), "invoices.json")
+CREATOR_APPLICATIONS_PATH = os.path.join(os.path.dirname(__file__), "creator_applications.json")
 PAYMENT_AMOUNT_USDC = float(os.getenv("QMA_PAYMENT_AMOUNT_USDC", os.getenv("QMA_PRICE_FULL_USDC", "0.005")))
 PAYMENT_RESOURCE_TYPE = os.getenv("QMA_PAYMENT_RESOURCE_TYPE", "qma_signal_report")
 PAYMENT_NETWORK = os.getenv("QMA_PAYMENT_NETWORK", "eip155:5042002")
@@ -93,6 +95,9 @@ ARC_GATEWAY_WALLET = os.getenv("QMA_ARC_GATEWAY_WALLET", "0x0077777d7EBA4688BDeF
 INVOICE_TTL_SECONDS = int(os.getenv("QMA_INVOICE_TTL_SECONDS", "900"))
 ACCESS_TOKEN_TTL_SECONDS = int(os.getenv("QMA_ACCESS_TOKEN_TTL_SECONDS", "300"))
 ACCESS_TOKEN_SECRET = os.getenv("QMA_ACCESS_TOKEN_SECRET") or os.getenv("QMA_SESSION_SECRET") or "qma-local-demo-secret-change-me"
+ADMIN_TOKEN = os.getenv("QMA_ADMIN_TOKEN", "")
+RATE_LIMIT_ENABLED = os.getenv("QMA_RATE_LIMIT_ENABLED", "true").lower() not in ("false", "0", "no")
+RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("QMA_RATE_LIMIT_WINDOW_SECONDS", "60"))
 # Strict mode: if True, /analyze is blocked until Circle batch is "completed"/"confirmed".
 # Default False = unlock immediately on "received" (x402 UX). Set to "true" in .env for strict.
 REQUIRE_COMPLETED_SETTLEMENT = os.getenv("QMA_REQUIRE_COMPLETED_SETTLEMENT", "false").lower() in ("true", "1", "yes")
@@ -101,7 +106,64 @@ storage_backend = create_storage_backend(
     ledger_path=PAYMENT_LEDGER_PATH,
     reports_path=PAID_REPORTS_PATH,
     invoices_path=INVOICES_PATH,
+    creators_path=CREATOR_APPLICATIONS_PATH,
 )
+
+rate_limit_buckets = defaultdict(deque)
+
+def client_ip_from_request(request: Request) -> str:
+    cf_ip = request.headers.get("cf-connecting-ip")
+    if cf_ip:
+        return cf_ip.strip()
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",", 1)[0].strip()
+    return request.client.host if request.client else "unknown"
+
+def rate_limit_for_path(path: str) -> tuple[str, int]:
+    if path.startswith("/api/v1/payment/verify"):
+        return "payment_verify", int(os.getenv("QMA_RATE_LIMIT_PAYMENT_VERIFY_PER_MIN", "8"))
+    if path.startswith("/api/v1/payment/invoice"):
+        return "payment_invoice", int(os.getenv("QMA_RATE_LIMIT_INVOICE_PER_MIN", "20"))
+    if path.startswith("/api/v1/providers/") and (path.endswith("/preview") or path.endswith("/full-report")):
+        return "paid_report", int(os.getenv("QMA_RATE_LIMIT_REPORT_PER_MIN", "30"))
+    if path.startswith("/api/v1/preview") or path.startswith("/api/v1/analyze"):
+        return "paid_report", int(os.getenv("QMA_RATE_LIMIT_REPORT_PER_MIN", "30"))
+    if path.startswith("/api/v1/live-anomalies") or path.startswith("/api/v1/agent/recommendations"):
+        return "public_market", int(os.getenv("QMA_RATE_LIMIT_PUBLIC_MARKET_PER_MIN", "120"))
+    if path.startswith("/api/v1/creators/apply"):
+        return "creator_apply", int(os.getenv("QMA_RATE_LIMIT_CREATOR_APPLY_PER_MIN", "6"))
+    if path.startswith("/api/v1/"):
+        return "api_default", int(os.getenv("QMA_RATE_LIMIT_API_DEFAULT_PER_MIN", "240"))
+    return "html", 0
+
+@app.middleware("http")
+async def qma_rate_limit_middleware(request: Request, call_next):
+    if not RATE_LIMIT_ENABLED or request.method == "OPTIONS":
+        return await call_next(request)
+    scope, limit = rate_limit_for_path(request.url.path)
+    if limit <= 0:
+        return await call_next(request)
+    now = time.time()
+    key = f"{scope}:{client_ip_from_request(request)}"
+    bucket = rate_limit_buckets[key]
+    while bucket and now - bucket[0] > RATE_LIMIT_WINDOW_SECONDS:
+        bucket.popleft()
+    if len(bucket) >= limit:
+        retry_after = max(1, int(RATE_LIMIT_WINDOW_SECONDS - (now - bucket[0])))
+        return JSONResponse(
+            status_code=429,
+            content={
+                "detail": "rate_limited",
+                "scope": scope,
+                "limit": limit,
+                "window_seconds": RATE_LIMIT_WINDOW_SECONDS,
+                "retry_after_seconds": retry_after,
+            },
+            headers={"Retry-After": str(retry_after)},
+        )
+    bucket.append(now)
+    return await call_next(request)
 
 def load_payment_ledger() -> list:
     try:
@@ -146,8 +208,24 @@ def save_invoice(invoice: dict) -> None:
     except Exception as exc:
         logger.warning(f"Could not save invoice: {exc}")
 
+def load_creator_applications() -> dict:
+    try:
+        return storage_backend.load_creator_applications()
+    except Exception as exc:
+        logger.warning(f"Could not load creator applications: {exc}")
+        return {}
+
+def save_creator_application(application: dict) -> bool:
+    try:
+        storage_backend.save_creator_application(application)
+        return True
+    except Exception as exc:
+        logger.warning(f"Could not save creator application: {exc}")
+        return False
+
 # format: {invoice_id: {"status": "pending"|"paid", "created_at": float, "symbol": str}}
 invoices_db: Dict[str, dict] = load_invoices()
+creator_applications: Dict[str, dict] = load_creator_applications()
 
 def reload_persistent_state(include_invoices: bool = False) -> None:
     global payment_events, paid_reports, invoices_db
@@ -155,6 +233,7 @@ def reload_persistent_state(include_invoices: bool = False) -> None:
     paid_reports = load_paid_reports()
     if include_invoices:
         invoices_db = load_invoices()
+    creator_applications.update(load_creator_applications())
 
 # Simple Cache for Live MEXC Anomalies
 live_anomalies_cache = {
@@ -184,6 +263,23 @@ class PaymentVerifyRequest(BaseModel):
     invoice_secret: str = Field(..., min_length=16)
     payer_address: Optional[str] = None
     amount_usdc: Optional[float] = None
+
+class CreatorApplicationRequest(BaseModel):
+    creator_wallet: str = Field(..., min_length=8, max_length=80)
+    provider_id: str = Field(..., min_length=3, max_length=64, pattern="^[a-z0-9_\\-]+$")
+    provider_name: str = Field(..., min_length=3, max_length=120)
+    contact: str = Field(..., min_length=3, max_length=160)
+    category: str = Field(default="market_memory", max_length=64)
+    description: str = Field(..., min_length=20, max_length=800)
+    data_source: str = Field(..., min_length=3, max_length=240)
+    api_base_url: Optional[str] = Field(default=None, max_length=240)
+    sample_schema: Optional[str] = Field(default=None, max_length=1200)
+    revenue_wallet: Optional[str] = Field(default=None, max_length=80)
+    revenue_share_bps: int = Field(default=8000, ge=1000, le=9500)
+
+class CreatorReviewRequest(BaseModel):
+    status: str = Field(..., pattern="^(approved|rejected|needs_changes|pending)$")
+    admin_note: Optional[str] = Field(default=None, max_length=600)
 
 def model_to_dict(model: BaseModel) -> dict:
     if hasattr(model, "model_dump"):
@@ -553,17 +649,23 @@ def serve_html_file(filename: str, fallback: str, status_code: int = 200):
 @app.get("/", response_class=HTMLResponse)
 def get_landing():
     """Serves the short Lepton landing page."""
-    return serve_html_file("index.html", "<h1>QMA Landing File not found</h1>", status_code=404)
+    return serve_html_file("pages/index.html", "<h1>QMA Landing File not found</h1>", status_code=404)
 
 @app.get("/app", response_class=HTMLResponse)
 def get_app():
     """Serves the front-end dashboard UI."""
-    return serve_html_file("app.html", "<h1>QMA UI File not found</h1>", status_code=404)
+    return serve_html_file("pages/app.html", "<h1>QMA UI File not found</h1>", status_code=404)
+
 
 @app.get("/user", response_class=HTMLResponse)
 def get_user_profile():
     """Serves the wallet profile/history UI."""
-    return serve_html_file("user.html", "<h1>QMA User Profile File not found</h1>", status_code=404)
+    return serve_html_file("pages/user.html", "<h1>QMA User Profile File not found</h1>", status_code=404)
+
+@app.get("/marketplace", response_class=HTMLResponse)
+def get_marketplace():
+    """Serves the creator/provider marketplace UI."""
+    return serve_html_file("pages/marketplace.html", "<h1>QMA Marketplace File not found</h1>", status_code=404)
 
 @app.get("/api/v1/health")
 def get_health():
@@ -607,12 +709,94 @@ def get_provider_or_404(provider_id: str):
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Unknown intelligence provider: {provider_id}")
 
+def require_admin_token(x_qma_admin_token: Optional[str] = None):
+    if ADMIN_TOKEN and not hmac.compare_digest(str(x_qma_admin_token or ""), ADMIN_TOKEN):
+        raise HTTPException(status_code=403, detail="Admin token required.")
+    return True
+
+def payment_events_for_provider(provider_id: str) -> list:
+    reload_persistent_state()
+    paid_invoices = [
+        invoice for invoice in invoices_db.values()
+        if invoice.get("status") == "paid"
+        and invoice.get("provider_id", "funding_memory") == provider_id
+        and invoice.get("settlement_id")
+    ]
+    events = [
+        event for event in payment_events
+        if event.get("provider_id", "funding_memory") == provider_id
+    ]
+    for invoice in paid_invoices:
+        if not any(event.get("settlement_id") == invoice.get("settlement_id") for event in events):
+            events.append({
+                "invoice_id": invoice.get("invoice_id"),
+                "symbol": invoice.get("symbol"),
+                "provider_id": invoice.get("provider_id", "funding_memory"),
+                "provider_owner_wallet": invoice.get("owner_wallet"),
+                "buyer_type": invoice.get("buyer_type", "human"),
+                "tier": invoice.get("tier", "full"),
+                "payer_address": invoice.get("payer_address"),
+                "amount_usdc": invoice.get("amount"),
+                "settlement_id": invoice.get("settlement_id"),
+                "gateway_status": invoice.get("gateway_status"),
+                "transaction_hash": invoice.get("transaction_hash"),
+                "explorer_url": invoice.get("explorer_url"),
+                "paid_at": invoice.get("paid_at"),
+            })
+    unique = {}
+    for event in events:
+        key = event.get("settlement_id") or event.get("invoice_id")
+        if key:
+            unique[key] = {**unique.get(key, {}), **event}
+    return sorted(unique.values(), key=lambda item: item.get("paid_at") or 0, reverse=True)
+
+def build_provider_stats(provider_id: str) -> dict:
+    provider = get_provider_or_404(provider_id)
+    events = payment_events_for_provider(provider_id)
+    revenue = sum(float(event.get("amount_usdc") or 0) for event in events)
+    share_bps = int(getattr(provider, "revenue_share_bps", 8000))
+    tier_counts = {"preview": 0, "full": 0}
+    buyer_type_counts = {"human": 0, "agent": 0}
+    top_symbols = {}
+    for event in events:
+        tier = paid_kit.normalize_tier(event.get("tier") or "full")
+        tier_counts[tier] = tier_counts.get(tier, 0) + 1
+        buyer_type = event.get("buyer_type", "human")
+        buyer_type_counts[buyer_type] = buyer_type_counts.get(buyer_type, 0) + 1
+        if event.get("symbol"):
+            top_symbols[event["symbol"]] = top_symbols.get(event["symbol"], 0) + 1
+    return {
+        "provider_id": provider_id,
+        "provider_name": provider.provider_name,
+        "owner_wallet": provider.owner_wallet,
+        "status": getattr(provider, "status", "approved"),
+        "payments": len(events),
+        "revenue_usdc": round(revenue, 6),
+        "creator_share_bps": share_bps,
+        "creator_earned_usdc": round(revenue * share_bps / 10000, 6),
+        "platform_fee_usdc": round(revenue * (10000 - share_bps) / 10000, 6),
+        "tier_counts": tier_counts,
+        "buyer_type_counts": buyer_type_counts,
+        "top_symbols": sorted(
+            [{"symbol": symbol, "payments": count} for symbol, count in top_symbols.items()],
+            key=lambda item: item["payments"],
+            reverse=True,
+        )[:8],
+        "recent_payments": events[:10],
+    }
+
 @app.get("/api/v1/providers")
 def list_providers():
     """Lists paid intelligence providers available to human users and external agents."""
     return {
         "status": "success",
-        "providers": provider_registry.list(),
+        "providers": [
+            {
+                **provider,
+                "stats": build_provider_stats(provider["provider_id"]),
+            }
+            for provider in provider_registry.list()
+        ],
     }
 
 @app.get("/api/v1/providers/{provider_id}")
@@ -621,6 +805,88 @@ def get_provider(provider_id: str):
     return {
         "status": "success",
         "provider": get_provider_or_404(provider_id).metadata(),
+    }
+
+@app.get("/api/v1/providers/{provider_id}/stats")
+def get_provider_stats(provider_id: str):
+    """Returns creator-facing sales, revenue split, and recent payment stats for one provider."""
+    return {
+        "status": "success",
+        "stats": build_provider_stats(provider_id),
+    }
+
+@app.post("/api/v1/creators/apply")
+def apply_creator_provider(req: CreatorApplicationRequest):
+    """Submits a new creator/provider application for admin review."""
+    payload = model_to_dict(req)
+    application_id = f"creator_{hashlib.sha256((payload['provider_id'] + payload['creator_wallet'] + str(time.time())).encode()).hexdigest()[:12]}"
+    now = time.time()
+    application = {
+        **payload,
+        "application_id": application_id,
+        "creator_wallet": normalize_address(payload.get("creator_wallet")),
+        "revenue_wallet": normalize_address(payload.get("revenue_wallet") or payload.get("creator_wallet")),
+        "status": "pending",
+        "created_at": now,
+        "updated_at": now,
+        "reviewed_at": None,
+        "admin_note": None,
+    }
+    creator_applications[application_id] = application
+    if not save_creator_application(application):
+        raise HTTPException(status_code=503, detail="Creator application storage is not configured. Run the Supabase migration or use JSON storage locally.")
+    return {
+        "status": "success",
+        "message": "Creator provider application submitted for review.",
+        "application": application,
+    }
+
+@app.get("/api/v1/creators/applications")
+def list_creator_applications(
+    wallet: Optional[str] = Query(default=None),
+    status_filter: Optional[str] = Query(default=None, alias="status"),
+    x_qma_admin_token: Optional[str] = Header(default=None),
+):
+    """Lists creator applications. Wallet can read its own; admin can read all."""
+    reload_persistent_state()
+    is_admin = bool(ADMIN_TOKEN and hmac.compare_digest(str(x_qma_admin_token or ""), ADMIN_TOKEN))
+    if not wallet and not is_admin:
+        raise HTTPException(status_code=403, detail="Pass wallet=0x... or admin token.")
+    normalized_wallet = normalize_address(wallet)
+    records = list(load_creator_applications().values())
+    if wallet and not is_admin:
+        records = [item for item in records if normalize_address(item.get("creator_wallet")) == normalized_wallet]
+    if status_filter:
+        records = [item for item in records if item.get("status") == status_filter]
+    records = sorted(records, key=lambda item: item.get("created_at") or 0, reverse=True)
+    return {
+        "status": "success",
+        "count": len(records),
+        "applications": records[:100],
+    }
+
+@app.post("/api/v1/creators/applications/{application_id}/review")
+def review_creator_application(
+    application_id: str,
+    req: CreatorReviewRequest,
+    x_qma_admin_token: Optional[str] = Header(default=None),
+):
+    """Admin review endpoint for marketplace provider applications."""
+    require_admin_token(x_qma_admin_token)
+    applications = load_creator_applications()
+    application = applications.get(application_id)
+    if not application:
+        raise HTTPException(status_code=404, detail="Creator application not found.")
+    application["status"] = req.status
+    application["admin_note"] = req.admin_note
+    application["reviewed_at"] = time.time()
+    application["updated_at"] = application["reviewed_at"]
+    creator_applications[application_id] = application
+    if not save_creator_application(application):
+        raise HTTPException(status_code=503, detail="Creator application storage is not configured.")
+    return {
+        "status": "success",
+        "application": application,
     }
 
 @app.get("/api/v1/metrics")

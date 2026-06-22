@@ -97,9 +97,27 @@ create index if not exists qma_invoices_created_at_idx
 create index if not exists qma_invoices_payer_idx
   on public.qma_invoices (payer_address, created_at desc);
 
+create table if not exists public.qma_creator_applications (
+  application_id text primary key,
+  creator_wallet text,
+  provider_id text,
+  status text default 'pending',
+  created_at double precision,
+  updated_at double precision,
+  application jsonb not null,
+  inserted_at timestamptz not null default now()
+);
+
+create index if not exists qma_creator_applications_wallet_idx
+  on public.qma_creator_applications (creator_wallet, created_at desc);
+
+create index if not exists qma_creator_applications_status_idx
+  on public.qma_creator_applications (status, created_at desc);
+
 alter table public.qma_payment_events enable row level security;
 alter table public.qma_paid_reports enable row level security;
 alter table public.qma_invoices enable row level security;
+alter table public.qma_creator_applications enable row level security;
 ```
 
 There are no public RLS policies on purpose. The FastAPI backend uses the service role key, which bypasses RLS. Browser clients should not query these tables directly yet.
@@ -174,6 +192,7 @@ If the env vars are missing, QMA falls back to local JSON:
 - payment events are saved after Circle settlement verification.
 - paid report entitlements are saved after preview/full report unlock.
 - metrics/profile endpoints reload persisted state before responding.
+- creator/provider marketplace applications are saved for admin review.
 
 `scripts/migrate_json_to_supabase.py`
 
@@ -195,3 +214,5 @@ After the hackathon, the next clean steps are:
 - move provider marketplace records from code into Supabase
 - add RLS policies for user-owned reads if frontend starts querying Supabase directly
 - add admin views for revenue, unique wallets, top providers, and top purchased symbols
+- move approved provider records from code into a database-backed provider registry
+- add provider withdraw accounting and payout automation

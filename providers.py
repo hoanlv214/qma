@@ -18,6 +18,9 @@ class IntelligenceProvider(ABC):
     provider_name: str
     description: str
     owner_wallet: str
+    category: str = "market_memory"
+    status: str = "approved"
+    revenue_share_bps: int = 8000
 
     def __init__(self, *, owner_wallet: str):
         self.owner_wallet = owner_wallet
@@ -53,6 +56,9 @@ class IntelligenceProvider(ABC):
             "provider_name": self.provider_name,
             "description": self.description,
             "owner_wallet": self.owner_wallet,
+            "category": self.category,
+            "status": self.status,
+            "revenue_share_bps": self.revenue_share_bps,
             "pricing": self.get_pricing(),
             "supported_report_types": ["preview", "full"],
             "resource_types": ["qma_signal_report"],
@@ -105,6 +111,7 @@ def build_preview_from_full(full_report: dict) -> dict:
 class FundingMemoryProvider(IntelligenceProvider):
     provider_id = "funding_memory"
     provider_name = "Funding Memory Provider"
+    category = "funding_memory"
     description = (
         "MEXC futures funding anomaly memory. Matches a live token snapshot "
         "against historical negative-funding events and returns regime analogs."
@@ -149,6 +156,68 @@ class FundingMemoryProvider(IntelligenceProvider):
         return build_preview_from_full(self.full_report(query))
 
 
+class OpenInterestMemoryProvider(IntelligenceProvider):
+    provider_id = "oi_memory"
+    provider_name = "Open Interest Memory Provider"
+    category = "open_interest_memory"
+    status = "experimental"
+    description = (
+        "Experimental provider that reuses the QMA analog engine while emphasizing "
+        "turnover/open-interest context from the live anomaly snapshot."
+    )
+
+    def __init__(self, *, engine: Optional[QMAEngine] = None, owner_wallet: str):
+        super().__init__(owner_wallet=owner_wallet)
+        self.engine = engine or QMAEngine()
+
+    def get_input_schema(self) -> dict:
+        return {
+            "type": "object",
+            "required": ["symbol", "fundingRate", "marketCap", "FDV", "circRatio", "fromATH", "volume24h"],
+            "properties": {
+                "symbol": {"type": "string"},
+                "fundingRate": {"type": "number"},
+                "marketCap": {"type": "number"},
+                "FDV": {"type": "number"},
+                "circRatio": {"type": "number"},
+                "fromATH": {"type": "number"},
+                "volume24h": {"type": "number"},
+                "amount": {"type": "number", "description": "Open-interest or turnover proxy."},
+            },
+        }
+
+    def get_output_schema(self) -> dict:
+        return {
+            "preview": {
+                "type": "object",
+                "fields": ["query_symbol", "provider_note", "win_rate_band", "top_analogs"],
+            },
+            "full": {
+                "type": "object",
+                "fields": ["provider_note", "turnover_context", "analogs", "diagnostics", "invoice"],
+            },
+        }
+
+    def full_report(self, query: dict) -> dict:
+        report = self.engine.analyze_signal(query)
+        volume = float(query.get("volume24h") or 0)
+        market_cap = max(float(query.get("marketCap") or 0), 1.0)
+        report["provider_note"] = (
+            "Experimental OI Memory provider. The current demo uses live turnover/open-interest "
+            "proxy fields on top of the QMA historical analog engine."
+        )
+        report["turnover_context"] = {
+            "volume_to_market_cap_pct": round((volume / market_cap) * 100, 2),
+            "amount_proxy": query.get("amount"),
+        }
+        return report
+
+    def preview(self, query: dict) -> dict:
+        preview = build_preview_from_full(self.full_report(query))
+        preview["provider_note"] = "Experimental OI Memory preview using turnover/open-interest proxy context."
+        return preview
+
+
 class ProviderRegistry:
     def __init__(self, providers: Dict[str, IntelligenceProvider]):
         self._providers = providers
@@ -168,9 +237,14 @@ class ProviderRegistry:
 
 def create_default_registry(*, engine: QMAEngine, default_owner_wallet: str) -> ProviderRegistry:
     funding_owner = os.getenv("QMA_FUNDING_MEMORY_OWNER_WALLET", default_owner_wallet)
+    oi_owner = os.getenv("QMA_OI_MEMORY_OWNER_WALLET", default_owner_wallet)
     return ProviderRegistry({
         FundingMemoryProvider.provider_id: FundingMemoryProvider(
             engine=engine,
             owner_wallet=funding_owner,
-        )
+        ),
+        OpenInterestMemoryProvider.provider_id: OpenInterestMemoryProvider(
+            engine=engine,
+            owner_wallet=oi_owner,
+        ),
     })

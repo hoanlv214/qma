@@ -11,6 +11,7 @@ __pycache__/
 payment_ledger.json
 paid_reports.json
 invoices.json
+creator_applications.json
 private_data/
 data/full_*.csv
 *.key

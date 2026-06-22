@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>QMA - Paid Market Intelligence Agent</title>
-    <link rel="icon" href="/public/favicon.ico" sizes="any">
+    <link rel="icon" href="/public/assets/favicon.ico" sizes="any">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -18,6 +18,63 @@
             window.QMA_API_BASE_URL = window.QMA_API_BASE_URL || (isLocal ? "" : "https://qma-api.onrender.com");
         })();
     </script>
+    <style>
+        .landing-partners-strip {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            padding: 20px 0;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            margin: 32px 0 48px;
+        }
+        .partners-label {
+            font-family: var(--mono);
+            font-size: 0.72rem;
+            color: var(--t3);
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            white-space: nowrap;
+        }
+        .partners-logos {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .partners-logos a {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 28px;
+            padding: 4px 12px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 6px;
+            transition: all 0.2s ease;
+        }
+        .partners-logos a:hover {
+            border-color: rgba(124, 111, 255, 0.35);
+            background: rgba(124, 111, 255, 0.08);
+            transform: translateY(-1px);
+        }
+        .partners-logos img {
+            max-height: 18px;
+            width: auto;
+            display: block;
+        }
+        @media (max-width: 600px) {
+            .landing-partners-strip {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+                padding: 16px 0;
+            }
+            .partners-logos {
+                gap: 10px;
+            }
+        }
+    </style>
 </head>
 
 <body class="landing-body">
@@ -28,6 +85,7 @@
                 <div class="logo-text">QMA</div>
             </a>
             <div class="landing-nav-links">
+                <a href="/marketplace">Marketplace</a>
                 <a href="/docs" data-api-path="/docs" target="_blank" rel="noopener noreferrer">Docs</a>
                 <a href="https://github.com/hoanlv214/qma" target="_blank" rel="noopener noreferrer">GitHub</a>
                 <a href="/app" class="nav-cta">Launch App</a>
@@ -45,10 +103,100 @@
                 <a class="landing-primary" href="/app" target="_blank" rel="noopener noreferrer">Launch App</a>
                 <a class="landing-secondary" href="/docs" data-api-path="/docs" target="_blank"
                     rel="noopener noreferrer">API Docs</a>
+                <a class="landing-secondary" href="/marketplace">Marketplace</a>
                 <a class="landing-secondary" href="https://github.com/hoanlv214/qma" target="_blank"
                     rel="noopener noreferrer">GitHub</a>
                 <a class="landing-secondary" href="https://faucet.circle.com/" target="_blank"
                     rel="noopener noreferrer">Get Testnet USDC</a>
+            </div>
+        </section>
+
+        <!-- Partner Logos -->
+        <section class="landing-partners-strip">
+            <span class="partners-label">Supported by</span>
+            <div class="partners-logos">
+                <a href="https://thecanteenapp.com/" target="_blank" rel="noopener noreferrer" title="Canteen">
+                    <img src="/public/assets/logos/canteen-logo.png" alt="Canteen">
+                </a>
+                <a href="https://www.circle.com/" target="_blank" rel="noopener noreferrer" title="Circle">
+                    <img src="/public/assets/logos/circle-logo-white.svg" alt="Circle">
+                </a>
+                <a href="https://www.arc.network/" target="_blank" rel="noopener noreferrer" title="Arc Testnet">
+                    <img src="/public/assets/logos/arc-logo-white.svg" alt="Arc Testnet">
+                </a>
+            </div>
+        </section>
+
+        <section class="landing-traction-strip" aria-label="Live QMA testnet traction">
+            <div class="landing-traction-label">
+                <span class="indicator-dot"></span>
+                <span>Live Testnet Traction</span>
+            </div>
+            <div class="traction-marquee" aria-live="polite">
+                <div class="traction-track" id="traction-track-a">
+                    <div class="traction-item">
+                        <strong data-traction="unique_payers">-</strong>
+                        <span>unique buyer wallets</span>
+                        <em>goal 10</em>
+                    </div>
+                    <div class="traction-item">
+                        <strong data-traction="paid_count">-</strong>
+                        <span>paid report unlocks</span>
+                        <em>Arc testnet</em>
+                    </div>
+                    <div class="traction-item">
+                        <strong data-traction="agent_unlocks">-</strong>
+                        <span>agent API unlocks</span>
+                        <em>external buyers</em>
+                    </div>
+                    <div class="traction-item">
+                        <strong data-traction="revenue_usdc">-</strong>
+                        <span>USDC settled</span>
+                        <em>Circle Gateway</em>
+                    </div>
+                    <div class="traction-item">
+                        <strong data-traction="preview_count">-</strong>
+                        <span>preview unlocks</span>
+                        <em>0.001 USDC</em>
+                    </div>
+                    <div class="traction-item">
+                        <strong data-traction="full_count">-</strong>
+                        <span>full report unlocks</span>
+                        <em>0.005 USDC</em>
+                    </div>
+                </div>
+                <div class="traction-track" id="traction-track-b" aria-hidden="true">
+                    <div class="traction-item">
+                        <strong data-traction="unique_payers">-</strong>
+                        <span>unique buyer wallets</span>
+                        <em>goal 10</em>
+                    </div>
+                    <div class="traction-item">
+                        <strong data-traction="paid_count">-</strong>
+                        <span>paid report unlocks</span>
+                        <em>Arc testnet</em>
+                    </div>
+                    <div class="traction-item">
+                        <strong data-traction="agent_unlocks">-</strong>
+                        <span>agent API unlocks</span>
+                        <em>external buyers</em>
+                    </div>
+                    <div class="traction-item">
+                        <strong data-traction="revenue_usdc">-</strong>
+                        <span>USDC settled</span>
+                        <em>Circle Gateway</em>
+                    </div>
+                    <div class="traction-item">
+                        <strong data-traction="preview_count">-</strong>
+                        <span>preview unlocks</span>
+                        <em>0.001 USDC</em>
+                    </div>
+                    <div class="traction-item">
+                        <strong data-traction="full_count">-</strong>
+                        <span>full report unlocks</span>
+                        <em>0.005 USDC</em>
+                    </div>
+                </div>
             </div>
         </section>
 
@@ -204,6 +352,48 @@
                 link.href = `${base}${link.dataset.apiPath}`;
             });
         }
+
+        function setTractionValue(key, value) {
+            document.querySelectorAll(`[data-traction="${key}"]`).forEach((node) => {
+                node.textContent = value;
+            });
+        }
+
+        function compactNumber(value) {
+            const num = Number(value || 0);
+            return new Intl.NumberFormat("en-US", {
+                notation: num >= 10000 ? "compact" : "standard",
+                maximumFractionDigits: 1,
+            }).format(num);
+        }
+
+        async function loadLandingTraction() {
+            try {
+                const resp = await fetch(`${base}/api/v1/metrics?payment_page_size=1&payer_page_size=1`, {
+                    headers: { "Accept": "application/json" },
+                });
+                if (!resp.ok) throw new Error(`metrics ${resp.status}`);
+                const metrics = await resp.json();
+                const tierCounts = metrics.tier_counts || {};
+                const buyerTypes = metrics.buyer_type_counts || {};
+                setTractionValue("unique_payers", compactNumber(metrics.unique_payers || 0));
+                setTractionValue("paid_count", compactNumber(metrics.paid_count || 0));
+                setTractionValue("agent_unlocks", compactNumber(buyerTypes.agent || 0));
+                setTractionValue("revenue_usdc", `${Number(metrics.revenue_usdc || 0).toFixed(3)}`);
+                setTractionValue("preview_count", compactNumber(tierCounts.preview || 0));
+                setTractionValue("full_count", compactNumber(tierCounts.full || 0));
+            } catch (err) {
+                console.warn("Landing traction unavailable", err);
+                setTractionValue("unique_payers", "0/10");
+                setTractionValue("paid_count", "0");
+                setTractionValue("agent_unlocks", "0");
+                setTractionValue("revenue_usdc", "0.000");
+                setTractionValue("preview_count", "0");
+                setTractionValue("full_count", "0");
+            }
+        }
+
+        loadLandingTraction();
     </script>
 </body>
 

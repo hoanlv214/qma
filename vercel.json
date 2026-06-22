@@ -3,15 +3,19 @@
   "cleanUrls": true,
   "builds": [
     {
-      "src": "index.html",
+      "src": "pages/index.html",
       "use": "@vercel/static"
     },
     {
-      "src": "app.html",
+      "src": "pages/app.html",
       "use": "@vercel/static"
     },
     {
-      "src": "user.html",
+      "src": "pages/user.html",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "pages/marketplace.html",
       "use": "@vercel/static"
     },
     {
@@ -21,12 +25,20 @@
   ],
   "rewrites": [
     {
+      "source": "/",
+      "destination": "/pages/index.html"
+    },
+    {
       "source": "/app",
-      "destination": "/app.html"
+      "destination": "/pages/app.html"
     },
     {
       "source": "/user",
-      "destination": "/user.html"
+      "destination": "/pages/user.html"
+    },
+    {
+      "source": "/marketplace",
+      "destination": "/pages/marketplace.html"
     }
   ]
 }

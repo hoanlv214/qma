@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QMA // Provider Marketplace</title>
+    <link rel="icon" href="/public/assets/favicon.ico" sizes="any">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="/public/styles.css">
+    <script>
+        (() => {
+            const isLocal = ["localhost", "127.0.0.1", "0.0.0.0"].includes(window.location.hostname);
+            window.QMA_API_BASE_URL = window.QMA_API_BASE_URL || (isLocal ? "" : "https://qma-api.onrender.com");
+        })();
+    </script>
+</head>
+
+<body class="marketplace-body">
+    <header>
+        <div class="logo-section">
+            <a href="/" class="logo-item qma-logo-item" title="QMA">
+                <div class="logo-icon">QM</div>
+                <div class="logo-text">QMA</div>
+            </a>
+            <a href="/app" class="header-link">Launch App</a>
+            <a href="/user" class="header-link">Wallet History</a>
+            <a href="/docs" data-api-path="/docs" target="_blank" rel="noopener noreferrer" class="header-link">API</a>
+            <span class="logo-tag">Marketplace</span>
+        </div>
+        <div class="status-indicators">
+            <div class="indicator">
+                <span class="indicator-dot"></span>
+                <span>Provider Registry</span>
+            </div>
+            <button type="button" class="wallet-button" id="market-connect-btn">Connect Creator Wallet</button>
+        </div>
+    </header>
+
+    <main class="marketplace-shell">
+        <section class="marketplace-hero">
+            <div>
+                <div class="landing-kicker">Paid Intelligence Marketplace</div>
+                <h1>Creators sell market memory as provider APIs.</h1>
+                <p>
+                    QMA users and agents choose a provider, pay a tiered Arc USDC invoice,
+                    and unlock wallet-bound reports. Creators get tracked sales, revenue share,
+                    and a path to withdrawable provider balances.
+                </p>
+            </div>
+            <div class="marketplace-summary">
+                <div><span>Payment rail</span><strong>Circle Gateway / x402</strong></div>
+                <div><span>Network</span><strong>Arc Testnet USDC</strong></div>
+                <div><span>Default split</span><strong>80% creator / 20% platform</strong></div>
+                <div><span>Review mode</span><strong>Admin approved providers</strong></div>
+            </div>
+        </section>
+
+        <section class="marketplace-layout">
+            <div class="marketplace-section">
+                <div class="marketplace-section-head">
+                    <div>
+                        <span class="sidebar-title">Live Providers</span>
+                        <p>Approved and experimental creators available to QMA invoices.</p>
+                    </div>
+                    <a class="landing-secondary" href="/app">Buy Reports</a>
+                </div>
+                <div class="marketplace-provider-grid" id="marketplace-provider-list">
+                    <div class="agent-empty">Loading providers...</div>
+                </div>
+            </div>
+
+            <aside class="marketplace-section creator-apply-card">
+                <div class="marketplace-section-head">
+                    <div>
+                        <span class="sidebar-title">Apply as Creator</span>
+                        <p>Submit a dataset/API provider. Admin reviews source, schema, sample output, and wallet.</p>
+                    </div>
+                </div>
+                <form id="creator-application-form" class="creator-form">
+                    <label>
+                        Creator wallet
+                        <input class="form-input" id="creator-wallet" name="creator_wallet" required placeholder="0x...">
+                    </label>
+                    <label>
+                        Provider ID
+                        <input class="form-input" name="provider_id" required placeholder="whale_memory">
+                    </label>
+                    <label>
+                        Provider name
+                        <input class="form-input" name="provider_name" required placeholder="Whale Memory Provider">
+                    </label>
+                    <label>
+                        Contact
+                        <input class="form-input" name="contact" required placeholder="Discord, Telegram, or email">
+                    </label>
+                    <label>
+                        Data source
+                        <input class="form-input" name="data_source" required placeholder="Exchange API, on-chain indexer, private dataset...">
+                    </label>
+                    <label>
+                        API base URL
+                        <input class="form-input" name="api_base_url" placeholder="https://provider.example.com">
+                    </label>
+                    <label>
+                        Description
+                        <textarea class="form-input" name="description" required rows="4" placeholder="What signal/data does this provider sell?"></textarea>
+                    </label>
+                    <label>
+                        Sample schema or response
+                        <textarea class="form-input" name="sample_schema" rows="4" placeholder='{"symbol":"HYPE","confidence":0.72}'></textarea>
+                    </label>
+                    <label>
+                        Creator share
+                        <select class="form-input" name="revenue_share_bps">
+                            <option value="8000">80% creator / 20% platform</option>
+                            <option value="7000">70% creator / 30% platform</option>
+                            <option value="9000">90% creator / 10% platform</option>
+                        </select>
+                    </label>
+                    <button type="submit" class="submit-btn">Submit for Review</button>
+                    <div class="creator-form-status" id="creator-form-status"></div>
+                </form>
+            </aside>
+        </section>
+    </main>
+
+    <script src="/public/marketplace.js" defer></script>
+</body>
+
+</html>

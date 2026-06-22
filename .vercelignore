@@ -6,18 +6,18 @@ qma_engine.py
 providers.py
 requirements.txt
 render.yaml
-ARC_PAYMENT.md
-LEPTON_DEMO.md
-docs.md
 README.md
+storage.py
 
 paid_intelligence_kit/
 arc_gateway/
 data/
+docs/
+examples/
 private_data/
+scripts/
 
-# Serve files directly from root
-# index.html, app.html, user.html, and public/ are deployed to Vercel.
+# Serve files directly from pages/ and public/.
 
 .env
 .env.*

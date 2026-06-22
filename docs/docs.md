@@ -90,23 +90,35 @@ qma/
   main.py                 FastAPI app, payment verification, metrics, report API
   providers.py            Provider interface, registry, FundingMemoryProvider
   qma_engine.py           Quant retrieval engine
-  landing.html            Short Lepton landing page served at /
-  index.html              UI shell served by FastAPI
+  storage.py              JSON/Supabase persistence backend
+  pages/
+    index.html            Short Lepton landing page served at /
+    app.html              QMA dashboard served at /app
+    user.html             Wallet history page served at /user
+    marketplace.html      Provider marketplace served at /marketplace
   public/
     app.js                Frontend state, wallet, payment, profile, report rendering
+    user.js               Wallet profile page logic
+    marketplace.js        Provider marketplace page logic
     styles.css            Terminal UI styles
+    design_styles.css     Dashboard redesign overrides
+    assets/               Favicon and partner logos
   arc_gateway/
     server.ts             Circle x402 batching sidecar
     decode-batch.ts       Batch decode helper
     package.json          Node dependencies and scripts
   paid_intelligence_kit/  Reusable paid API primitives for Arc micropayments
+  docs/
+    ARC_PAYMENT.md        Short Arc/Circle payment notes
+    LEPTON_DEMO.md        Short demo/pitch script for the hackathon
+    SUPABASE.md           Durable persistence setup
+    API_SECURITY.md       Rate limit and API security notes
+    CLOUDFLARE.md         Edge protection setup
   data/
     sample_funding_historical_analysis.csv
     sample_trading_analysis.csv
   payment_ledger.json     Local verified payment ledger
   paid_reports.json       Local paid entitlement/report store
-  ARC_PAYMENT.md          Short Arc/Circle payment notes
-  LEPTON_DEMO.md          Short demo/pitch script for the hackathon
   .env.example            Example local environment
   .gitignore              Ignores secrets/logs/local runtime files
 ```
