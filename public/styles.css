@@ -1606,8 +1606,6 @@ header {
 
 /* ===== PAYWALL ===== */
 .paywall-overlay {
-    position: absolute;
-    inset: 0;
     z-index: 5;
     background: rgba(6, 8, 15, 0.85);
     backdrop-filter: blur(16px);
