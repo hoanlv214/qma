@@ -3,19 +3,19 @@
   "cleanUrls": true,
   "builds": [
     {
-      "src": "pages/index.html",
+      "src": "index.html",
       "use": "@vercel/static"
     },
     {
-      "src": "pages/app.html",
+      "src": "app.html",
       "use": "@vercel/static"
     },
     {
-      "src": "pages/user.html",
+      "src": "user.html",
       "use": "@vercel/static"
     },
     {
-      "src": "pages/marketplace.html",
+      "src": "marketplace.html",
       "use": "@vercel/static"
     },
     {
@@ -26,19 +26,19 @@
   "routes": [
     {
       "src": "/",
-      "dest": "/pages/index.html"
+      "dest": "/index.html"
     },
     {
       "src": "/app",
-      "dest": "/pages/app.html"
+      "dest": "/app.html"
     },
     {
       "src": "/user",
-      "dest": "/pages/user.html"
+      "dest": "/user.html"
     },
     {
       "src": "/marketplace",
-      "dest": "/pages/marketplace.html"
+      "dest": "/marketplace.html"
     },
     {
       "src": "/public/(.*)",
