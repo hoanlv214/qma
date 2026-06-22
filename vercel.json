@@ -23,22 +23,26 @@
       "use": "@vercel/static"
     }
   ],
-  "rewrites": [
+  "routes": [
     {
-      "source": "/",
-      "destination": "/pages/index.html"
+      "src": "/",
+      "dest": "/pages/index.html"
     },
     {
-      "source": "/app",
-      "destination": "/pages/app.html"
+      "src": "/app",
+      "dest": "/pages/app.html"
     },
     {
-      "source": "/user",
-      "destination": "/pages/user.html"
+      "src": "/user",
+      "dest": "/pages/user.html"
     },
     {
-      "source": "/marketplace",
-      "destination": "/pages/marketplace.html"
+      "src": "/marketplace",
+      "dest": "/pages/marketplace.html"
+    },
+    {
+      "src": "/public/(.*)",
+      "dest": "/public/$1"
     }
   ]
 }
