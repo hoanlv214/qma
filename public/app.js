@@ -979,7 +979,8 @@ function updateWalletUi() {
     const isConnected = Boolean(connectedWallet);
     walletButton.classList.toggle('connected', isConnected);
     walletButtonLabel.textContent = isConnected ? shortAddress(connectedWallet) : 'Connect Wallet';
-    walletMenuAddress.textContent = isConnected ? connectedWallet : 'Not connected';
+    walletMenuAddress.textContent = isConnected ? shortAddress(connectedWallet) : 'Not connected';
+    walletMenuAddress.title = isConnected ? connectedWallet : '';
     walletProfileBtn.disabled = !isConnected;
     if (walletQuickProfileBtn) walletQuickProfileBtn.disabled = !isConnected;
     walletDisconnectBtn.disabled = !isConnected;
@@ -987,14 +988,14 @@ function updateWalletUi() {
     // Copy button visibility
     const copyBtn = document.getElementById('wallet-copy-btn');
     if (copyBtn) {
-        copyBtn.style.display = isConnected ? 'block' : 'none';
+        copyBtn.style.display = isConnected ? 'inline-flex' : 'none';
     }
 
     // Show withdraw button inside dropdown ONLY if connected as seller
     const isSeller = isConnected && sellerWalletAddress && sameAddress(connectedWallet, sellerWalletAddress);
     const withdrawMenuBtn = document.getElementById('wallet-withdraw-menu-btn');
     if (withdrawMenuBtn) {
-        withdrawMenuBtn.style.display = isSeller ? 'block' : 'none';
+        withdrawMenuBtn.style.display = isSeller ? 'flex' : 'none';
     }
 }
 
@@ -3008,10 +3009,11 @@ if (copyBtn) {
         if (!connectedWallet) return;
         try {
             await navigator.clipboard.writeText(connectedWallet);
-            const originalText = copyBtn.textContent;
-            copyBtn.textContent = 'Copied!';
+            copyBtn.classList.add('copied');
+            copyBtn.title = 'Copied!';
             setTimeout(() => {
-                copyBtn.textContent = originalText;
+                copyBtn.classList.remove('copied');
+                copyBtn.title = 'Copy address';
             }, 2000);
         } catch (err) {
             console.error('Failed to copy address', err);
