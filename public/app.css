@@ -286,6 +286,20 @@ body.basic-view .basic-only {
     display: block;
 }
 
+/* Simple mode: hide raw feature stats on sidebar cards */
+body.basic-view .anomaly-card .card-stats,
+body.basic-view .anomaly-card .card-funding {
+    display: none !important;
+}
+
+body.basic-view .agent-pick-score {
+    display: none;
+}
+
+body.basic-view .agent-pick-meta-row {
+    margin-top: 8px;
+}
+
 body.advanced-view .basic-only {
     display: none !important;
 }

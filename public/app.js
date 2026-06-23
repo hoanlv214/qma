@@ -496,7 +496,7 @@ function tierPrice(tier = 'full') {
 let quoteRefreshTimer = null;
 
 async function refreshQuotedPrices(query = null) {
-    const payload = query || activeQuery || getFormQuery();
+    const payload = query || activeQuery || resolveActiveQuery();
     if (!payload?.symbol) return;
     try {
         const tiers = ['preview', 'full'];
@@ -561,10 +561,15 @@ function updateTierPriceLabels() {
     });
 }
 
-function formatFundingPlain(rate) {
+function formatFundingPlain(rate, { includeNumbers = true } = {}) {
     if (!Number.isFinite(rate)) return 'funding data unavailable';
     const pct = Math.abs(rate * 100);
     const signed = rate < 0 ? 'negative' : 'positive';
+    if (!includeNumbers) {
+        if (pct >= 0.5) return `very ${signed} funding`;
+        if (pct >= 0.1) return `notable ${signed} funding`;
+        return `${signed} funding`;
+    }
     if (pct >= 0.5) return `very ${signed} funding (${pct.toFixed(2)}% per period)`;
     if (pct >= 0.1) return `notable ${signed} funding (${pct.toFixed(2)}% per period)`;
     return `${signed} funding (${pct.toFixed(2)}% per period)`;
@@ -578,23 +583,22 @@ function updateBasicSignalCard(source = null) {
 
     let payload;
     try {
-        payload = normalizeSignalPayload(source || activeQuery || getFormQuery());
+        payload = normalizeSignalPayload(source || activeQuery || resolveActiveQuery());
     } catch (err) {
         return;
     }
 
     const symbol = payload.symbol || '—';
-    const fundingText = formatFundingPlain(payload.fundingRate);
-    const mcap = Number.isFinite(payload.marketCap) ? `$${formatCompact(payload.marketCap)} market cap` : 'market cap n/a';
+    const fundingText = formatFundingPlain(payload.fundingRate, { includeNumbers: false });
     const previewPrice = tierPrice('preview');
     const fullPrice = tierPrice('full');
 
     symbolEl.textContent = symbol;
-    leadEl.textContent = `${symbol} currently shows ${fundingText}. QMA compares this exact snapshot to similar historical funding events.`;
+    leadEl.textContent = `${symbol} currently shows ${fundingText}. QMA compares this snapshot with similar historical funding events.`;
     const priceHint = previewPrice != null && fullPrice != null
-        ? `Summary from ${previewPrice.toFixed(3)} USDC · Full report from ${fullPrice.toFixed(3)} USDC.`
+        ? `Summary from ${previewPrice.toFixed(3)} USDC. Full report from ${fullPrice.toFixed(3)} USDC.`
         : 'Pay once per exact snapshot. No subscription.';
-    metaEl.textContent = `${mcap}. ${priceHint}`;
+    metaEl.textContent = priceHint;
 }
 
 function updatePaywallCopyForViewMode() {
@@ -623,6 +627,13 @@ function setViewMode(mode = 'basic') {
     document.body.classList.toggle('basic-view', normalized !== 'advanced');
     if (normalized === 'advanced') {
         document.body.classList.remove('basic-show-fields');
+        if (activeQuery) {
+            syncFormFromSignal(activeQuery);
+        }
+    } else {
+        document.body.classList.remove('basic-show-fields');
+        const toggleBtn = document.getElementById('basic-toggle-fields-btn');
+        if (toggleBtn) toggleBtn.textContent = 'Edit technical fields';
     }
     try {
         localStorage.setItem('qma_view_mode', normalized);
@@ -706,6 +717,32 @@ function signalSummary(source = {}) {
     return `${payload.symbol || 'n/a'} · Funding ${funding} · MCap ${mcap}`;
 }
 
+function signalPlainLabel(source = {}) {
+    const payload = normalizeSignalPayload(source);
+    const fundingText = formatFundingPlain(payload.fundingRate, { includeNumbers: false });
+    return `${payload.symbol || 'n/a'} — ${fundingText}`;
+}
+
+function displaySignalLabel(source = {}) {
+    return isBasicView() ? signalPlainLabel(source) : signalSummary(source);
+}
+
+function entitlementBadgeForSignal(signal) {
+    const normalized = normalizeSignalPayload(signal);
+    const cachedEntry = getCachedReport(normalized, 'full') || getCachedReport(normalized, 'preview');
+    const isPaid = Boolean(cachedEntry?.report);
+    const historyEntries = isPaid ? [] : getCachedReportsForSymbol(normalized.symbol);
+    const hasHistory = historyEntries.length > 0;
+    return {
+        badgeClass: isPaid ? 'paid' : hasHistory ? 'history' : 'unpaid',
+        badgeText: isPaid ? paidBadgeText(cachedEntry) : hasHistory ? 'Paid History' : 'Pay to Unlock',
+        cachedEntry,
+        historyEntries,
+        isPaid,
+        hasHistory,
+    };
+}
+
 function getCachedReport(source, tier = 'full') {
     try {
         if (!walletCacheScope()) return null;
@@ -778,8 +815,11 @@ function getCachedReportsForSymbol(symbol) {
 }
 
 function paidBadgeText(entry) {
-    if (!entry) return 'Pay to unlock';
+    if (!entry) return isBasicView() ? 'Pay to Unlock' : 'Pay to unlock';
     const tier = normalizeTier(entry.tier || entry.report?.tier || entry.report?.invoice?.tier || 'full');
+    if (isBasicView()) {
+        return tier === 'preview' ? 'Paid Summary' : 'Paid Full Report';
+    }
     return tier === 'preview' ? 'Paid Preview' : 'Paid Full';
 }
 
@@ -808,7 +848,43 @@ function updateAnomalyPaidState(signalSource, entry = null) {
             if (metaTime) metaTime.textContent = `Bought ${formatDateTime(cachedEntry.saved_at)}`;
         } else if (hasHistory || isSameSymbol) {
             badge.className = 'signal-badge history';
-            badge.textContent = 'Paid history';
+            badge.textContent = 'Paid History';
+            if (metaTime && historyEntries[0]?.saved_at) {
+                metaTime.textContent = `Last paid ${formatDateTime(historyEntries[0].saved_at)}`;
+            }
+        }
+    });
+
+    updateAgentPickPaidState(signal);
+}
+
+function updateAgentPickPaidState(signalSource, entry = null) {
+    const signal = normalizeSignalPayload(signalSource || activeQuery || {});
+    if (!signal.symbol || !agentPicksContainer) return;
+
+    const cachedEntry = entry || getCachedReport(signal, 'full') || getCachedReport(signal, 'preview');
+    const historyEntries = cachedEntry ? [] : getCachedReportsForSymbol(signal.symbol);
+    const hasHistory = historyEntries.length > 0;
+    const summary = signalSummary(signal);
+
+    agentPicksContainer.querySelectorAll('.agent-pick-card').forEach((card) => {
+        const cardSummary = card.dataset.signalSummary || '';
+        const cardSymbol = card.dataset.symbol || '';
+        const isExact = cardSummary === summary;
+        const isSameSymbol = cardSymbol === signal.symbol;
+        if (!isExact && !isSameSymbol) return;
+
+        const badge = card.querySelector('.signal-badge');
+        const metaTime = card.querySelector('[data-pick-paid-at]');
+        if (!badge) return;
+
+        if (isExact && cachedEntry) {
+            badge.className = 'signal-badge paid';
+            badge.textContent = paidBadgeText(cachedEntry);
+            if (metaTime) metaTime.textContent = `Bought ${formatDateTime(cachedEntry.saved_at)}`;
+        } else if (hasHistory || isSameSymbol) {
+            badge.className = 'signal-badge history';
+            badge.textContent = 'Paid History';
             if (metaTime && historyEntries[0]?.saved_at) {
                 metaTime.textContent = `Last paid ${formatDateTime(historyEntries[0].saved_at)}`;
             }
@@ -1378,7 +1454,7 @@ async function loadLiveAnomalies() {
                         ? `Last paid ${formatDateTime(historyEntries[0].saved_at)}`
                         : `Live ${formatDateTime(data.last_updated)}`;
                 const badgeClass = isPaid ? 'paid' : hasHistory ? 'history' : 'unpaid';
-                const badgeText = isPaid ? paidBadgeText(cachedEntry) : hasHistory ? 'Paid history' : 'Pay to unlock';
+                const badgeText = isPaid ? paidBadgeText(cachedEntry) : hasHistory ? 'Paid History' : 'Pay to Unlock';
 
                 card.innerHTML = `
                             <div class="card-header">
@@ -1429,32 +1505,66 @@ async function loadAgentRecommendations() {
             agentPicksContainer.innerHTML = '<div class="agent-empty">No paid opportunities ranked yet.</div>';
             return;
         }
-        agentPicksContainer.innerHTML = picks.slice(0, 5).map((pick) => `
-            <div class="agent-pick-card" data-symbol="${escapeHtml(pick.symbol)}" data-tier="${escapeHtml(pick.suggested_tier)}">
+        agentPicksContainer.innerHTML = picks.slice(0, 5).map((pick) => {
+            const signal = normalizeSignalPayload(pick.query || { symbol: pick.symbol });
+            const entitlement = entitlementBadgeForSignal(signal);
+            const cardSeenAt = entitlement.cachedEntry?.saved_at
+                ? formatDateTime(entitlement.cachedEntry.saved_at)
+                : entitlement.hasHistory
+                    ? `Last paid ${formatDateTime(entitlement.historyEntries[0].saved_at)}`
+                    : 'Agent recommendation';
+            return `
+            <div class="agent-pick-card" data-symbol="${escapeHtml(pick.symbol)}" data-tier="${escapeHtml(pick.suggested_tier)}" data-signal-summary="${escapeHtml(signalSummary(signal))}">
                 <div class="agent-pick-top">
                     <span class="agent-pick-symbol">${escapeHtml(pick.symbol || 'n/a')}</span>
                     <span class="agent-pick-score">${Number(pick.score || 0).toFixed(1)}</span>
                 </div>
                 <div class="agent-pick-meta">
                     <span class="agent-tier-pill">${escapeHtml(tierLabel(pick.suggested_tier))} ${Number(pick.suggested_price_usdc || tierPrice(pick.suggested_tier)).toFixed(3)}</span>
-                    <span style="color:var(--t3); font-size:0.64rem;">${escapeHtml(pick.estimated_value || 'Exploratory')}</span>
+                    <span class="agent-pick-value" style="color:var(--t3); font-size:0.64rem;">${escapeHtml(pick.estimated_value || 'Exploratory')}</span>
                 </div>
                 <div class="agent-pick-reasons">${escapeHtml((pick.reasons || []).join(' | '))}</div>
+                <div class="card-meta-row agent-pick-meta-row">
+                    <span data-pick-paid-at>${escapeHtml(cardSeenAt)}</span>
+                    <span class="signal-badge ${entitlement.badgeClass}">${escapeHtml(entitlement.badgeText)}</span>
+                </div>
             </div>
-        `).join('');
+        `;
+        }).join('');
 
         agentPicksContainer.querySelectorAll('.agent-pick-card').forEach((card, index) => {
             card.addEventListener('click', () => {
                 const pick = picks[index];
                 if (!pick?.query) return;
-                applySignalToForm(pick.query);
-                activeQuery = normalizeSignalPayload(pick.query);
+                const signal = normalizeSignalPayload(pick.query);
+                applySignalToState(signal);
                 currentProviderId = pick.provider_id || 'funding_memory';
                 if (providerSelect && providerCatalog[currentProviderId]) {
                     providerSelect.value = currentProviderId;
                 }
                 currentInvoiceTier = normalizeTier(pick.suggested_tier);
                 currentInvoiceAmount = tierPrice(currentInvoiceTier);
+
+                if (isBasicView()) {
+                    const cachedEntry = getCachedReport(signal, currentInvoiceTier);
+                    if (cachedEntry?.report) {
+                        if (normalizeTier(cachedEntry.tier || cachedEntry.report?.tier) === 'preview') {
+                            renderPreviewReport(cachedEntry.report, cachedEntry);
+                        } else {
+                            renderReport(cachedEntry.report, cachedEntry);
+                        }
+                        showToast(`Loaded paid ${pick.symbol} from ${formatDateTime(cachedEntry.saved_at)}.`, 'success');
+                        return;
+                    }
+                    showSignalPaywall(signal, {
+                        tier: currentInvoiceTier,
+                        title: 'Unlock Historical Comparison',
+                        description: `Choose Summary or Full Report below to compare ${pick.symbol} with similar past events.`,
+                    });
+                    showToast(`Selected ${pick.symbol}: ${pick.reasons?.[0] || 'ranked opportunity'}.`, 'info');
+                    return;
+                }
+
                 const submitBtn = document.querySelector(`[data-tier="${currentInvoiceTier}"]`) || document.querySelector('[data-tier="full"]');
                 showToast(`Agent selected ${pick.symbol}: ${pick.reasons?.[0] || 'ranked opportunity'}. Creating ${tierLabel(currentInvoiceTier)} invoice.`, 'info');
                 queryForm.requestSubmit(submitBtn);
@@ -1982,6 +2092,38 @@ function getFormQuery() {
     };
 }
 
+function resolveActiveQuery() {
+    if (isBasicView() && activeQuery) {
+        return normalizeSignalPayload(activeQuery);
+    }
+    return normalizeSignalPayload(getFormQuery());
+}
+
+function syncFormFromSignal(signal) {
+    const payload = normalizeSignalPayload(signal);
+    fSymbol.value = payload.symbol;
+    fFunding.value = Number(payload.fundingRate).toFixed(4);
+    fMcap.value = Math.round(payload.marketCap);
+    fFdv.value = Math.round(payload.FDV);
+    fCirc.value = Number(payload.circRatio).toFixed(2);
+    fAth.value = Number(payload.fromATH).toFixed(2);
+    fVol.value = Math.round(payload.volume24h);
+}
+
+function applySignalToState(signal) {
+    const normalized = normalizeSignalPayload(signal);
+    activeQuery = normalized;
+    if (!isBasicView()) {
+        syncFormFromSignal(normalized);
+    }
+    updateBasicSignalCard(normalized);
+    scheduleQuotedPriceRefresh();
+}
+
+function applySignalToForm(signal) {
+    applySignalToState(signal);
+}
+
 function formSignalFromAnomaly(item) {
     return {
         symbol: item.symbol,
@@ -1993,18 +2135,6 @@ function formSignalFromAnomaly(item) {
         volume24h: Math.round(item.volume24h),
         ...(item.amount ? { amount: Number(item.amount) } : {})
     };
-}
-
-function applySignalToForm(signal) {
-    fSymbol.value = signal.symbol;
-    fFunding.value = Number(signal.fundingRate).toFixed(4);
-    fMcap.value = Math.round(signal.marketCap);
-    fFdv.value = Math.round(signal.FDV);
-    fCirc.value = Number(signal.circRatio).toFixed(2);
-    fAth.value = Number(signal.fromATH).toFixed(2);
-    fVol.value = Math.round(signal.volume24h);
-    updateBasicSignalCard(signal);
-    scheduleQuotedPriceRefresh();
 }
 
 function hidePaywall() {
@@ -2047,7 +2177,7 @@ function showSignalPaywall(source, options = {}) {
             ? 'This exact live snapshot has not been purchased yet. Create an invoice to see how similar historical events performed.'
             : 'This exact signal snapshot has not been purchased. Create a paid invoice to unlock the historical analog report for these current inputs.'
     );
-    invoiceSignalDisplay.textContent = signalSummary(signal);
+    invoiceSignalDisplay.textContent = displaySignalLabel(signal);
     document.getElementById('invoice-amount-display').textContent = formatTierPrice(tier);
     document.getElementById('invoice-tier-display').textContent = tierLabel(tier);
     document.getElementById('invoice-network-display').textContent = 'Arc Testnet';
@@ -2060,8 +2190,7 @@ function showSignalPaywall(source, options = {}) {
 
 function loadCardIntoForm(item) {
     const signal = formSignalFromAnomaly(item);
-    applySignalToForm(signal);
-    activeQuery = signal;
+    applySignalToState(signal);
     const cachedEntry = getCachedReport(signal);
     if (cachedEntry?.report) {
         renderReport(cachedEntry.report, cachedEntry);
@@ -2085,10 +2214,12 @@ function loadCardIntoForm(item) {
             'warning'
         );
     } else {
-        showSignalPaywall(getFormQuery(), {
+        showSignalPaywall(signal, {
             tier: 'full',
-            title: 'Signal Not Purchased',
-            description: 'This Live Anomaly snapshot is not unlocked yet. Click Retrieve Analogs to create a paid invoice for this exact signal.'
+            title: isBasicView() ? 'Unlock Historical Comparison' : 'Signal Not Purchased',
+            description: isBasicView()
+                ? `This live signal has not been purchased yet. Choose Summary or Full Report below.`
+                : 'This Live Anomaly snapshot is not unlocked yet. Click Retrieve Analogs to create a paid invoice for this exact signal.'
         });
     }
 }
@@ -2105,7 +2236,7 @@ function lockViewport() {
     currentSettlementId = null;
     currentSellerAddress = null;
     currentAccessToken = null;
-    invoiceSignalDisplay.textContent = activeQuery ? signalSummary(activeQuery) : 'n/a';
+    invoiceSignalDisplay.textContent = activeQuery ? displaySignalLabel(activeQuery) : 'n/a';
     document.getElementById('invoice-amount-display').textContent = formatTierPrice(currentInvoiceTier);
     document.getElementById('invoice-tier-display').textContent = tierLabel(currentInvoiceTier);
     const lockPayAmount = tierPrice(currentInvoiceTier);
@@ -2120,7 +2251,7 @@ function lockViewport() {
 queryForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    activeQuery = getFormQuery();
+    activeQuery = resolveActiveQuery();
     currentProviderId = providerSelect?.value || currentProviderId || 'funding_memory';
     currentInvoiceTier = normalizeTier(e.submitter?.dataset?.tier || 'full');
     await refreshQuotedPrices(activeQuery);
@@ -2166,7 +2297,7 @@ queryForm.addEventListener('submit', async (e) => {
         currentSellerAddress = invoiceData.wallet_address;
         document.getElementById('inv-id-display').textContent = currentInvoiceId;
         document.getElementById('inv-id-row').style.display = 'flex';
-        invoiceSignalDisplay.textContent = signalSummary(activeQuery);
+        invoiceSignalDisplay.textContent = displaySignalLabel(activeQuery);
         paywallTitle.textContent = `${tierLabel(currentInvoiceTier)} Payment Required`;
         if (isBasicView()) {
             paywallDesc.textContent = currentInvoiceTier === 'preview'
@@ -2688,7 +2819,7 @@ function renderPreviewReport(report, cachedEntry = null) {
     if (paidMeta?.saved_at) {
         const div = document.createElement('div');
         div.className = 'risk-item';
-        div.innerHTML = `<span style="color:var(--green);">Paid preview snapshot:</span> ${escapeHtml(signalSummary(paidMeta.signal || activeQuery || report.query || { symbol: report.query_symbol }))} <span style="color:var(--t3);">- bought ${escapeHtml(formatDateTime(paidMeta.saved_at))}</span>`;
+        div.innerHTML = `<span style="color:var(--green);">Paid preview snapshot:</span> ${escapeHtml(displaySignalLabel(paidMeta.signal || activeQuery || report.query || { symbol: report.query_symbol }))} <span style="color:var(--t3);">- bought ${escapeHtml(formatDateTime(paidMeta.saved_at))}</span>`;
         riskList.appendChild(div);
     }
     const cta = document.createElement('div');
@@ -2698,7 +2829,7 @@ function renderPreviewReport(report, cachedEntry = null) {
     if (paidMeta?.previous_snapshot_for) {
         const div = document.createElement('div');
         div.className = 'risk-item';
-        div.innerHTML = `<span style="color:#f59e0b;">Current live snapshot is different:</span> ${escapeHtml(signalSummary(paidMeta.previous_snapshot_for))}`;
+        div.innerHTML = `<span style="color:#f59e0b;">Current live snapshot is different:</span> ${escapeHtml(displaySignalLabel(paidMeta.previous_snapshot_for))}`;
         riskList.appendChild(div);
     }
     if (report.invoice?.explorer_url && report.invoice?.transaction_hash) {
@@ -2802,13 +2933,13 @@ function renderReport(report, cachedEntry = null) {
     if (paidMeta?.saved_at) {
         const div = document.createElement('div');
         div.className = 'risk-item';
-        div.innerHTML = `<span style="color:var(--green);">Paid signal snapshot:</span> ${escapeHtml(signalSummary(paidMeta.signal || activeQuery || report.query || { symbol: report.query_symbol }))} <span style="color:var(--t3);">· bought ${escapeHtml(formatDateTime(paidMeta.saved_at))}</span>`;
+        div.innerHTML = `<span style="color:var(--green);">Paid signal snapshot:</span> ${escapeHtml(displaySignalLabel(paidMeta.signal || activeQuery || report.query || { symbol: report.query_symbol }))} <span style="color:var(--t3);">· bought ${escapeHtml(formatDateTime(paidMeta.saved_at))}</span>`;
         riskList.appendChild(div);
     }
     if (paidMeta?.previous_snapshot_for) {
         const div = document.createElement('div');
         div.className = 'risk-item';
-        div.innerHTML = `<span style="color:#f59e0b;">Current live snapshot is different:</span> ${escapeHtml(signalSummary(paidMeta.previous_snapshot_for))} <span style="color:var(--t3);">- click Retrieve Analogs to buy and unlock this current signal.</span>`;
+        div.innerHTML = `<span style="color:#f59e0b;">Current live snapshot is different:</span> ${escapeHtml(displaySignalLabel(paidMeta.previous_snapshot_for))} <span style="color:var(--t3);">- click Retrieve Analogs to buy and unlock this current signal.</span>`;
         riskList.appendChild(div);
     }
     riskItems.forEach(item => {
@@ -2979,8 +3110,28 @@ loadAgentRecommendations();
 loadMetrics();
 loadHealthInfo();
 if (queryForm) {
-    queryForm.addEventListener('input', scheduleQuotedPriceRefresh);
-    queryForm.addEventListener('change', scheduleQuotedPriceRefresh);
+    queryForm.addEventListener('input', () => {
+        if (isBasicView() && document.body.classList.contains('basic-show-fields')) {
+            try {
+                activeQuery = normalizeSignalPayload(getFormQuery());
+                updateBasicSignalCard(activeQuery);
+            } catch (err) {
+                /* ignore invalid partial input */
+            }
+        }
+        scheduleQuotedPriceRefresh();
+    });
+    queryForm.addEventListener('change', () => {
+        if (isBasicView() && document.body.classList.contains('basic-show-fields')) {
+            try {
+                activeQuery = normalizeSignalPayload(getFormQuery());
+                updateBasicSignalCard(activeQuery);
+            } catch (err) {
+                /* ignore */
+            }
+        }
+        scheduleQuotedPriceRefresh();
+    });
 }
 setInterval(loadMetrics, 15000);
 refreshBtn.addEventListener('click', () => {
@@ -2993,6 +3144,9 @@ if (basicToggleFieldsBtn) {
     basicToggleFieldsBtn.addEventListener('click', () => {
         const expanded = document.body.classList.toggle('basic-show-fields');
         basicToggleFieldsBtn.textContent = expanded ? 'Hide technical fields' : 'Edit technical fields';
+        if (expanded && activeQuery) {
+            syncFormFromSignal(activeQuery);
+        }
     });
 }
 
