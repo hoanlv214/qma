@@ -347,6 +347,35 @@
     }
 }
 
+/* ── Override shared styles.css mobile header behavior ── */
+/* Marketplace header has only logo + 1 link + 1 button:  */
+/* keep everything on a single row at all viewport widths  */
+.marketplace-body > header {
+    flex-direction: row !important;
+    align-items: center !important;
+    flex-wrap: nowrap !important;
+    gap: var(--space-4);
+}
+
+.marketplace-body > header .logo-section {
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+    gap: var(--space-2);
+}
+
+.marketplace-body > header .status-indicators {
+    display: flex !important;
+    grid-template-columns: unset !important;
+    flex-shrink: 0;
+    margin-left: auto;
+    width: auto !important;
+}
+
+.marketplace-body > header .wallet-button {
+    width: auto !important;
+    white-space: nowrap;
+}
+
 /* ── Tablet ≤ 900px ───────────────────────────────────── */
 @media (max-width: 900px) {
     .marketplace-shell {

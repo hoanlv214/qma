@@ -1,5 +1,6 @@
 /* QMA landing-only polish. Shared tokens/components live in styles.css. */
 
+/* ── Partners strip ───────────────────────────────────── */
 .landing-partners-strip {
     position: relative;
     display: grid;
@@ -104,6 +105,7 @@
     max-height: 32px;
 }
 
+/* ── Traction section ─────────────────────────────────── */
 .landing-traction-section {
     margin: -10px 0 36px;
 }
@@ -143,6 +145,9 @@
     padding: 34px 0 30px;
 }
 
+/* ── Responsive ───────────────────────────────────────── */
+
+/* Tablet ≤760px: strip goes single col, logos go 2-col */
 @media (max-width: 760px) {
     .landing-partners-strip {
         grid-template-columns: 1fr;
@@ -151,12 +156,13 @@
     }
 
     .partners-logos {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(2, 1fr);
     }
 
     .partners-logos a {
-        min-height: 56px;
-        justify-content: flex-start;
+        min-height: 54px;
+        justify-content: center;
+        padding: 10px 14px;
     }
 
     .landing-traction-section {
@@ -170,5 +176,99 @@
 
     .landing-traction-section .traction-marquee {
         padding: 30px 0 24px;
+    }
+}
+
+/* Mobile ≤600px */
+@media (max-width: 600px) {
+
+    /* NAV: override styles.css rule that does flex-direction:column
+       Scoped to .landing-body so app/profile pages unaffected */
+    .landing-body .landing-nav {
+        flex-direction: row !important;
+        align-items: center !important;
+        flex-wrap: nowrap !important;
+        gap: 8px;
+        min-height: 52px;
+    }
+
+    .landing-body .landing-nav-links {
+        flex-wrap: nowrap;
+        gap: 2px;
+    }
+
+    /* Non-CTA links: icon-only (hide text, keep SVG) */
+    .landing-body .landing-nav-links a:not(.nav-cta) {
+        padding: 7px 8px;
+        gap: 0;
+        font-size: 0;
+    }
+
+    .landing-body .landing-nav-links a:not(.nav-cta) svg {
+        width: 15px;
+        height: 15px;
+        flex-shrink: 0;
+        display: block;
+    }
+
+    /* CTA: keep text + icon */
+    .landing-body .landing-nav-links .nav-cta {
+        font-size: var(--text-sm);
+        padding: 7px 10px;
+        gap: 5px;
+        white-space: nowrap;
+    }
+
+    /* PARTNERS: 3 logos in one compact row */
+    .partners-logos {
+        grid-template-columns: repeat(3, 1fr);
+    }
+
+    .partners-logos a {
+        min-height: 48px;
+        padding: 8px;
+        justify-content: center;
+    }
+
+    .partners-logos img {
+        max-width: 80px;
+        max-height: 22px;
+    }
+
+    .partners-logos a[title="Canteen"] img,
+    .partners-logos a[title="Arc Testnet"] img {
+        max-height: 22px;
+    }
+
+    /* FOOTER: logo + socials on one row
+       styles.css @600px hides .logo-text — restore for footer */
+    .landing-footer-brand .logo-text {
+        display: block !important;
+    }
+
+    .landing-footer-brand .logo-item {
+        flex-shrink: 0;
+    }
+
+    .landing-footer-brand > div {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 14px;
+        flex-wrap: wrap;
+    }
+
+    .footer-socials {
+        margin-top: 0 !important;
+        gap: 10px;
+    }
+
+    .footer-socials a {
+        margin-top: 0;
+    }
+
+    .footer-socials a svg {
+        width: 18px;
+        height: 18px;
     }
 }
