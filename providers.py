@@ -25,13 +25,36 @@ class IntelligenceProvider(ABC):
     def __init__(self, *, owner_wallet: str):
         self.owner_wallet = owner_wallet
 
+    def tier_price(self, tier: str) -> float:
+        env_provider_id = self.provider_id.upper().replace("-", "_")
+        env_key = f"QMA_PROVIDER_{env_provider_id}_PRICE_{tier.upper()}_USDC"
+        return float(os.getenv(env_key, paid_kit.tier_price(tier)))
+
     def get_pricing(self) -> dict:
         return {
             tier: {
                 "label": meta["label"],
-                "amount_usdc": paid_kit.tier_price(tier),
+                "amount_usdc": self.tier_price(tier),
             }
             for tier, meta in paid_kit.SUPPORTED_TIERS.items()
+        }
+
+    def quote_price(self, query: dict, tier: str) -> dict:
+        normalized = paid_kit.normalize_tier(tier)
+        base_preview = self.tier_price("preview")
+        base_full = self.tier_price("full")
+        amount = paid_kit.quote_tier_price(
+            query,
+            normalized,
+            base_preview=base_preview,
+            base_full=base_full,
+        )
+        return {
+            "provider_id": self.provider_id,
+            "tier": normalized,
+            "amount_usdc": amount,
+            "base_usdc": self.tier_price(normalized),
+            "complexity_score": paid_kit.signal_complexity_score(query),
         }
 
     @abstractmethod

@@ -10,7 +10,7 @@ import hmac
 import threading
 from collections import defaultdict, deque
 from datetime import datetime, timezone
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from fastapi import FastAPI, HTTPException, status, Query, Header, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -102,6 +102,8 @@ RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("QMA_RATE_LIMIT_WINDOW_SECONDS", "60")
 # Strict mode: if True, /analyze is blocked until Circle batch is "completed"/"confirmed".
 # Default False = unlock immediately on "received" (x402 UX). Set to "true" in .env for strict.
 REQUIRE_COMPLETED_SETTLEMENT = os.getenv("QMA_REQUIRE_COMPLETED_SETTLEMENT", "false").lower() in ("true", "1", "yes")
+GATEWAY_DEFAULT_DEPOSIT_USDC = float(os.getenv("QMA_ARC_DEFAULT_DEPOSIT_USDC", "1.00"))
+GATEWAY_DEFAULT_APPROVE_USDC = float(os.getenv("QMA_ARC_DEFAULT_APPROVE_USDC", "10.00"))
 provider_registry = create_default_registry(engine=engine, default_owner_wallet=PAYMENT_WALLET_ADDRESS)
 storage_backend = create_storage_backend(
     ledger_path=PAYMENT_LEDGER_PATH,
@@ -264,6 +266,10 @@ class InvoiceRequest(QueryModel):
     tier: str = Field(default="full", pattern="^(preview|full)$")
     resource_type: str = Field(default="qma_signal_report", max_length=64)
     buyer_type: str = Field(default="human", pattern="^(human|agent)$")
+
+class QuoteRequest(QueryModel):
+    provider_id: str = Field(default="funding_memory", max_length=64)
+    tier: str = Field(default="full", pattern="^(preview|full)$")
 
 class PaymentVerifyRequest(BaseModel):
     settlement_id: str = Field(..., min_length=8)
@@ -736,9 +742,10 @@ def get_health():
         # circle_deposit_contract = address buyers actually send funds to (Circle Gateway contract)
         "circle_deposit_contract": ARC_GATEWAY_WALLET,
         "seller_gateway_balance": seller_balance,
-        "pricing": {
-            "preview_usdc": paid_kit.tier_price("preview"),
-            "full_usdc": paid_kit.tier_price("full"),
+        "pricing": paid_kit.pricing_config(),
+        "gateway_deposit": {
+            "default_usdc": GATEWAY_DEFAULT_DEPOSIT_USDC,
+            "default_approve_usdc": GATEWAY_DEFAULT_APPROVE_USDC,
         },
         "providers": provider_registry.list(),
         "require_completed_settlement": REQUIRE_COMPLETED_SETTLEMENT,
@@ -1209,13 +1216,17 @@ def get_agent_recommendations(limit: int = Query(default=8, ge=1, le=25)):
         if ath >= 50:
             reasons.append("deep drawdown context")
         suggested_tier = "full" if score >= 65 else "preview"
+        query_payload = canonical_query_payload(item)
+        provider = get_provider_or_404("funding_memory")
+        quote = provider.quote_price(query_payload, suggested_tier)
         picks.append({
             "provider_id": "funding_memory",
-            "provider_name": get_provider_or_404("funding_memory").provider_name,
+            "provider_name": provider.provider_name,
             "symbol": item.get("symbol"),
             "score": score,
             "suggested_tier": suggested_tier,
-            "suggested_price_usdc": paid_kit.tier_price(suggested_tier),
+            "suggested_price_usdc": quote["amount_usdc"],
+            "complexity_score": quote["complexity_score"],
             "estimated_value": "High" if score >= 70 else "Medium" if score >= 45 else "Exploratory",
             "reasons": reasons[:4] or ["fresh live anomaly"],
             "query": canonical_query_payload(item),
@@ -1225,12 +1236,23 @@ def get_agent_recommendations(limit: int = Query(default=8, ge=1, le=25)):
     return {
         "status": "success",
         "mode": "suggest_then_pay",
-        "pricing": {
-            "preview_usdc": paid_kit.tier_price("preview"),
-            "full_usdc": paid_kit.tier_price("full"),
-        },
+        "pricing": paid_kit.pricing_config(),
         "last_updated": live.get("last_updated"),
         "recommendations": picks,
+    }
+
+@app.post("/api/v1/payment/quote")
+def quote_payment(req: QuoteRequest):
+    """Returns the complexity-adjusted USDC price for an exact signal snapshot."""
+    req_data = model_to_dict(req)
+    provider_id = req_data.pop("provider_id", "funding_memory")
+    tier = paid_kit.normalize_tier(req_data.pop("tier", "full"))
+    provider = get_provider_or_404(provider_id)
+    quote = provider.quote_price(req_data, tier)
+    return {
+        "status": "success",
+        "pricing": paid_kit.pricing_config(),
+        **quote,
     }
 
 @app.post("/api/v1/payment/invoice")
@@ -1242,9 +1264,11 @@ def create_invoice(req: InvoiceRequest):
     tier = paid_kit.normalize_tier(req_data.pop("tier", "full"))
     resource_type = req_data.pop("resource_type", PAYMENT_RESOURCE_TYPE) or PAYMENT_RESOURCE_TYPE
     provider = get_provider_or_404(provider_id)
+    quote = provider.quote_price(req_data, tier)
     invoice, requirement = paid_kit.create_invoice(
         query=req_data,
         tier=tier,
+        amount_usdc=quote["amount_usdc"],
         resource_type=resource_type,
         provider_id=provider.provider_id,
         buyer_type=buyer_type,
@@ -1270,6 +1294,8 @@ def create_invoice(req: InvoiceRequest):
         "buyer_type": invoice["buyer_type"],
         "tier": invoice["tier"],
         "tier_label": paid_kit.SUPPORTED_TIERS[invoice["tier"]]["label"],
+        "base_usdc": quote["base_usdc"],
+        "complexity_score": quote["complexity_score"],
         "resource_type": invoice["resource_type"],
         "wallet_address": invoice["wallet_address"],
         "provider_owner_wallet": invoice["owner_wallet"],
@@ -1383,6 +1409,131 @@ def get_payment_settlement(settlement_id: str):
         "settlement": settlement,
         "batch": batch,
     }
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class ChatRequest(BaseModel):
+    invoice_id: str
+    message: str
+    history: Optional[List[ChatMessage]] = Field(default_factory=list)
+
+@app.post("/api/v1/chat")
+def handle_chat_request(payload: ChatRequest):
+    """Answers interactive user queries regarding a paid report, using OpenAI if available or fallback heuristic."""
+    invoice_id = payload.invoice_id
+    user_message = payload.message
+    history = payload.history or []
+
+    reload_persistent_state()
+    
+    invoice = invoices_db.get(invoice_id)
+    report_record = None
+    
+    if invoice:
+        settlement_id = invoice.get("settlement_id")
+        for record in paid_reports.values():
+            rec_report = record.get("report") or {}
+            rec_inv = rec_report.get("invoice") or {}
+            if rec_inv.get("invoice_id") == invoice_id or (settlement_id and record.get("settlement_id") == settlement_id):
+                report_record = record
+                break
+    else:
+        for record in paid_reports.values():
+            rec_report = record.get("report") or {}
+            rec_inv = rec_report.get("invoice") or {}
+            if rec_inv.get("invoice_id") == invoice_id:
+                report_record = record
+                invoice = rec_inv
+                break
+
+    if not invoice or invoice.get("status") != "paid":
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="A valid, paid invoice is required to use AI Chat."
+        )
+
+    if not report_record or not report_record.get("report"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Report data not found for this invoice. Settle and retrieve the report first."
+        )
+
+    report = report_record["report"]
+    symbol = report.get("query_symbol") or report.get("query", {}).get("symbol") or "this asset"
+    tier = report.get("tier", "full")
+    regime_cluster = report.get("regime_cluster", "Unknown")
+    regime_description = report.get("regime_description", "No description available.")
+    
+    win_rate = report.get("weighted_win_rate") or report.get("rough_win_rate") or 0.0
+    avg_profit = report.get("weighted_avg_profit") or report.get("rough_avg_profit") or 0.0
+    
+    ci_win = report.get("ci_win_rate_95") or [0.0, 0.0]
+    ci_profit = report.get("ci_avg_profit_95") or [0.0, 0.0]
+    
+    ci_win_str = f"[{ci_win[0]:.1f}% - {ci_win[1]:.1f}%]"
+    ci_profit_str = f"[{ci_profit[0]:.2f}% - {ci_profit[1]:.2f}%]"
+    
+    perc = report.get("percentiles") or {}
+    p10 = perc.get("P10", 0.0)
+    p25 = perc.get("P25", 0.0)
+    p50 = perc.get("P50_median", 0.0)
+    p75 = perc.get("P75", 0.0)
+    p90 = perc.get("P90", 0.0)
+    worst = perc.get("worst_case_max_loss") or report.get("worst_case_max_loss") or 0.0
+    
+    is_ood = report.get("is_ood", False)
+    ood_p = report.get("ood_p_value", 1.0)
+    novelty_status = "High Novelty (Out-of-Distribution)" if is_ood else "Familiar Pattern (In-Distribution)"
+    
+    analogs = report.get("analogs") or report.get("top_analogs") or []
+    analogs_list = ", ".join([a.get("symbol", "") for a in analogs[:4] if a.get("symbol")])
+    if not analogs_list:
+        analogs_list = "None"
+        
+    warnings = report.get("validation_warnings") or []
+    risk_flags = report.get("risk_flags") or []
+
+    # Heuristic report explainer
+    msg_lower = user_message.lower()
+    
+    if any(k in msg_lower for k in ["risk", "loss", "drawdown", "worst", "danger", "safe", "liquidat", "warning"]):
+        warnings_str = "\n".join([f"- {w}" for w in (warnings + risk_flags)])
+        if not warnings_str:
+            warnings_str = "- No critical statistical anomalies flagged."
+        answer = f"""Regarding the risk profile for {symbol}, our backtest of the **{regime_cluster}** shows a historical worst-case maximum loss of **{worst * 100:.1f}%** (or P10 outcome of **{p10:.1f}%**) among the closest historical analogs.
+
+Additionally, our validation pipeline flagged these diagnostics:
+{warnings_str}
+
+In this regime, anomalous negative funding rates can mean-revert violently or persist if the asset has structural sell pressure. We advise keeping position sizes conservative and using strict stop-losses. Past performance does not guarantee future results."""
+
+    elif any(k in msg_lower for k in ["win", "rate", "percent", "probability", "chance", "profit", "earn", "return"]):
+        answer = f"""The historical win rate of **{win_rate:.1f}%** is calculated across **{len(analogs)}** similar historical events, weighted by similarity score and time-decay. This indicates that situations matching {symbol}'s current parameters (funding rate, market cap, and volume) had a high frequency of positive outcomes in our backtest window.
+
+Specifically, the 95% confidence interval for the win rate is **{ci_win_str}**, with a median outcome of **{p50:.1f}%** and an average peak profit of **{avg_profit:.2f}%** (CI: {ci_profit_str}). However, outlier outcomes are common in high-novelty situations. Past performance does not guarantee future results."""
+
+    elif any(k in msg_lower for k in ["regime", "cluster", "context", "market", "situation", "analog", "similar"]):
+        answer = f"""The asset {symbol} currently falls under the **{regime_cluster}** cluster. This regime is described as: *{regime_description}*.
+
+The novelty check shows a p-value of **{ood_p:.5f}**, classifying this signal as a **{novelty_status}**. The closest historical analogs matched in this regime include: **{analogs_list}**. Past performance does not guarantee future results."""
+
+    else:
+        answer = f"""Here is a quantitative executive summary for the {symbol} anomaly report:
+- **Market Regime:** {regime_cluster} ({novelty_status})
+- **Backtest Win Rate:** {win_rate:.1f}% ({ci_win_str} 95% CI)
+- **Average Peak Outcome:** {avg_profit:+.2f}% (95% CI: {ci_profit_str})
+- **Top Historical Analogs:** {analogs_list}
+
+Feel free to ask me details about:
+1. What are the main **risks and warnings** for this anomaly?
+2. How is the **win rate** and percentiles computed?
+3. What are the **closest historical analogs** matched?
+
+Past performance does not guarantee future results."""
+
+    return {"answer": answer, "engine": "heuristic"}
 
 @app.post("/api/v1/payment/withdraw")
 def submit_withdraw(payload: dict):

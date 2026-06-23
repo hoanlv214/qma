@@ -101,10 +101,12 @@ let currentInvoiceId = null;
 let currentInvoiceSecret = null;
 let currentArcGatewayUrl = null;
 let currentSettlementId = null;
-let currentInvoiceAmount = 0.005;
+let currentInvoiceAmount = null;
 let currentInvoiceTier = 'full';
 let currentProviderId = urlParams.get('provider') || 'funding_memory';
-let pricingConfig = { preview: 0.001, full: 0.005 };
+let pricingConfig = { preview: null, full: null };
+let quotedPrices = { preview: null, full: null };
+let gatewayDepositConfig = { default_usdc: null, default_approve_usdc: null };
 let providerCatalog = {};
 let currentSellerAddress = null;
 let currentAccessToken = null;
@@ -263,6 +265,7 @@ const actionModalBody = document.getElementById('action-modal-body');
 const actionModalClose = document.getElementById('action-modal-close');
 const actionModalCancel = document.getElementById('action-modal-cancel');
 const actionModalConfirm = document.getElementById('action-modal-confirm');
+const viewModeButtons = document.querySelectorAll('[data-view-mode]');
 
 function escapeHtml(value) {
     return String(value ?? '')
@@ -313,22 +316,42 @@ function renderActionRows(rows = []) {
     `).join('');
 }
 
-function requestActionConfirmation({ title, subtitle, rows = [], warning = null, confirmLabel = 'Continue', cancelLabel = 'Cancel' }) {
+function requestActionConfirmation({
+    title,
+    subtitle,
+    rows = [],
+    warning = null,
+    customHtml = '',
+    confirmLabel = 'Continue',
+    cancelLabel = 'Cancel',
+    onOpen = null,
+}) {
     return new Promise((resolve) => {
         actionModalTitle.textContent = title || 'Confirm Action';
         actionModalSubtitle.textContent = subtitle || 'Review before opening your wallet';
         actionModalBody.innerHTML = `
             ${renderActionRows(rows)}
+            ${customHtml || ''}
             ${warning ? `<div class="action-warning">${escapeHtml(warning)}</div>` : ''}
         `;
         actionModalConfirm.textContent = confirmLabel;
         actionModalCancel.textContent = cancelLabel;
+        actionModalConfirm.disabled = false;
         actionModal.classList.add('open');
         actionModal.setAttribute('aria-hidden', 'false');
+
+        if (typeof onOpen === 'function') {
+            onOpen({
+                confirmButton: actionModalConfirm,
+                cancelButton: actionModalCancel,
+                body: actionModalBody,
+            });
+        }
 
         const cleanup = (value) => {
             actionModal.classList.remove('open');
             actionModal.setAttribute('aria-hidden', 'true');
+            actionModalConfirm.disabled = false;
             actionModalConfirm.removeEventListener('click', onConfirm);
             actionModalCancel.removeEventListener('click', onCancel);
             actionModalClose.removeEventListener('click', onCancel);
@@ -435,11 +458,223 @@ function normalizeTier(tier = 'full') {
 
 function tierLabel(tier = 'full') {
     if (String(tier || '').toLowerCase() === 'legacy') return 'Legacy Report';
-    return normalizeTier(tier) === 'preview' ? 'Preview' : 'Full Report';
+    const normalized = normalizeTier(tier);
+    if (isBasicView()) {
+        return normalized === 'preview' ? 'Summary' : 'Full Report';
+    }
+    return normalized === 'preview' ? 'Preview' : 'Full Report';
+}
+
+function tierButtonLabel(tier = 'full') {
+    const normalized = normalizeTier(tier);
+    if (isBasicView()) {
+        return normalized === 'preview' ? 'Summary' : 'Full Report';
+    }
+    return normalized === 'preview' ? 'Preview' : 'Full';
+}
+
+function isBasicView() {
+    return document.body.classList.contains('basic-view');
 }
 
 function tierPrice(tier = 'full') {
-    return Number(pricingConfig[normalizeTier(tier)] || (normalizeTier(tier) === 'preview' ? 0.001 : 0.005));
+    const normalized = normalizeTier(tier);
+    if (quotedPrices[normalized] != null && Number.isFinite(Number(quotedPrices[normalized]))) {
+        return Number(quotedPrices[normalized]);
+    }
+    const providerPrice = providerCatalog[currentProviderId]?.pricing?.[normalized]?.amount_usdc;
+    if (providerPrice != null && Number.isFinite(Number(providerPrice))) {
+        return Number(providerPrice);
+    }
+    const configPrice = pricingConfig[normalized];
+    if (configPrice != null && Number.isFinite(Number(configPrice))) {
+        return Number(configPrice);
+    }
+    return null;
+}
+
+let quoteRefreshTimer = null;
+
+async function refreshQuotedPrices(query = null) {
+    const payload = query || activeQuery || getFormQuery();
+    if (!payload?.symbol) return;
+    try {
+        const tiers = ['preview', 'full'];
+        const results = await Promise.all(tiers.map(async (tier) => {
+            const resp = await fetch(apiUrl('/api/v1/payment/quote'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ...payload,
+                    provider_id: currentProviderId,
+                    tier,
+                }),
+            });
+            if (!resp.ok) return null;
+            const data = await resp.json();
+            return [tier, Number(data.amount_usdc)];
+        }));
+        results.forEach((entry) => {
+            if (entry && Number.isFinite(entry[1])) {
+                quotedPrices[entry[0]] = entry[1];
+            }
+        });
+        updateTierPriceLabels();
+        updateBasicSignalCard(payload);
+    } catch (err) {
+        console.warn('Price quote unavailable', err);
+    }
+}
+
+function scheduleQuotedPriceRefresh() {
+    clearTimeout(quoteRefreshTimer);
+    quoteRefreshTimer = setTimeout(() => {
+        refreshQuotedPrices();
+        updateBasicSignalCard();
+    }, 300);
+}
+
+function resolveGatewayDepositDefault(walletStatus = null) {
+    const fromWallet = walletStatus?.defaultDepositUsdc;
+    if (fromWallet != null && fromWallet !== '' && Number.isFinite(Number(fromWallet))) {
+        return Number(fromWallet);
+    }
+    if (gatewayDepositConfig.default_usdc != null && Number.isFinite(Number(gatewayDepositConfig.default_usdc))) {
+        return Number(gatewayDepositConfig.default_usdc);
+    }
+    return null;
+}
+
+function formatTierPrice(tier = 'full') {
+    const price = tierPrice(tier);
+    return price != null ? `${price.toFixed(3)} USDC` : '— USDC';
+}
+
+function updateTierPriceLabels() {
+    document.querySelectorAll('[data-tier="preview"] span').forEach((el) => {
+        const price = tierPrice('preview');
+        if (price != null) el.textContent = `${tierButtonLabel('preview')} ${price.toFixed(3)}`;
+    });
+    document.querySelectorAll('[data-tier="full"] span').forEach((el) => {
+        const price = tierPrice('full');
+        if (price != null) el.textContent = `${tierButtonLabel('full')} ${price.toFixed(3)}`;
+    });
+}
+
+function formatFundingPlain(rate) {
+    if (!Number.isFinite(rate)) return 'funding data unavailable';
+    const pct = Math.abs(rate * 100);
+    const signed = rate < 0 ? 'negative' : 'positive';
+    if (pct >= 0.5) return `very ${signed} funding (${pct.toFixed(2)}% per period)`;
+    if (pct >= 0.1) return `notable ${signed} funding (${pct.toFixed(2)}% per period)`;
+    return `${signed} funding (${pct.toFixed(2)}% per period)`;
+}
+
+function updateBasicSignalCard(source = null) {
+    const symbolEl = document.getElementById('basic-signal-symbol');
+    const leadEl = document.getElementById('basic-signal-lead');
+    const metaEl = document.getElementById('basic-signal-meta');
+    if (!symbolEl || !leadEl || !metaEl) return;
+
+    let payload;
+    try {
+        payload = normalizeSignalPayload(source || activeQuery || getFormQuery());
+    } catch (err) {
+        return;
+    }
+
+    const symbol = payload.symbol || '—';
+    const fundingText = formatFundingPlain(payload.fundingRate);
+    const mcap = Number.isFinite(payload.marketCap) ? `$${formatCompact(payload.marketCap)} market cap` : 'market cap n/a';
+    const previewPrice = tierPrice('preview');
+    const fullPrice = tierPrice('full');
+
+    symbolEl.textContent = symbol;
+    leadEl.textContent = `${symbol} currently shows ${fundingText}. QMA compares this exact snapshot to similar historical funding events.`;
+    const priceHint = previewPrice != null && fullPrice != null
+        ? `Summary from ${previewPrice.toFixed(3)} USDC · Full report from ${fullPrice.toFixed(3)} USDC.`
+        : 'Pay once per exact snapshot. No subscription.';
+    metaEl.textContent = `${mcap}. ${priceHint}`;
+}
+
+function updatePaywallCopyForViewMode() {
+    if (!paywallDesc || paywallElement.style.display === 'none') return;
+    if (isBasicView()) {
+        paywallDesc.textContent = 'Unlock a plain-language historical comparison for this token. QMA shows how similar past funding setups usually played out.';
+    } else {
+        paywallDesc.textContent = 'Unlock a regime analog report for this token. QMA matches the live vector against historical funding events in Mahalanobis space with Ledoit-Wolf covariance.';
+    }
+}
+
+function resolveGatewayApproveDefault(walletStatus = null) {
+    const fromWallet = walletStatus?.defaultApproveUsdc;
+    if (fromWallet != null && fromWallet !== '' && Number.isFinite(Number(fromWallet))) {
+        return Number(fromWallet);
+    }
+    if (gatewayDepositConfig.default_approve_usdc != null && Number.isFinite(Number(gatewayDepositConfig.default_approve_usdc))) {
+        return Number(gatewayDepositConfig.default_approve_usdc);
+    }
+    return null;
+}
+
+function setViewMode(mode = 'basic') {
+    const normalized = mode === 'advanced' ? 'advanced' : 'basic';
+    document.body.classList.toggle('advanced-view', normalized === 'advanced');
+    document.body.classList.toggle('basic-view', normalized !== 'advanced');
+    if (normalized === 'advanced') {
+        document.body.classList.remove('basic-show-fields');
+    }
+    try {
+        localStorage.setItem('qma_view_mode', normalized);
+    } catch (err) {
+        /* ignore */
+    }
+    viewModeButtons.forEach((button) => {
+        const active = button.dataset.viewMode === normalized;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    updateTierPriceLabels();
+    updateBasicSignalCard();
+    updatePaywallCopyForViewMode();
+}
+
+function reportConfidenceLabel({ isOod = false, matchedCount = 0, ess = 0 } = {}) {
+    if (isOod) return 'Low';
+    if (matchedCount >= 25 && ess >= 10) return 'High';
+    if (matchedCount >= 8) return 'Medium';
+    return 'Exploratory';
+}
+
+function updatePlainSummary(report, { preview = false } = {}) {
+    const similarCount = Number(report.matched_k || report.top_analogs?.length || report.analogs?.length || 0);
+    const ess = Number(report.effective_sample_size || 0);
+    const winRate = Number((preview ? report.rough_win_rate : report.weighted_win_rate) || 0);
+    const median = preview ? null : report.percentiles?.P50_median;
+    const confidence = reportConfidenceLabel({ isOod: Boolean(report.is_ood), matchedCount: similarCount, ess });
+    const symbol = report.query_symbol || report.query?.symbol || activeQuery?.symbol || 'this signal';
+    const direction = winRate >= 60 ? 'mostly positive' : winRate >= 45 ? 'mixed' : 'weak or negative';
+    const noveltyText = report.is_ood
+        ? 'This setup looks more unusual than most historical matches, so treat the evidence carefully.'
+        : 'This setup looks familiar enough to compare with past events.';
+    const regimeName = report.regime_cluster || 'a similar market context';
+    const medianText = median == null
+        ? (preview ? 'Full report required' : 'n/a')
+        : `${median >= 0 ? '+' : ''}${Number(median).toFixed(1)}%`;
+
+    const summaryText = similarCount
+        ? `${symbol} is being compared with ${similarCount} similar historical events in a ${regimeName} context. In those past cases, outcomes were ${direction}, with a ${winRate.toFixed(1)}% win rate. ${noveltyText}`
+        : `${symbol} has been unlocked, but QMA could not find enough similar historical events yet. Use the technical report carefully.`;
+
+    const setText = (id, value) => {
+        const node = document.getElementById(id);
+        if (node) node.textContent = value;
+    };
+    setText('plain-summary-text', summaryText);
+    setText('summary-confidence', confidence);
+    setText('summary-similar-count', preview ? `${similarCount} (summary)` : String(similarCount));
+    setText('summary-win-rate', `${winRate.toFixed(1)}%`);
+    setText('summary-median', medianText);
 }
 
 function legacySignalCacheKey(source = {}) {
@@ -814,8 +1049,74 @@ async function waitForReceipt(txHash) {
     throw new Error(`Timed out waiting for transaction: ${txHash}`);
 }
 
+async function requestDepositAmount({ account, gatewayBalance, walletBalance, requiredPayment, walletStatus = null }) {
+    const minAmount = Number(requiredPayment || 0);
+    const requiredTopUp = Math.max(minAmount - Number(gatewayBalance || 0), 0);
+    let selectedAmount = Math.max(minAmount, requiredTopUp);
+    const quickAmounts = [
+        { label: 'Exact', value: minAmount },
+        { label: '0.005', value: 0.005 },
+        { label: '0.1', value: 0.1 },
+        { label: '1', value: 1 },
+    ].filter((item, index, list) => (
+        Number.isFinite(item.value)
+        && item.value > 0
+        && item.value + 1e-9 >= minAmount
+        && list.findIndex(other => Math.abs(other.value - item.value) < 1e-9) === index
+    ));
+    const confirmed = await requestActionConfirmation({
+        title: 'Deposit to Circle Gateway',
+        subtitle: 'Choose how much USDC to deposit for this purchase',
+        rows: [
+            { label: 'Buyer Wallet', value: shortAddress(account) },
+            { label: 'Wallet USDC', value: walletBalance == null ? 'n/a' : `${Number(walletBalance).toFixed(6)} USDC` },
+            { label: 'Current Gateway Balance', value: `${Number(gatewayBalance || 0).toFixed(6)} USDC` },
+            { label: 'Report Tier', value: tierLabel(currentInvoiceTier) },
+            { label: 'Minimum Required', value: `${minAmount.toFixed(6)} USDC` },
+            { label: 'Gateway Contract', value: shortAddress(gatewayContractAddress) },
+        ],
+        customHtml: `
+            <div class="deposit-picker">
+                <label class="deposit-input-label" for="gateway-deposit-amount">Deposit amount (USDC)</label>
+                <input id="gateway-deposit-amount" class="deposit-amount-input" type="number" min="${minAmount}" step="0.001" value="${selectedAmount.toFixed(6)}">
+                <div class="deposit-quick-row">
+                    ${quickAmounts.map(item => `<button type="button" class="deposit-quick-btn" data-deposit-amount="${item.value}">${escapeHtml(item.label)} USDC</button>`).join('')}
+                </div>
+                <div class="deposit-validation" id="gateway-deposit-validation">Minimum for this purchase: ${minAmount.toFixed(6)} USDC.</div>
+            </div>
+        `,
+        warning: 'You can deposit the exact report cost, or a larger amount (for example 1 USDC) to preload Gateway balance for future reports.',
+        confirmLabel: 'Deposit',
+        onOpen: ({ confirmButton, body }) => {
+            const input = body.querySelector('#gateway-deposit-amount');
+            const validation = body.querySelector('#gateway-deposit-validation');
+            const validate = () => {
+                selectedAmount = Number(input?.value || 0);
+                const valid = selectedAmount > 0 && selectedAmount + 1e-9 >= minAmount;
+                confirmButton.disabled = !valid;
+                if (validation) {
+                    validation.textContent = valid
+                        ? `Will deposit ${selectedAmount.toFixed(6)} USDC into Circle Gateway.`
+                        : `Enter at least ${minAmount.toFixed(6)} USDC for this purchase.`;
+                    validation.classList.toggle('invalid', !valid);
+                }
+            };
+            body.querySelectorAll('[data-deposit-amount]').forEach((button) => {
+                button.addEventListener('click', () => {
+                    if (input) input.value = Number(button.dataset.depositAmount || minAmount).toFixed(6);
+                    validate();
+                });
+            });
+            input?.addEventListener('input', validate);
+            validate();
+        },
+    });
+    return confirmed ? selectedAmount : null;
+}
+
 async function depositToGateway(account, amount, walletStatus = null) {
-    const approveAmount = Math.max(10, amount).toFixed(6);
+    const approveDefault = resolveGatewayApproveDefault(walletStatus) ?? Number(gatewayDepositConfig.default_approve_usdc ?? 10);
+    const approveAmount = Math.max(approveDefault, amount).toFixed(6);
     const url = gatewayApiUrl(`/api/deposit-calldata/${account}?amount=${amount.toFixed(6)}&approveAmount=${approveAmount}`);
     const resp = await fetch(url);
     const data = await resp.json();
@@ -1193,13 +1494,15 @@ async function loadProviders() {
             currentProviderId = providerSelect.value || currentProviderId;
             providerSelect.addEventListener('change', () => {
                 currentProviderId = providerSelect.value || 'funding_memory';
+                quotedPrices = { preview: null, full: null };
+                scheduleQuotedPriceRefresh();
                 showToast(`Provider selected: ${providerCatalog[currentProviderId]?.provider_name || currentProviderId}`, 'info');
             });
         }
         if (!providerMarketplaceContainer) return;
         providerMarketplaceContainer.innerHTML = providers.map((provider) => {
-            const preview = provider.pricing?.preview?.amount_usdc ?? pricingConfig.preview;
-            const full = provider.pricing?.full?.amount_usdc ?? pricingConfig.full;
+            const preview = provider.pricing?.preview?.amount_usdc;
+            const full = provider.pricing?.full?.amount_usdc;
             return `
                 <button type="button" class="provider-card ${provider.provider_id === currentProviderId ? 'active' : ''}" data-provider-id="${escapeHtml(provider.provider_id)}">
                     <div class="provider-card-top">
@@ -1208,8 +1511,8 @@ async function loadProviders() {
                     </div>
                     <div class="provider-desc">${escapeHtml(provider.description || '')}</div>
                     <div class="provider-meta">
-                        <span>Preview ${Number(preview).toFixed(3)}</span>
-                        <span>Full ${Number(full).toFixed(3)}</span>
+                        <span>Preview ${preview != null ? Number(preview).toFixed(3) : '—'}</span>
+                        <span>Full ${full != null ? Number(full).toFixed(3) : '—'}</span>
                     </div>
                     <div class="provider-owner" title="${escapeHtml(provider.owner_wallet || '')}">Owner ${shortAddress(provider.owner_wallet)}</div>
                 </button>
@@ -1221,9 +1524,13 @@ async function loadProviders() {
                 if (providerSelect) providerSelect.value = currentProviderId;
                 providerMarketplaceContainer.querySelectorAll('.provider-card').forEach((el) => el.classList.remove('active'));
                 card.classList.add('active');
+                quotedPrices = { preview: null, full: null };
+                scheduleQuotedPriceRefresh();
                 showToast(`Provider selected: ${providerCatalog[currentProviderId]?.provider_name || currentProviderId}`, 'info');
             });
         });
+        updateTierPriceLabels();
+        await refreshQuotedPrices();
     } catch (err) {
         console.warn('Provider marketplace unavailable', err);
         if (providerMarketplaceContainer) {
@@ -1321,16 +1628,18 @@ async function loadHealthInfo() {
             }
             if (data.pricing) {
                 pricingConfig = {
-                    preview: Number(data.pricing.preview_usdc || pricingConfig.preview),
-                    full: Number(data.pricing.full_usdc || pricingConfig.full),
+                    preview: Number(data.pricing.preview_base_usdc ?? data.pricing.preview_usdc ?? pricingConfig.preview),
+                    full: Number(data.pricing.full_base_usdc ?? data.pricing.full_usdc ?? pricingConfig.full),
                 };
-                document.querySelectorAll('[data-tier="preview"] span').forEach(el => {
-                    el.textContent = `Preview ${pricingConfig.preview.toFixed(3)}`;
-                });
-                document.querySelectorAll('[data-tier="full"] span').forEach(el => {
-                    el.textContent = `Full ${pricingConfig.full.toFixed(3)}`;
-                });
             }
+            if (data.gateway_deposit) {
+                gatewayDepositConfig = {
+                    default_usdc: Number(data.gateway_deposit.default_usdc ?? gatewayDepositConfig.default_usdc),
+                    default_approve_usdc: Number(data.gateway_deposit.default_approve_usdc ?? gatewayDepositConfig.default_approve_usdc),
+                };
+            }
+            updateTierPriceLabels();
+            await refreshQuotedPrices();
             if (gatewayContractAddress) {
                 const gwEl = document.getElementById('pf-gateway-contract');
                 if (gwEl) {
@@ -1694,6 +2003,8 @@ function applySignalToForm(signal) {
     fCirc.value = Number(signal.circRatio).toFixed(2);
     fAth.value = Number(signal.fromATH).toFixed(2);
     fVol.value = Math.round(signal.volume24h);
+    updateBasicSignalCard(signal);
+    scheduleQuotedPriceRefresh();
 }
 
 function hidePaywall() {
@@ -1730,10 +2041,14 @@ function showSignalPaywall(source, options = {}) {
     currentSettlementId = null;
     currentSellerAddress = null;
     currentAccessToken = null;
-    paywallTitle.textContent = options.title || 'USDC Micro-Payment Required';
-    paywallDesc.textContent = options.description || 'This exact signal snapshot has not been purchased. Create a paid invoice to unlock the historical analog report for these current inputs.';
+    paywallTitle.textContent = options.title || (isBasicView() ? 'Unlock Historical Comparison' : 'USDC Micro-Payment Required');
+    paywallDesc.textContent = options.description || (
+        isBasicView()
+            ? 'This exact live snapshot has not been purchased yet. Create an invoice to see how similar historical events performed.'
+            : 'This exact signal snapshot has not been purchased. Create a paid invoice to unlock the historical analog report for these current inputs.'
+    );
     invoiceSignalDisplay.textContent = signalSummary(signal);
-    document.getElementById('invoice-amount-display').textContent = `${currentInvoiceAmount.toFixed(3)} USDC`;
+    document.getElementById('invoice-amount-display').textContent = formatTierPrice(tier);
     document.getElementById('invoice-tier-display').textContent = tierLabel(tier);
     document.getElementById('invoice-network-display').textContent = 'Arc Testnet';
     document.getElementById('inv-id-row').style.display = 'none';
@@ -1791,9 +2106,12 @@ function lockViewport() {
     currentSellerAddress = null;
     currentAccessToken = null;
     invoiceSignalDisplay.textContent = activeQuery ? signalSummary(activeQuery) : 'n/a';
-    document.getElementById('invoice-amount-display').textContent = `${currentInvoiceAmount.toFixed(3)} USDC`;
+    document.getElementById('invoice-amount-display').textContent = formatTierPrice(currentInvoiceTier);
     document.getElementById('invoice-tier-display').textContent = tierLabel(currentInvoiceTier);
-    payButton.innerHTML = `<span>Pay on Arc Testnet (${currentInvoiceAmount.toFixed(3)} USDC)</span>`;
+    const lockPayAmount = tierPrice(currentInvoiceTier);
+    payButton.innerHTML = lockPayAmount != null
+        ? `<span>Pay on Arc Testnet (${lockPayAmount.toFixed(3)} USDC)</span>`
+        : '<span>Pay on Arc Testnet</span>';
     document.getElementById('inv-id-row').style.display = 'none';
     document.getElementById('payment-flow-panel').style.display = 'none';
 }
@@ -1805,7 +2123,12 @@ queryForm.addEventListener('submit', async (e) => {
     activeQuery = getFormQuery();
     currentProviderId = providerSelect?.value || currentProviderId || 'funding_memory';
     currentInvoiceTier = normalizeTier(e.submitter?.dataset?.tier || 'full');
+    await refreshQuotedPrices(activeQuery);
     currentInvoiceAmount = tierPrice(currentInvoiceTier);
+    if (!Number.isFinite(currentInvoiceAmount) || currentInvoiceAmount <= 0) {
+        showToast('Could not quote price for this signal. Check the API and retry.', 'error');
+        return;
+    }
     const cachedEntry = getCachedReport(activeQuery, currentInvoiceTier);
     if (cachedEntry?.report) {
         if (normalizeTier(cachedEntry.tier || cachedEntry.report?.tier || cachedEntry.report?.invoice?.tier) === 'preview') {
@@ -1845,17 +2168,24 @@ queryForm.addEventListener('submit', async (e) => {
         document.getElementById('inv-id-row').style.display = 'flex';
         invoiceSignalDisplay.textContent = signalSummary(activeQuery);
         paywallTitle.textContent = `${tierLabel(currentInvoiceTier)} Payment Required`;
-        paywallDesc.textContent = currentInvoiceTier === 'preview'
-            ? `Unlock a lightweight ${invoiceData.provider_name || 'QMA'} preview for this exact live signal. Upgrade to the full report for all analogs, percentiles, and diagnostics.`
-            : `Unlock this exact full ${invoiceData.provider_name || 'QMA'} signal snapshot. If the token changes later, QMA treats that as a new signal and requires a new paid report.`;
+        if (isBasicView()) {
+            paywallDesc.textContent = currentInvoiceTier === 'preview'
+                ? `Unlock a short summary for ${activeQuery?.symbol || 'this token'} showing how similar past events performed.`
+                : `Unlock the full historical comparison for ${activeQuery?.symbol || 'this token'}. Each new live snapshot needs its own purchase.`;
+        } else {
+            paywallDesc.textContent = currentInvoiceTier === 'preview'
+                ? `Unlock a lightweight ${invoiceData.provider_name || 'QMA'} preview for this exact live signal. Upgrade to the full report for all analogs, percentiles, and diagnostics.`
+                : `Unlock this exact full ${invoiceData.provider_name || 'QMA'} signal snapshot. If the token changes later, QMA treats that as a new signal and requires a new paid report.`;
+        }
         document.getElementById('invoice-amount-display').textContent = `${invoiceData.amount} ${invoiceData.currency}`;
         document.getElementById('invoice-tier-display').textContent = invoiceData.tier_label || tierLabel(currentInvoiceTier);
         document.getElementById('invoice-network-display').textContent = invoiceData.network_name || invoiceData.network;
         payButton.innerHTML = `<span>Pay on Arc Testnet (${Number(invoiceData.amount).toFixed(3)} USDC)</span>`;
 
-        // Show payment flow panel and pre-fill seller wallet info
         const pfPanel = document.getElementById('payment-flow-panel');
-        pfPanel.style.display = 'block';
+        if (pfPanel) {
+            pfPanel.style.display = 'block';
+        }
         document.getElementById('pf-seller-wallet-addr').textContent = invoiceData.wallet_address || '—';
         // Gateway contract address
         document.getElementById('pf-gateway-contract').textContent = gatewayContractAddress || 'Circle Gateway Contract (fetching...)';
@@ -1955,24 +2285,14 @@ payButton.addEventListener('click', async () => {
         }
 
         if (gatewayBalance + 1e-9 < currentInvoiceAmount) {
-            const defaultDeposit = Math.max(1, currentInvoiceAmount * 20);
-            const requiredTopUp = Math.max(currentInvoiceAmount - gatewayBalance, 0);
-            const depositAmount = Math.max(defaultDeposit, requiredTopUp);
-            const ok = await requestActionConfirmation({
-                title: 'Deposit to Circle Gateway',
-                subtitle: 'Pre-fund Gateway balance for paid QMA reports',
-                rows: [
-                    { label: 'Buyer Wallet', value: shortAddress(account) },
-                    { label: 'Current Gateway Balance', value: `${gatewayBalance.toFixed(6)} USDC` },
-                    { label: 'Report Tier', value: tierLabel(currentInvoiceTier) },
-                    { label: 'Report Cost', value: `${currentInvoiceAmount.toFixed(3)} USDC` },
-                    { label: 'Deposit Amount', value: `${depositAmount.toFixed(2)} USDC` },
-                    { label: 'Gateway Contract', value: shortAddress(gatewayContractAddress) },
-                ],
-                warning: 'This will open your wallet for USDC approval if allowance is too low, then a Gateway deposit transaction. Future reports can skip deposit until this prepaid balance runs out.',
-                confirmLabel: 'Deposit',
+            const depositAmount = await requestDepositAmount({
+                account,
+                gatewayBalance,
+                walletBalance: walletBal,
+                requiredPayment: currentInvoiceAmount,
+                walletStatus,
             });
-            if (!ok) {
+            if (!depositAmount) {
                 throw new Error('Payment requires Circle Gateway balance. Deposit first, then retry.');
             }
             const depositResult = await depositToGateway(account, depositAmount, walletStatus);
@@ -2225,7 +2545,10 @@ payButton.addEventListener('click', async () => {
         }
     } finally {
         payButton.disabled = false;
-        payButton.innerHTML = `<span>Pay on Arc Testnet (${currentInvoiceAmount.toFixed(3)} USDC)</span>`;
+        const resetPayAmount = tierPrice(currentInvoiceTier);
+        payButton.innerHTML = resetPayAmount != null
+            ? `<span>Pay on Arc Testnet (${resetPayAmount.toFixed(3)} USDC)</span>`
+            : '<span>Pay on Arc Testnet</span>';
     }
 });
 
@@ -2390,6 +2713,7 @@ function renderPreviewReport(report, cachedEntry = null) {
         riskList.prepend(div);
     }
     loadMetrics();
+    updatePlainSummary(report, { preview: true });
 }
 
 function renderReport(report, cachedEntry = null) {
@@ -2511,6 +2835,7 @@ function renderReport(report, cachedEntry = null) {
     if (report.invoice?.settlement_id && !report.invoice.explorer_url) {
         hydrateReportPayment(report);
     }
+    updatePlainSummary(report, { preview: false });
 }
 
 async function hydrateReportPayment(report) {
@@ -2653,8 +2978,31 @@ loadLiveAnomalies();
 loadAgentRecommendations();
 loadMetrics();
 loadHealthInfo();
+if (queryForm) {
+    queryForm.addEventListener('input', scheduleQuotedPriceRefresh);
+    queryForm.addEventListener('change', scheduleQuotedPriceRefresh);
+}
 setInterval(loadMetrics, 15000);
 refreshBtn.addEventListener('click', () => {
     loadLiveAnomalies();
     loadAgentRecommendations();
 });
+
+const basicToggleFieldsBtn = document.getElementById('basic-toggle-fields-btn');
+if (basicToggleFieldsBtn) {
+    basicToggleFieldsBtn.addEventListener('click', () => {
+        const expanded = document.body.classList.toggle('basic-show-fields');
+        basicToggleFieldsBtn.textContent = expanded ? 'Hide technical fields' : 'Edit technical fields';
+    });
+}
+
+viewModeButtons.forEach((button) => {
+    button.addEventListener('click', () => setViewMode(button.dataset.viewMode));
+});
+try {
+    const savedViewMode = localStorage.getItem('qma_view_mode');
+    setViewMode(savedViewMode === 'advanced' ? 'advanced' : 'basic');
+} catch (err) {
+    setViewMode('basic');
+}
+updateBasicSignalCard();

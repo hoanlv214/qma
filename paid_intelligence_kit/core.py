@@ -41,6 +41,48 @@ def tier_price(tier: Optional[str]) -> float:
     return float(os.getenv(meta["env"], meta["default"]))
 
 
+def pricing_config() -> dict:
+    return {
+        "preview_base_usdc": tier_price("preview"),
+        "full_base_usdc": tier_price("full"),
+        "complexity_uplift_max": float(os.getenv("QMA_PRICE_COMPLEXITY_UPLIFT_MAX", "0")),
+    }
+
+
+def signal_complexity_score(query: dict) -> float:
+    """0-100 score from live signal structure; higher means a richer/more unusual setup."""
+    funding_pct = abs(float(query.get("fundingRate") or 0) * 100)
+    volume = float(query.get("volume24h") or 0)
+    market_cap = max(float(query.get("marketCap") or 0), 1)
+    circ = float(query.get("circRatio") or 0)
+    ath = abs(float(query.get("fromATH") or 0))
+    volume_score = min(25.0, (volume / market_cap) * 100)
+    funding_score = min(45.0, funding_pct * 18)
+    structure_score = min(20.0, max(0.0, 1.0 - abs(circ - 0.65)) * 20)
+    discount_score = min(10.0, ath / 10)
+    return round(min(100.0, funding_score + volume_score + structure_score + discount_score), 1)
+
+
+def quote_tier_price(
+    query: dict,
+    tier: Optional[str],
+    *,
+    base_preview: Optional[float] = None,
+    base_full: Optional[float] = None,
+) -> float:
+    """Base tier price adjusted by signal complexity. Uplift defaults to 0 for backward compatibility."""
+    normalized = normalize_tier(tier)
+    base = float(base_preview if normalized == "preview" else base_full) if (
+        base_preview if normalized == "preview" else base_full
+    ) is not None else tier_price(normalized)
+    uplift_max = float(os.getenv("QMA_PRICE_COMPLEXITY_UPLIFT_MAX", "0"))
+    if uplift_max <= 0:
+        return round(base, 6)
+    score = signal_complexity_score(query)
+    multiplier = 1.0 + (score / 100.0) * uplift_max
+    return round(base * multiplier, 6)
+
+
 def has_tier_access(purchased_tier: Optional[str], required_tier: Optional[str]) -> bool:
     purchased = SUPPORTED_TIERS.get(normalize_tier(purchased_tier), {}).get("rank", 0)
     required = SUPPORTED_TIERS.get(normalize_tier(required_tier), {}).get("rank", 0)
@@ -120,6 +162,7 @@ def create_invoice(
     *,
     query: dict,
     tier: Optional[str],
+    amount_usdc: Optional[float] = None,
     resource_type: str,
     provider_id: str = "funding_memory",
     buyer_type: str = "human",
@@ -134,7 +177,7 @@ def create_invoice(
 ) -> tuple[dict, dict]:
     normalized_tier = normalize_tier(tier)
     query_payload = canonical_query_payload(query)
-    amount = tier_price(normalized_tier)
+    amount = float(amount_usdc if amount_usdc is not None else tier_price(normalized_tier))
     invoice_id = f"inv_{uuid.uuid4().hex[:12]}"
     now = time.time()
     requirement = payment_requirement(

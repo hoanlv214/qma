@@ -36,8 +36,9 @@
                 <div class="logo-text">QMA</div>
             </a>
             <span class="logo-tag">v1.0.0</span>
-            
-            <!-- Partner Logos -->
+
+            <!-- Partner Logos — subtle divider then badges -->
+            <span class="header-divider"></span>
             <a href="https://thecanteenapp.com/" target="_blank" rel="noopener noreferrer" class="logo-item logo-img-item canteen-logo-item" title="Canteen">
                 <img src="/public/assets/logos/canteen-logo.png" alt="Canteen">
             </a>
@@ -47,28 +48,28 @@
             <a href="https://www.arc.network/" target="_blank" rel="noopener noreferrer" class="logo-item logo-img-item arc-logo-item" title="Arc Testnet">
                 <img src="/public/assets/logos/arc-logo-white.svg" alt="Arc Testnet">
             </a>
-
-            <nav class="header-nav-links">
-                <a href="/app" class="nav-link active">App</a>
-                <a href="/marketplace" class="nav-link">Marketplace</a>
-                <a href="/docs" data-api-path="/docs" target="_blank" rel="noopener noreferrer" class="nav-link">API</a>
-            </nav>
         </div>
 
         <div class="status-indicators">
-            <!-- Clock always visible -->
+            <!-- Clock -->
             <div class="indicator" id="clock">00:00:00</div>
+
+            <!-- View Mode Toggle — flat inline, same height as indicator -->
+            <div class="view-toggle" role="group" aria-label="View mode">
+                <button type="button" class="view-toggle-btn" data-view-mode="basic">Simple</button>
+                <button type="button" class="view-toggle-btn" data-view-mode="advanced">Pro</button>
+            </div>
 
             <!-- Stats Dropdown -->
             <div class="stats-dropdown-container">
                 <button type="button" class="stats-dropdown-btn" id="stats-dropdown-btn">
-                    <svg class="dropdown-btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <svg class="dropdown-btn-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <line x1="18" y1="20" x2="18" y2="10"></line>
                         <line x1="12" y1="20" x2="12" y2="4"></line>
                         <line x1="6" y1="20" x2="6" y2="14"></line>
                     </svg>
                     <span>Status & Metrics</span>
-                    <svg class="dropdown-btn-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <svg class="dropdown-btn-arrow" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                         <polyline points="6 9 12 15 18 9"></polyline>
                     </svg>
                 </button>
@@ -118,6 +119,7 @@
                     <button type="button" id="wallet-copy-btn" style="display:none;">Copy Address</button>
                     <button type="button" id="wallet-profile-btn">View Profile Page</button>
                     <button type="button" id="wallet-quick-profile-btn">Quick Profile Modal</button>
+                    <a href="/marketplace" class="wallet-menu-link" id="wallet-marketplace-link">Marketplace</a>
                     <button type="button" id="wallet-withdraw-menu-btn" style="display:none; color:var(--green);">Withdraw Funds</button>
                     <button type="button" id="wallet-disconnect-btn">Disconnect</button>
                 </div>
@@ -162,8 +164,17 @@
 
             <!-- Query Card (Responsive Grid Layout) -->
             <div class="query-card-container">
+                <div class="basic-signal-card basic-only" id="basic-signal-card">
+                    <div class="basic-signal-top">
+                        <span class="basic-signal-symbol" id="basic-signal-symbol">HYPE</span>
+                        <span class="basic-signal-tag">Selected signal</span>
+                    </div>
+                    <p class="basic-signal-lead" id="basic-signal-lead">Pick a live signal on the left, or use the buttons below to buy a historical comparison report.</p>
+                    <p class="basic-signal-meta" id="basic-signal-meta">Pay once per exact snapshot. No subscription.</p>
+                    <button type="button" class="basic-toggle-fields-btn" id="basic-toggle-fields-btn">Edit technical fields</button>
+                </div>
                 <form class="query-form-grid" id="query-form">
-                    <div class="query-fields-grid">
+                    <div class="query-fields-grid advanced-control">
                         <div class="form-group">
                             <label class="form-label">Symbol</label>
                             <input type="text" class="form-input" id="q-symbol" value="HYPE" required>
@@ -201,10 +212,10 @@
                     </div>
                     <div class="query-actions-row">
                         <button type="submit" class="submit-btn tier-btn preview-tier" data-tier="preview">
-                            <span>Preview 0.001</span>
+                            <span>Preview …</span>
                         </button>
                         <button type="submit" class="submit-btn tier-btn full-tier" data-tier="full">
-                            <span>Full 0.005</span>
+                            <span>Full …</span>
                         </button>
                     </div>
                 </form>
@@ -221,8 +232,7 @@
                             <div class="paywall-main">
                                 <div class="paywall-title" id="paywall-title">USDC Micro-Payment Required</div>
                                 <div class="paywall-desc" id="paywall-desc">
-                                    Unlock a regime analog report for this token. QMA matches the live vector against
-                                    historical funding events in Mahalanobis space with Ledoit-Wolf covariance.
+                                    Unlock a plain-language historical comparison for this token. QMA matches today's funding snapshot against similar past events and shows how they usually played out.
                                 </div>
 
                                 <div class="circle-invoice-details">
@@ -232,7 +242,7 @@
                                     </div>
                                     <div class="invoice-row">
                                         <span class="invoice-label">Amount</span>
-                                        <span class="invoice-val" id="invoice-amount-display">0.005 USDC</span>
+                                        <span class="invoice-val" id="invoice-amount-display">— USDC</span>
                                     </div>
                                     <div class="invoice-row">
                                         <span class="invoice-label">Tier</span>
@@ -300,7 +310,7 @@
                         </div>
 
                         <button class="simulate-pay-btn" id="pay-button">
-                            <span>Pay on Arc Testnet - 0.005 USDC</span>
+                            <span>Pay on Arc Testnet</span>
                         </button>
                     </div>
                 </div>
@@ -308,8 +318,45 @@
                 <!-- ── REPORT ── -->
                 <div class="report-container" id="report-view-element">
 
+                    <!-- Simple-mode summary -->
+                    <div class="report-section section-span-all basic-summary-section basic-only" id="basic-summary-section">
+                        <div class="section-header">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                <polyline points="14 2 14 8 20 8" />
+                                <line x1="16" y1="13" x2="8" y2="13" />
+                                <line x1="16" y1="17" x2="8" y2="17" />
+                            </svg>
+                            Your result at a glance
+                        </div>
+                        <p class="plain-summary" id="plain-summary-text">Unlock a report to see a simple summary of how similar historical events performed.</p>
+                        <div class="summary-card-grid">
+                            <div class="summary-card">
+                                <span>Confidence</span>
+                                <strong id="summary-confidence">—</strong>
+                                <small>How familiar this setup looks in history</small>
+                            </div>
+                            <div class="summary-card">
+                                <span>Similar events</span>
+                                <strong id="summary-similar-count">—</strong>
+                                <small>Historical matches in QMA's dataset</small>
+                            </div>
+                            <div class="summary-card">
+                                <span>Win rate</span>
+                                <strong id="summary-win-rate">—</strong>
+                                <small>How often similar cases finished positive</small>
+                            </div>
+                            <div class="summary-card">
+                                <span>Typical outcome</span>
+                                <strong id="summary-median">—</strong>
+                                <small>Median peak result in past analogs</small>
+                            </div>
+                        </div>
+                        <p class="plain-summary-disclaimer">Past performance does not guarantee future results. This is historical context, not trading advice.</p>
+                    </div>
+
                     <!-- KPI: Win Rate & PnL — spans 2 cols -->
-                    <div class="report-section section-span-2">
+                    <div class="report-section section-span-2 advanced-control">
                         <div class="section-header">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
@@ -332,7 +379,7 @@
                     </div>
 
                     <!-- KPI: Regime Cluster -->
-                    <div class="report-section">
+                    <div class="report-section advanced-control">
                         <div class="section-header">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <polygon points="12 2 2 7 12 12 22 7 12 2" />
@@ -359,120 +406,133 @@
                         </div>
                     </div>
 
-                    <!-- Return Distribution -->
-                    <div class="report-section">
-                        <div class="section-header">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <line x1="18" y1="20" x2="18" y2="10" />
-                                <line x1="12" y1="20" x2="12" y2="4" />
-                                <line x1="6" y1="20" x2="6" y2="14" />
+                    <!-- Collapsible Advanced Details Container -->
+                    <div class="advanced-only section-span-all advanced-dropdown-wrapper">
+                        <button type="button" class="advanced-dropdown-trigger" id="advanced-details-toggle">
+                            <span class="trigger-label">Show Detailed Quant Diagnostics & Analogs</span>
+                            <svg class="trigger-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="6 9 12 15 18 9"></polyline>
                             </svg>
-                            Historical Outcome Percentiles
-                        </div>
-                        <div class="dist-chart">
-                            <div class="dist-row">
-                                <span class="dist-label">P90 Best</span>
-                                <div class="dist-bar-bg">
-                                    <div class="dist-bar-fill" id="pb-p90" style="width:0%;"></div>
+                        </button>
+                        <div class="advanced-dropdown-content" id="advanced-details-panel" style="display: none;">
+
+                            <!-- Return Distribution -->
+                            <div class="report-section">
+                                <div class="section-header">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <line x1="18" y1="20" x2="18" y2="10" />
+                                        <line x1="12" y1="20" x2="12" y2="4" />
+                                        <line x1="6" y1="20" x2="6" y2="14" />
+                                    </svg>
+                                    Historical Outcome Percentiles
                                 </div>
-                                <span class="dist-val" id="res-p90">0%</span>
-                            </div>
-                            <div class="dist-row">
-                                <span class="dist-label">P75</span>
-                                <div class="dist-bar-bg">
-                                    <div class="dist-bar-fill" id="pb-p75" style="width:0%;"></div>
+                                <div class="dist-chart">
+                                    <div class="dist-row">
+                                        <span class="dist-label">P90 Best</span>
+                                        <div class="dist-bar-bg">
+                                            <div class="dist-bar-fill" id="pb-p90" style="width:0%;"></div>
+                                        </div>
+                                        <span class="dist-val" id="res-p90">0%</span>
+                                    </div>
+                                    <div class="dist-row">
+                                        <span class="dist-label">P75</span>
+                                        <div class="dist-bar-bg">
+                                            <div class="dist-bar-fill" id="pb-p75" style="width:0%;"></div>
+                                        </div>
+                                        <span class="dist-val" id="res-p75">0%</span>
+                                    </div>
+                                    <div class="dist-row">
+                                        <span class="dist-label">P50 Med</span>
+                                        <div class="dist-bar-bg">
+                                            <div class="dist-bar-fill" id="pb-p50" style="width:0%;"></div>
+                                        </div>
+                                        <span class="dist-val" id="res-p50">0%</span>
+                                    </div>
+                                    <div class="dist-row">
+                                        <span class="dist-label">P25</span>
+                                        <div class="dist-bar-bg">
+                                            <div class="dist-bar-fill" id="pb-p25" style="width:0%;"></div>
+                                        </div>
+                                        <span class="dist-val" id="res-p25">0%</span>
+                                    </div>
+                                    <div class="dist-row">
+                                        <span class="dist-label">P10 Worst</span>
+                                        <div class="dist-bar-bg">
+                                            <div class="dist-bar-fill" id="pb-p10" style="width:0%;"></div>
+                                        </div>
+                                        <span class="dist-val" id="res-p10">0%</span>
+                                    </div>
                                 </div>
-                                <span class="dist-val" id="res-p75">0%</span>
                             </div>
-                            <div class="dist-row">
-                                <span class="dist-label">P50 Med</span>
-                                <div class="dist-bar-bg">
-                                    <div class="dist-bar-fill" id="pb-p50" style="width:0%;"></div>
+
+                            <!-- Historical Analogs Table — spans 2 cols -->
+                            <div class="report-section section-span-2">
+                                <div class="section-header">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <line x1="8" y1="6" x2="21" y2="6" />
+                                        <line x1="8" y1="12" x2="21" y2="12" />
+                                        <line x1="8" y1="18" x2="21" y2="18" />
+                                        <line x1="3" y1="6" x2="3.01" y2="6" />
+                                        <line x1="3" y1="12" x2="3.01" y2="12" />
+                                        <line x1="3" y1="18" x2="3.01" y2="18" />
+                                    </svg>
+                                    Closest Historical Funding Events
                                 </div>
-                                <span class="dist-val" id="res-p50">0%</span>
-                            </div>
-                            <div class="dist-row">
-                                <span class="dist-label">P25</span>
-                                <div class="dist-bar-bg">
-                                    <div class="dist-bar-fill" id="pb-p25" style="width:0%;"></div>
+                                <div style="overflow-x:auto;">
+                                    <table class="analogs-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Asset</th>
+                                                <th>Historical Funding</th>
+                                                <th>Market Cap</th>
+                                                <th>Settle Age</th>
+                                                <th>Decay Wt.</th>
+                                                <th>Similarity</th>
+                                                <th>Outcome PnL</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="analogs-table-body"></tbody>
+                                    </table>
                                 </div>
-                                <span class="dist-val" id="res-p25">0%</span>
                             </div>
-                            <div class="dist-row">
-                                <span class="dist-label">P10 Worst</span>
-                                <div class="dist-bar-bg">
-                                    <div class="dist-bar-fill" id="pb-p10" style="width:0%;"></div>
+
+                            <!-- Evidence Quality -->
+                            <div class="report-section section-span-all">
+                                <div class="section-header">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M12 20h9" />
+                                        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                                    </svg>
+                                    Evidence Quality Diagnostics
                                 </div>
-                                <span class="dist-val" id="res-p10">0%</span>
+                                <div class="diagnostic-grid">
+                                    <div class="diagnostic-tile">
+                                        <span class="diagnostic-label">Clean Joined Rows</span>
+                                        <span class="diagnostic-value" id="diag-clean-rows">0</span>
+                                    </div>
+                                    <div class="diagnostic-tile">
+                                        <span class="diagnostic-label">Matched K / ESS</span>
+                                        <span class="diagnostic-value" id="diag-ess">0 / 0.0</span>
+                                    </div>
+                                    <div class="diagnostic-tile">
+                                        <span class="diagnostic-label">Nearest Distance</span>
+                                        <span class="diagnostic-value" id="diag-distance">0.000</span>
+                                    </div>
+                                    <div class="diagnostic-tile">
+                                        <span class="diagnostic-label">Empirical OOD %ile</span>
+                                        <span class="diagnostic-value" id="diag-ood">0.0%</span>
+                                    </div>
+                                </div>
+                                <div class="risk-list" id="risk-list">
+                                    <div class="risk-item">Submit and unlock a report to view diagnostics.</div>
+                                </div>
                             </div>
+
                         </div>
                     </div>
 
-                    <!-- Historical Analogs Table — spans 2 cols -->
-                    <div class="report-section section-span-2">
-                        <div class="section-header">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <line x1="8" y1="6" x2="21" y2="6" />
-                                <line x1="8" y1="12" x2="21" y2="12" />
-                                <line x1="8" y1="18" x2="21" y2="18" />
-                                <line x1="3" y1="6" x2="3.01" y2="6" />
-                                <line x1="3" y1="12" x2="3.01" y2="12" />
-                                <line x1="3" y1="18" x2="3.01" y2="18" />
-                            </svg>
-                            Closest Historical Funding Events
-                        </div>
-                        <div style="overflow-x:auto;">
-                            <table class="analogs-table">
-                                <thead>
-                                    <tr>
-                                        <th>Asset</th>
-                                        <th>Historical Funding</th>
-                                        <th>Market Cap</th>
-                                        <th>Settle Age</th>
-                                        <th>Decay Wt.</th>
-                                        <th>Similarity</th>
-                                        <th>Outcome PnL</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="analogs-table-body"></tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    <!-- Evidence Quality -->
-                    <div class="report-section section-span-all">
-                        <div class="section-header">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M12 20h9" />
-                                <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                            </svg>
-                            Evidence Quality Diagnostics
-                        </div>
-                        <div class="diagnostic-grid">
-                            <div class="diagnostic-tile">
-                                <span class="diagnostic-label">Clean Joined Rows</span>
-                                <span class="diagnostic-value" id="diag-clean-rows">0</span>
-                            </div>
-                            <div class="diagnostic-tile">
-                                <span class="diagnostic-label">Matched K / ESS</span>
-                                <span class="diagnostic-value" id="diag-ess">0 / 0.0</span>
-                            </div>
-                            <div class="diagnostic-tile">
-                                <span class="diagnostic-label">Nearest Distance</span>
-                                <span class="diagnostic-value" id="diag-distance">0.000</span>
-                            </div>
-                            <div class="diagnostic-tile">
-                                <span class="diagnostic-label">Empirical OOD %ile</span>
-                                <span class="diagnostic-value" id="diag-ood">0.0%</span>
-                            </div>
-                        </div>
-                        <div class="risk-list" id="risk-list">
-                            <div class="risk-item">Submit and unlock a report to view diagnostics.</div>
-                        </div>
-                    </div>
-
-                    <!-- Payment Activity -->
-                    <div class="report-section section-span-all">
+                    <!-- Payment Activity (visible in Simple + Pro) -->
+                    <div class="report-section section-span-all platform-stats-section">
                         <div class="section-header">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <rect x="2" y="5" width="20" height="14" rx="2" />
@@ -481,7 +541,6 @@
                             Payment Activity
                         </div>
 
-                        <!-- Seller balance summary -->
                         <div class="seller-balance-grid">
                             <div class="balance-tile green">
                                 <span class="balance-tile-label">Seller Gateway — Available</span>
@@ -745,6 +804,26 @@
                     }
                 }
             });
+
+            // 4. Advanced detailed diagnostics collapsible toggle
+            const advancedDetailsToggle = document.getElementById('advanced-details-toggle');
+            const advancedDetailsPanel = document.getElementById('advanced-details-panel');
+            const triggerLabel = advancedDetailsToggle?.querySelector('.trigger-label');
+            
+            if (advancedDetailsToggle && advancedDetailsPanel) {
+                advancedDetailsToggle.addEventListener('click', () => {
+                    const isHidden = advancedDetailsPanel.style.display === 'none';
+                    if (isHidden) {
+                        advancedDetailsPanel.style.display = 'grid';
+                        advancedDetailsToggle.classList.add('expanded');
+                        if (triggerLabel) triggerLabel.textContent = 'Hide Detailed Quant Diagnostics & Analogs';
+                    } else {
+                        advancedDetailsPanel.style.display = 'none';
+                        advancedDetailsToggle.classList.remove('expanded');
+                        if (triggerLabel) triggerLabel.textContent = 'Show Detailed Quant Diagnostics & Analogs';
+                    }
+                });
+            }
         });
     </script>
     <script src="/public/app.js" defer></script>

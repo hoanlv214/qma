@@ -20,7 +20,8 @@ function shortAddress(value) {
 }
 
 function money(value) {
-    return `${Number(value || 0).toFixed(3)} USDC`;
+    if (value == null || !Number.isFinite(Number(value))) return '— USDC';
+    return `${Number(value).toFixed(3)} USDC`;
 }
 
 function renderProviders(providers) {
@@ -32,8 +33,8 @@ function renderProviders(providers) {
     }
     container.innerHTML = providers.map((provider) => {
         const stats = provider.stats || {};
-        const preview = provider.pricing?.preview?.amount_usdc ?? 0.001;
-        const full = provider.pricing?.full?.amount_usdc ?? 0.005;
+        const preview = provider.pricing?.preview?.amount_usdc;
+        const full = provider.pricing?.full?.amount_usdc;
         const creatorShare = Number(provider.revenue_share_bps || stats.creator_share_bps || 8000) / 100;
         const status = provider.status || 'approved';
         return `
