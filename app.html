@@ -8,7 +8,9 @@
     <link rel="icon" href="/public/assets/favicon.ico" sizes="any">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
     <link rel="stylesheet" href="/public/styles.css">
     <link rel="stylesheet" href="/public/app.css">
     <script>
@@ -39,13 +41,16 @@
 
             <!-- Partner Logos — subtle divider then badges -->
             <span class="header-divider"></span>
-            <a href="https://thecanteenapp.com/" target="_blank" rel="noopener noreferrer" class="logo-item logo-img-item canteen-logo-item" title="Canteen">
+            <a href="https://thecanteenapp.com/" target="_blank" rel="noopener noreferrer"
+                class="logo-item logo-img-item canteen-logo-item" title="Canteen">
                 <img src="/public/assets/logos/canteen-logo.png" alt="Canteen">
             </a>
-            <a href="https://www.circle.com/" target="_blank" rel="noopener noreferrer" class="logo-item logo-img-item" title="Circle">
+            <a href="https://www.circle.com/" target="_blank" rel="noopener noreferrer" class="logo-item logo-img-item"
+                title="Circle">
                 <img src="/public/assets/logos/circle-logo-white.svg" alt="Circle">
             </a>
-            <a href="https://www.arc.network/" target="_blank" rel="noopener noreferrer" class="logo-item logo-img-item arc-logo-item" title="Arc Testnet">
+            <a href="https://www.arc.network/" target="_blank" rel="noopener noreferrer"
+                class="logo-item logo-img-item arc-logo-item" title="Arc Testnet">
                 <img src="/public/assets/logos/arc-logo-white.svg" alt="Arc Testnet">
             </a>
         </div>
@@ -63,13 +68,15 @@
             <!-- Stats Dropdown -->
             <div class="stats-dropdown-container">
                 <button type="button" class="stats-dropdown-btn" id="stats-dropdown-btn">
-                    <svg class="dropdown-btn-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <svg class="dropdown-btn-icon" width="13" height="13" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <line x1="18" y1="20" x2="18" y2="10"></line>
                         <line x1="12" y1="20" x2="12" y2="4"></line>
                         <line x1="6" y1="20" x2="6" y2="14"></line>
                     </svg>
                     <span>Status & Metrics</span>
-                    <svg class="dropdown-btn-arrow" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <svg class="dropdown-btn-arrow" width="9" height="9" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2.5">
                         <polyline points="6 9 12 15 18 9"></polyline>
                     </svg>
                 </button>
@@ -99,10 +106,13 @@
 
                     <div class="dropdown-section">
                         <div class="dropdown-title">Seller Treasury (USDC)</div>
-                        <div class="dropdown-row-single" title="Seller Gateway: funds confirmed on-chain and available to withdraw">
+                        <div class="dropdown-row-single"
+                            title="Seller Gateway: funds confirmed on-chain and available to withdraw">
                             <span id="metrics-balance">Avail: 0.00</span>
                         </div>
-                        <div class="dropdown-row-single" title="Seller Gateway: funds deducted from buyers but not yet batched on-chain" style="margin-top: 6px;">
+                        <div class="dropdown-row-single"
+                            title="Seller Gateway: funds deducted from buyers but not yet batched on-chain"
+                            style="margin-top: 6px;">
                             <span id="metrics-balance-pending" style="color: var(--t3);">Batch: —</span>
                         </div>
                     </div>
@@ -117,25 +127,34 @@
                 <div class="wallet-menu" id="wallet-menu">
                     <div class="wallet-menu-header">
                         <div class="wallet-menu-address" id="wallet-menu-address">Not connected</div>
-                        <button type="button" id="wallet-copy-btn" class="wallet-menu-icon-btn" style="display:none;" title="Copy address" aria-label="Copy address">
-                            <svg class="wallet-copy-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <button type="button" id="wallet-copy-btn" class="wallet-menu-icon-btn" style="display:none;"
+                            title="Copy address" aria-label="Copy address">
+                            <svg class="wallet-copy-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                                aria-hidden="true">
                                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                                 <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                             </svg>
-                            <svg class="wallet-copy-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <svg class="wallet-copy-check" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                                aria-hidden="true">
                                 <path d="M20 6L9 17l-5-5"></path>
                             </svg>
                         </button>
                     </div>
                     <button type="button" id="wallet-profile-btn" class="wallet-menu-item">
-                        <svg class="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <svg class="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                            aria-hidden="true">
                             <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
                             <circle cx="12" cy="7" r="4"></circle>
                         </svg>
                         <span>View Profile Page</span>
                     </button>
                     <button type="button" id="wallet-quick-profile-btn" class="wallet-menu-item">
-                        <svg class="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <svg class="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                            aria-hidden="true">
                             <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
                             <line x1="9" y1="9" x2="15" y2="9"></line>
                             <line x1="9" y1="13" x2="15" y2="13"></line>
@@ -144,21 +163,28 @@
                         <span>Quick Profile Modal</span>
                     </button>
                     <a href="/marketplace" class="wallet-menu-link wallet-menu-item" id="wallet-marketplace-link">
-                        <svg class="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <svg class="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                            aria-hidden="true">
                             <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
                             <polyline points="9 22 9 12 15 12 15 22"></polyline>
                         </svg>
                         <span>Marketplace</span>
                     </a>
-                    <button type="button" id="wallet-withdraw-menu-btn" class="wallet-menu-item wallet-menu-item-green" style="display:none;">
-                        <svg class="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <button type="button" id="wallet-withdraw-menu-btn" class="wallet-menu-item wallet-menu-item-green"
+                        style="display:none;">
+                        <svg class="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                            aria-hidden="true">
                             <line x1="12" y1="19" x2="12" y2="5"></line>
                             <polyline points="5 12 12 5 19 12"></polyline>
                         </svg>
                         <span>Withdraw Funds</span>
                     </button>
                     <button type="button" id="wallet-disconnect-btn" class="wallet-menu-item wallet-menu-item-danger">
-                        <svg class="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <svg class="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                            aria-hidden="true">
                             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
                             <polyline points="16 17 21 12 16 7"></polyline>
                             <line x1="21" y1="12" x2="9" y2="12"></line>
@@ -179,20 +205,24 @@
     <!-- ═══ WORKSPACE ═══ -->
     <div class="workspace">
 
-        <!-- ── LEFT SIDEBAR — Live Anomalies ── -->
+        <!-- ── LEFT SIDEBAR — Live Signals ── -->
         <div class="live-feed-sidebar mobile-visible">
             <div class="sidebar-header">
-                <span class="sidebar-title">Live Anomalies</span>
+                <span class="sidebar-title">Live Signals</span>
                 <button class="refresh-btn" id="refresh-anomalies-btn">↻ Refresh</button>
             </div>
             <div class="agent-picks-panel sidebar-panel" data-sidebar-panel>
                 <div class="sidebar-header agent-picks-header sidebar-panel-toggle" role="button" tabindex="0">
-                    <span class="sidebar-title">Agent Picks</span>
-                    <span class="agent-mode-pill">Suggest then pay</span>
+                    <span class="sidebar-title">QMA Picks</span>
+                    <span class="agent-mode-pill">Suggested reports</span>
                 </div>
                 <div class="agent-picks-list sidebar-panel-body" id="agent-picks-container">
                     <div class="agent-empty">Ranking live signals...</div>
                 </div>
+            </div>
+            <div class="sidebar-header anomalies-header">
+                <span class="sidebar-title">All Live Signals</span>
+                <span class="anomalies-count-pill">Live</span>
             </div>
             <div class="anomalies-list" id="anomalies-container">
                 <div style="text-align:center; color:var(--t3); margin-top:48px;">
@@ -210,11 +240,30 @@
                 <div class="basic-signal-card basic-only" id="basic-signal-card">
                     <div class="basic-signal-top">
                         <span class="basic-signal-symbol" id="basic-signal-symbol">HYPE</span>
-                        <span class="basic-signal-tag">Selected signal</span>
+                        <span class="basic-signal-tag">Selected market setup</span>
                     </div>
-                    <p class="basic-signal-lead" id="basic-signal-lead">Pick a live signal on the left, or use the buttons below to buy a historical comparison report.</p>
-                    <p class="basic-signal-meta" id="basic-signal-meta">Pay once per exact snapshot. No subscription.</p>
-                    <button type="button" class="basic-toggle-fields-btn" id="basic-toggle-fields-btn">Edit technical fields</button>
+                    <p class="basic-signal-lead" id="basic-signal-lead">Pick a live signal from the left sidebar. Then
+                        unlock a historical comparison report — QMA will show how similar past market setups played out.
+                    </p>
+                    <p class="basic-signal-meta" id="basic-signal-meta">No subscription. Pay only for the report you
+                        unlock.</p>
+                    <div class="how-qma-works" id="how-qma-works">
+                        <div class="how-qma-header" id="how-qma-toggle" role="button" tabindex="0" aria-expanded="true">
+                            <span class="how-qma-label">How QMA works</span>
+                            <span class="how-qma-chevron">–</span>
+                        </div>
+                        <div class="how-qma-body" id="how-qma-body">
+                            <ol class="how-qma-steps">
+                                <li>Pick a live signal from the left sidebar.</li>
+                                <li>Unlock a Preview or Full historical report.</li>
+                                <li>See how similar past market setups played out.</li>
+                            </ol>
+                            <p class="how-qma-note">QMA does not predict prices. It compares today's setup with history.
+                            </p>
+                        </div>
+                    </div>
+                    <button type="button" class="basic-toggle-fields-btn" id="basic-toggle-fields-btn">Edit signal
+                        inputs</button>
                 </div>
                 <form class="query-form-grid" id="query-form">
                     <div class="query-fields-grid advanced-control">
@@ -230,7 +279,8 @@
                         </div>
                         <div class="form-group">
                             <label class="form-label">Funding Rate</label>
-                            <input type="number" step="0.0001" class="form-input" id="q-funding" value="-0.0120" required>
+                            <input type="number" step="0.0001" class="form-input" id="q-funding" value="-0.0120"
+                                required>
                         </div>
                         <div class="form-group">
                             <label class="form-label">Mkt Cap ($)</label>
@@ -242,7 +292,8 @@
                         </div>
                         <div class="form-group">
                             <label class="form-label">Circ Ratio</label>
-                            <input type="number" step="0.01" min="0.01" max="1.5" class="form-input" id="q-circ" value="0.15" required>
+                            <input type="number" step="0.01" min="0.01" max="1.5" class="form-input" id="q-circ"
+                                value="0.15" required>
                         </div>
                         <div class="form-group">
                             <label class="form-label">ATH Dist (%)</label>
@@ -255,10 +306,10 @@
                     </div>
                     <div class="query-actions-row">
                         <button type="submit" class="submit-btn tier-btn preview-tier" data-tier="preview">
-                            <span>Preview …</span>
+                            <span>Preview Report · $0.001</span>
                         </button>
                         <button type="submit" class="submit-btn tier-btn full-tier" data-tier="full">
-                            <span>Full …</span>
+                            <span>Full Report · $0.005</span>
                         </button>
                     </div>
                 </form>
@@ -273,9 +324,10 @@
                         <button class="paywall-close" id="paywall-close" type="button" title="Close">x</button>
                         <div class="paywall-layout">
                             <div class="paywall-main">
-                                <div class="paywall-title" id="paywall-title">USDC Micro-Payment Required</div>
+                                <div class="paywall-title" id="paywall-title">Unlock this report</div>
                                 <div class="paywall-desc" id="paywall-desc">
-                                    Unlock a plain-language historical comparison for this token. QMA matches today's funding snapshot against similar past events and shows how they usually played out.
+                                    QMA matches today's market setup against similar past events and shows how they
+                                    played out — win rates, typical returns, and historical analogs.
                                 </div>
 
                                 <div class="circle-invoice-details">
@@ -303,10 +355,14 @@
                                 <div class="testnet-help">
                                     <div class="testnet-help-copy">
                                         <strong>New wallet?</strong>
-                                        <span>Get Arc Testnet USDC before paying. Checkout will guide you to deposit it into Circle Gateway if needed.</span>
+                                        <span>Get Arc Testnet USDC before paying. Checkout will guide you to deposit it
+                                            into Circle Gateway if needed.</span>
                                     </div>
-                                    <a href="https://faucet.circle.com/" target="_blank" rel="noopener noreferrer">Circle Faucet</a>
+                                    <a href="https://faucet.circle.com/" target="_blank"
+                                        rel="noopener noreferrer">Circle Faucet</a>
                                 </div>
+                                <p class="paywall-snapshot-note">After payment, this report snapshot is saved to your
+                                    Wallet History. <br>You can reopen it anytime.</p>
                             </div>
 
                             <!-- Payment Pipeline -->
@@ -314,14 +370,16 @@
                                 <div class="pf-header-label">Payment Flow</div>
                                 <div id="pf-buyer-wallet" class="pf-row">
                                     <div class="pf-body">
-                                        <div class="pf-label">Buyer Wallet <span class="pf-sublabel">(MetaMask, on-chain)</span></div>
+                                        <div class="pf-label">Buyer Wallet <span class="pf-sublabel">(MetaMask,
+                                                on-chain)</span></div>
                                         <div class="pf-val" id="pf-buyer-wallet-bal">—</div>
                                     </div>
                                     <div class="pf-arrow">↓</div>
                                 </div>
                                 <div id="pf-buyer-gateway" class="pf-row">
                                     <div class="pf-body">
-                                        <div class="pf-label">Circle Gateway Contract <span class="pf-sublabel">(deposit target)</span></div>
+                                        <div class="pf-label">Circle Gateway Contract <span class="pf-sublabel">(deposit
+                                                target)</span></div>
                                         <div class="pf-val pf-addr" id="pf-gateway-contract">—</div>
                                         <div class="pf-sub" id="pf-buyer-gateway-bal">Gateway balance: —</div>
                                     </div>
@@ -337,21 +395,24 @@
                                 </div>
                                 <div id="pf-seller-gateway" class="pf-row" style="border-bottom:none;">
                                     <div class="pf-body">
-                                        <div class="pf-label">Seller Treasury <span class="pf-sublabel">(final destination)</span></div>
+                                        <div class="pf-label">Seller Treasury <span class="pf-sublabel">(final
+                                                destination)</span></div>
                                         <div class="pf-addr" id="pf-seller-wallet-addr">—</div>
                                         <div class="pf-sub" style="margin-top:4px;">
-                                            <span style="color:var(--green);">✔ Available: </span><span id="pf-seller-available">—</span>
+                                            <span style="color:var(--green);">✔ Available: </span><span
+                                                id="pf-seller-available">—</span>
                                             &nbsp;·&nbsp;
-                                            <span style="color:var(--t3);">⏳ Pending: </span><span id="pf-seller-pending">—</span>
+                                            <span style="color:var(--t3);">⏳ Pending: </span><span
+                                                id="pf-seller-pending">—</span>
                                         </div>
                                         <div class="pf-sub" id="pf-arcscan-tx" style="margin-top:4px; display:none;">
-                                            Arcscan: <a class="tx-link" id="pf-arcscan-link" href="#" target="_blank" rel="noreferrer">—</a>
+                                            Arcscan: <a class="tx-link" id="pf-arcscan-link" href="#" target="_blank"
+                                                rel="noreferrer">—</a>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
-
                         <button class="simulate-pay-btn" id="pay-button">
                             <span>Pay on Arc Testnet</span>
                         </button>
@@ -362,9 +423,11 @@
                 <div class="report-container" id="report-view-element">
 
                     <!-- Simple-mode summary -->
-                    <div class="report-section section-span-all basic-summary-section basic-only" id="basic-summary-section">
+                    <div class="report-section section-span-all basic-summary-section basic-only"
+                        id="basic-summary-section">
                         <div class="section-header">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
                                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                                 <polyline points="14 2 14 8 20 8" />
                                 <line x1="16" y1="13" x2="8" y2="13" />
@@ -372,7 +435,8 @@
                             </svg>
                             Your result at a glance
                         </div>
-                        <p class="plain-summary" id="plain-summary-text">Unlock a report to see a simple summary of how similar historical events performed.</p>
+                        <p class="plain-summary" id="plain-summary-text">Unlock a report to see a simple summary of how
+                            similar historical events performed.</p>
                         <div class="summary-card-grid">
                             <div class="summary-card">
                                 <span>Confidence</span>
@@ -395,13 +459,15 @@
                                 <small>Median peak result in past analogs</small>
                             </div>
                         </div>
-                        <p class="plain-summary-disclaimer">Past performance does not guarantee future results. This is historical context, not trading advice.</p>
+                        <p class="plain-summary-disclaimer">Past performance does not guarantee future results. This is
+                            historical context, not trading advice.</p>
                     </div>
 
                     <!-- KPI: Win Rate & PnL — spans 2 cols -->
                     <div class="report-section section-span-2 advanced-control">
                         <div class="section-header">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
                                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
                                 <polyline points="22 4 12 14.01 9 11.01" />
                             </svg>
@@ -424,7 +490,8 @@
                     <!-- KPI: Regime Cluster -->
                     <div class="report-section advanced-control">
                         <div class="section-header">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
                                 <polygon points="12 2 2 7 12 12 22 7 12 2" />
                                 <polyline points="2 17 12 22 22 17" />
                                 <polyline points="2 12 12 17 22 12" />
@@ -433,17 +500,21 @@
                         </div>
                         <div class="info-list">
                             <div class="info-item">
-                                <span class="info-label" style="font-weight:600; font-size:0.9rem; color:var(--t1);" id="res-regime-name">Mid-cap Emerging</span>
+                                <span class="info-label" style="font-weight:600; font-size:0.9rem; color:var(--t1);"
+                                    id="res-regime-name">Mid-cap Emerging</span>
                             </div>
-                            <div class="info-desc" style="font-size:0.76rem; line-height:1.5;" id="res-regime-desc">Loading…</div>
+                            <div class="info-desc" style="font-size:0.76rem; line-height:1.5;" id="res-regime-desc">
+                                Loading…</div>
                             <div style="border-top:1px solid var(--bdr); padding-top:10px; margin-top:4px;">
                                 <div class="info-item">
                                     <span class="info-label">OOD Status</span>
-                                    <span class="pnl-badge" id="res-ood-status" style="font-size:0.68rem;">In-Distribution</span>
+                                    <span class="pnl-badge" id="res-ood-status"
+                                        style="font-size:0.68rem;">In-Distribution</span>
                                 </div>
                                 <div class="info-item" style="margin-top:6px;">
                                     <span class="info-label">Chi² p-value</span>
-                                    <span class="mono-td" id="res-ood-p" style="color:var(--t1); font-size:0.78rem;">1.00000</span>
+                                    <span class="mono-td" id="res-ood-p"
+                                        style="color:var(--t1); font-size:0.78rem;">1.00000</span>
                                 </div>
                             </div>
                         </div>
@@ -453,7 +524,8 @@
                     <div class="advanced-only section-span-all advanced-dropdown-wrapper">
                         <button type="button" class="advanced-dropdown-trigger" id="advanced-details-toggle">
                             <span class="trigger-label">Show Detailed Quant Diagnostics & Analogs</span>
-                            <svg class="trigger-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <svg class="trigger-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2">
                                 <polyline points="6 9 12 15 18 9"></polyline>
                             </svg>
                         </button>
@@ -462,7 +534,8 @@
                             <!-- Return Distribution -->
                             <div class="report-section">
                                 <div class="section-header">
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
                                         <line x1="18" y1="20" x2="18" y2="10" />
                                         <line x1="12" y1="20" x2="12" y2="4" />
                                         <line x1="6" y1="20" x2="6" y2="14" />
@@ -511,7 +584,8 @@
                             <!-- Historical Analogs Table — spans 2 cols -->
                             <div class="report-section section-span-2">
                                 <div class="section-header">
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
                                         <line x1="8" y1="6" x2="21" y2="6" />
                                         <line x1="8" y1="12" x2="21" y2="12" />
                                         <line x1="8" y1="18" x2="21" y2="18" />
@@ -542,7 +616,8 @@
                             <!-- Evidence Quality -->
                             <div class="report-section section-span-all">
                                 <div class="section-header">
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
                                         <path d="M12 20h9" />
                                         <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
                                     </svg>
@@ -577,7 +652,8 @@
                     <!-- Payment Activity (visible in Simple + Pro) -->
                     <div class="report-section section-span-all platform-stats-section">
                         <div class="section-header">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
                                 <rect x="2" y="5" width="20" height="14" rx="2" />
                                 <line x1="2" y1="10" x2="22" y2="10" />
                             </svg>
@@ -664,7 +740,8 @@
 
     <!-- ═══ WALLET PROFILE MODAL ═══ -->
     <div class="modal-backdrop" id="action-modal" aria-hidden="true">
-        <div class="wallet-profile-modal action-modal" role="dialog" aria-modal="true" aria-labelledby="action-modal-title">
+        <div class="wallet-profile-modal action-modal" role="dialog" aria-modal="true"
+            aria-labelledby="action-modal-title">
             <div class="modal-header">
                 <div>
                     <div class="modal-title" id="action-modal-title">Confirm Action</div>
@@ -693,12 +770,16 @@
                 <div class="profile-tile">
                     <span class="profile-label">Wallet On-chain USDC</span>
                     <span class="profile-value" id="profile-chain-balance">n/a</span>
-                    <span style="font-size:0.62rem; color:var(--t3); margin-top:4px; display:block; font-family:var(--mono);">MetaMask balance</span>
+                    <span
+                        style="font-size:0.62rem; color:var(--t3); margin-top:4px; display:block; font-family:var(--mono);">MetaMask
+                        balance</span>
                 </div>
                 <div class="profile-tile">
                     <span class="profile-label">Buyer Gateway Balance</span>
                     <span class="profile-value" id="profile-gateway-balance">n/a</span>
-                    <span style="font-size:0.62rem; color:var(--t3); margin-top:4px; display:block; font-family:var(--mono);">Circle Gateway contract</span>
+                    <span
+                        style="font-size:0.62rem; color:var(--t3); margin-top:4px; display:block; font-family:var(--mono);">Circle
+                        Gateway contract</span>
                 </div>
                 <div class="profile-tile">
                     <span class="profile-label">Reports Bought</span>
@@ -760,7 +841,8 @@
 
     <!-- ═══ WITHDRAW MODAL ═══ -->
     <div class="modal-backdrop" id="withdraw-modal" aria-hidden="true">
-        <div class="wallet-profile-modal withdraw-modal" role="dialog" aria-modal="true" aria-labelledby="withdraw-modal-title">
+        <div class="wallet-profile-modal withdraw-modal" role="dialog" aria-modal="true"
+            aria-labelledby="withdraw-modal-title">
             <div class="modal-header">
                 <div>
                     <div class="modal-title" id="withdraw-modal-title">Withdraw Seller Gateway Funds</div>
@@ -780,7 +862,8 @@
             </div>
             <label class="withdraw-label" for="withdraw-amount-input">Amount to withdraw</label>
             <div class="withdraw-input-row">
-                <input class="withdraw-input" id="withdraw-amount-input" type="number" min="0" step="0.000001" inputmode="decimal">
+                <input class="withdraw-input" id="withdraw-amount-input" type="number" min="0" step="0.000001"
+                    inputmode="decimal">
                 <button class="refresh-btn" id="withdraw-max-btn" type="button">Max</button>
             </div>
             <div class="withdraw-help" id="withdraw-help">
@@ -800,14 +883,14 @@
             // 1. Dropdown toggle for stats and metrics
             const statsDropdownBtn = document.getElementById('stats-dropdown-btn');
             const statsDropdownPanel = document.getElementById('stats-dropdown-panel');
-            
+
             if (statsDropdownBtn && statsDropdownPanel) {
                 statsDropdownBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
                     statsDropdownPanel.classList.toggle('open');
                     statsDropdownBtn.classList.toggle('active');
                 });
-                
+
                 document.addEventListener('click', (e) => {
                     if (!statsDropdownPanel.contains(e.target) && !statsDropdownBtn.contains(e.target)) {
                         statsDropdownPanel.classList.remove('open');
@@ -820,12 +903,12 @@
             const tabBtns = document.querySelectorAll('.view-tab-btn');
             const sidebar = document.querySelector('.live-feed-sidebar');
             const mainPanel = document.querySelector('.main-panel');
-            
+
             tabBtns.forEach(btn => {
                 btn.addEventListener('click', () => {
                     tabBtns.forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
-                    
+
                     const target = btn.getAttribute('data-target');
                     if (target === 'live-feed-sidebar') {
                         sidebar.classList.add('mobile-visible');
@@ -852,7 +935,7 @@
             const advancedDetailsToggle = document.getElementById('advanced-details-toggle');
             const advancedDetailsPanel = document.getElementById('advanced-details-panel');
             const triggerLabel = advancedDetailsToggle?.querySelector('.trigger-label');
-            
+
             if (advancedDetailsToggle && advancedDetailsPanel) {
                 advancedDetailsToggle.addEventListener('click', () => {
                     const isHidden = advancedDetailsPanel.style.display === 'none';
@@ -864,6 +947,21 @@
                         advancedDetailsPanel.style.display = 'none';
                         advancedDetailsToggle.classList.remove('expanded');
                         if (triggerLabel) triggerLabel.textContent = 'Show Detailed Quant Diagnostics & Analogs';
+                    }
+                });
+            }
+
+            // 5. How QMA Works collapsible
+            const howQmaToggle = document.getElementById('how-qma-toggle');
+            const howQmaBlock = document.getElementById('how-qma-works');
+            if (howQmaToggle && howQmaBlock) {
+                howQmaToggle.addEventListener('click', () => {
+                    howQmaBlock.classList.toggle('collapsed');
+                });
+                howQmaToggle.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        howQmaBlock.classList.toggle('collapsed');
                     }
                 });
             }

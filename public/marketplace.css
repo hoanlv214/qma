@@ -39,7 +39,7 @@
     letter-spacing: -0.01em;
 }
 
-.marketplace-hero > div > p {
+.marketplace-hero>div>p {
     color: var(--t2);
     font-size: var(--text-md);
     line-height: 1.65;
@@ -62,7 +62,7 @@
 }
 
 /* Override the shared .marketplace-summary div / .marketplace-stats-grid div rule */
-.marketplace-summary > div {
+.marketplace-summary>div {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -73,11 +73,11 @@
     background: transparent;
 }
 
-.marketplace-summary > div:last-child {
+.marketplace-summary>div:last-child {
     border-bottom: none;
 }
 
-.marketplace-summary > div span {
+.marketplace-summary>div span {
     display: inline;
     font-size: var(--text-xs);
     font-family: var(--mono);
@@ -89,7 +89,7 @@
     flex-shrink: 0;
 }
 
-.marketplace-summary > div strong {
+.marketplace-summary>div strong {
     font-size: var(--text-sm);
     font-family: var(--mono);
     font-weight: 600;
@@ -181,7 +181,8 @@
     flex: none;
 
     /* Lock to exactly 3 lines — long text gets ellipsis, short text keeps consistent height */
-    height: calc(3 * 1.6em);        /* 4.8 em ≈ 58 px at text-sm */
+    height: calc(3 * 1.6em);
+    /* 4.8 em ≈ 58 px at text-sm */
     overflow: hidden;
     display: -webkit-box;
     -webkit-line-clamp: 3;
@@ -226,8 +227,10 @@
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-1) var(--space-2);
-    min-height: var(--space-12);   /* ≈ 48 px — room for ~2 rows of chips */
-    align-content: flex-start;     /* chips pack to the top; empty space stays below */
+    min-height: var(--space-12);
+    /* ≈ 48 px — room for ~2 rows of chips */
+    align-content: flex-start;
+    /* chips pack to the top; empty space stays below */
     margin-top: 0;
 }
 
@@ -338,42 +341,78 @@
     color: var(--red);
 }
 
-/* ── Header collapse ──────────────────────────────────── */
-@media (max-width: 920px) {
-    .marketplace-body > header {
-        align-items: flex-start;
-        flex-direction: column;
-        gap: var(--space-3);
-    }
+/* ── Market nav (mirrors .profile-nav from styles.css) ── */
+.market-nav {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    /* background: rgba(6, 8, 15, 0.86);
+    border-bottom: 1px solid var(--bdr);
+    backdrop-filter: blur(14px); */
 }
 
-/* ── Override shared styles.css mobile header behavior ── */
-/* Marketplace header has only logo + 1 link + 1 button:  */
-/* keep everything on a single row at all viewport widths  */
-.marketplace-body > header {
-    flex-direction: row !important;
-    align-items: center !important;
-    flex-wrap: nowrap !important;
-    gap: var(--space-4);
+/* Inner wrapper — matches marketplace-shell width so content aligns */
+.market-nav-inner {
+    width: min(1180px, calc(100% - 32px));
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 56px;
+    padding: 0 var(--space-5);
+    background: rgba(6, 8, 15, 0.86);
+    border-bottom: 1px solid var(--bdr);
+    backdrop-filter: blur(14px);
 }
 
-.marketplace-body > header .logo-section {
+.market-nav-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     flex-wrap: nowrap;
-    flex-shrink: 0;
-    gap: var(--space-2);
 }
 
-.marketplace-body > header .status-indicators {
-    display: flex !important;
-    grid-template-columns: unset !important;
-    flex-shrink: 0;
-    margin-left: auto;
-    width: auto !important;
+.market-page-link {
+    color: var(--t2);
+    border: 0;
+    border-radius: var(--radius-sm);
+    padding: 7px 11px;
+    font-family: var(--sans);
+    font-size: var(--text-base);
+    font-weight: 500;
+    text-decoration: none;
+    transition: color 0.15s ease, background 0.15s ease;
 }
 
-.marketplace-body > header .wallet-button {
-    width: auto !important;
+.market-page-link:hover {
+    color: var(--t1);
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.market-nav .wallet-button {
+    min-width: 0;
+    height: 32px;
+    border-radius: 7px;
+    border-color: rgba(34, 211, 160, 0.3);
+    background: var(--green);
+    color: #06100d;
+    font-family: var(--sans);
+    font-size: 0.82rem;
+    font-weight: 800;
     white-space: nowrap;
+    padding: 0 14px;
+}
+
+@media (max-width: 600px) {
+    .market-nav-inner {
+        width: calc(100% - 24px);
+    }
+
+    .market-page-link {
+        padding: 6px 8px;
+        font-size: var(--text-sm);
+    }
 }
 
 /* ── Tablet ≤ 900px ───────────────────────────────────── */
@@ -392,7 +431,7 @@
         font-size: clamp(1.8rem, 6vw, 2.8rem);
     }
 
-    .marketplace-hero > div > p {
+    .marketplace-hero>div>p {
         max-width: 100%;
     }
 
@@ -402,7 +441,7 @@
         flex-wrap: wrap;
     }
 
-    .marketplace-summary > div {
+    .marketplace-summary>div {
         flex: 1 1 calc(50% - 1px);
         min-width: 180px;
         flex-direction: column;
@@ -411,11 +450,11 @@
         padding: var(--space-3) var(--space-4);
     }
 
-    .marketplace-summary > div:nth-child(2n) {
+    .marketplace-summary>div:nth-child(2n) {
         border-left: 1px solid var(--bdr);
     }
 
-    .marketplace-summary > div strong {
+    .marketplace-summary>div strong {
         text-align: left;
     }
 
@@ -465,7 +504,7 @@
         flex-direction: column;
     }
 
-    .marketplace-summary > div {
+    .marketplace-summary>div {
         flex: 1 1 100%;
         flex-direction: row;
         align-items: center;
@@ -474,7 +513,7 @@
         border-left: none;
     }
 
-    .marketplace-summary > div strong {
+    .marketplace-summary>div strong {
         text-align: right;
     }
 
@@ -490,13 +529,13 @@
 
 /* ── Small mobile ≤ 420px ─────────────────────────────── */
 @media (max-width: 420px) {
-    .marketplace-summary > div {
+    .marketplace-summary>div {
         flex-direction: column;
         align-items: flex-start;
         gap: var(--space-1);
     }
 
-    .marketplace-summary > div strong {
+    .marketplace-summary>div strong {
         text-align: left;
     }
 

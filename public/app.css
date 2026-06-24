@@ -6,7 +6,8 @@
 /* --- Layout Base Extensions --- */
 .redesign-body {
     background: #04060b;
-    overflow: auto; /* Allow scrolling on pages if needed */
+    overflow: auto;
+    /* Allow scrolling on pages if needed */
     height: auto;
     min-height: 100vh;
 }
@@ -17,6 +18,11 @@
     height: 52px !important;
     padding: 0 20px !important;
     backdrop-filter: blur(20px) !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    z-index: 1000 !important;
 }
 
 /* Header vertical divider between logo and partner logos */
@@ -255,8 +261,15 @@
 }
 
 @keyframes dropdownFadeIn {
-    from { opacity: 0; transform: translateY(-6px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(-6px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .dropdown-section {
@@ -289,7 +302,8 @@
     font-size: 0.72rem;
     color: var(--t2);
     margin-bottom: 6px;
-    white-space: nowrap; /* Prevent row items from wrapping */
+    white-space: nowrap;
+    /* Prevent row items from wrapping */
     gap: 12px;
 }
 
@@ -302,8 +316,10 @@
     font-family: var(--mono);
     font-size: 0.72rem;
     color: var(--t2);
-    white-space: nowrap; /* Prevent wrapping */
-    overflow: visible; /* Prevent truncation, let panel grow */
+    white-space: nowrap;
+    /* Prevent wrapping */
+    overflow: visible;
+    /* Prevent truncation, let panel grow */
     padding: 2px 0;
 }
 
@@ -314,13 +330,15 @@
 .indicator-label {
     font-family: var(--sans);
     font-weight: 400;
-    flex-shrink: 0; /* Keep labels fully visible */
+    flex-shrink: 0;
+    /* Keep labels fully visible */
 }
 
 .indicator-value {
     text-align: right;
     overflow: hidden;
-    text-overflow: ellipsis; /* Gracefully truncate extremely long decimals */
+    text-overflow: ellipsis;
+    /* Gracefully truncate extremely long decimals */
     max-width: 220px;
     flex-grow: 1;
 }
@@ -586,6 +604,7 @@ body.advanced-view .advanced-dropdown-wrapper.advanced-only {
     .advanced-dropdown-content {
         grid-template-columns: 1fr;
     }
+
     .advanced-dropdown-content .report-section.section-span-2,
     .advanced-dropdown-content .report-section.section-span-all {
         grid-column: 1;
@@ -760,6 +779,7 @@ body.basic-view .platform-stats-section {
 .workspace {
     height: auto !important;
     min-height: calc(100vh - 52px);
+    margin-top: 52px !important;
 }
 
 .live-feed-sidebar {
@@ -777,7 +797,7 @@ body.basic-view .platform-stats-section {
     gap: 18px;
 }
 
-.redesign-body .split-tables > div {
+.redesign-body .split-tables>div {
     min-width: 0;
     padding: 12px;
     border: 1px solid rgba(255, 255, 255, 0.07);
@@ -785,11 +805,11 @@ body.basic-view .platform-stats-section {
     background: rgba(6, 8, 16, 0.32);
 }
 
-.redesign-body .split-tables > div:first-child .activity-table {
+.redesign-body .split-tables>div:first-child .activity-table {
     min-width: 860px;
 }
 
-.redesign-body .split-tables > div:nth-child(2) .activity-table {
+.redesign-body .split-tables>div:nth-child(2) .activity-table {
     min-width: 680px;
 }
 
@@ -802,7 +822,8 @@ body.basic-view .platform-stats-section {
 .main-panel {
     display: flex;
     flex-direction: column;
-    overflow: visible; /* Prevent inside panels scroll overlap */
+    overflow: visible;
+    /* Prevent inside panels scroll overlap */
 }
 
 /* --- Responsive Layout Rules --- */
@@ -821,7 +842,8 @@ body.basic-view .platform-stats-section {
         background: rgba(6, 8, 15, 0.92) !important;
         overflow-y: auto !important;
         padding: 16px !important;
-        align-items: flex-start !important; /* Allow scroll inside overlay */
+        align-items: flex-start !important;
+        /* Allow scroll inside overlay */
     }
 
     .report-viewport {
@@ -838,7 +860,7 @@ body.basic-view .platform-stats-section {
         padding: 22px 18px !important;
     }
 
-    .paywall-layout > div:last-child {
+    .paywall-layout>div:last-child {
         padding: 16px 18px 20px !important;
     }
 
@@ -861,7 +883,8 @@ body.basic-view .platform-stats-section {
         background: #06080e;
         border-bottom: 1px solid rgba(255, 255, 255, 0.08);
         position: sticky;
-        top: 52px; /* Sit right below the header (height: 52px) */
+        top: 52px;
+        /* Sit right below the header (height: 52px) */
         z-index: 15;
     }
 
@@ -899,15 +922,18 @@ body.basic-view .platform-stats-section {
     }
 
     .mobile-view-tabs {
-        top: 48px !important; /* Sync with header height */
+        top: 48px !important;
+        /* Sync with header height */
     }
 
     #clock {
-        display: none !important; /* Hide clock on phones to save space */
+        display: none !important;
+        /* Hide clock on phones to save space */
     }
 
     .stats-dropdown-btn span {
-        display: none; /* Hide text on phone, keep icon only */
+        display: none;
+        /* Hide text on phone, keep icon only */
     }
 
     .stats-dropdown-btn {
@@ -942,6 +968,7 @@ body.basic-view .platform-stats-section {
         font-size: 0.8rem !important;
         letter-spacing: 1px !important;
     }
+
     /* Workspace visibility management */
     .workspace {
         flex-direction: column !important;
@@ -1014,7 +1041,7 @@ body.basic-view .platform-stats-section {
         gap: 20px !important;
     }
 
-    .redesign-body .split-tables > div {
+    .redesign-body .split-tables>div {
         padding: 10px;
     }
 }
@@ -1034,10 +1061,319 @@ body.basic-view .platform-stats-section {
 
     .stats-dropdown-panel {
         width: calc(100vw - 32px);
-        right: -80px; /* Center-ish alignment on tiny screens */
+        right: -80px;
+        /* Center-ish alignment on tiny screens */
     }
 
     .summary-card-grid {
         grid-template-columns: 1fr;
+    }
+}
+
+/* ── TASK 1 — Fix sidebar layout: limit QMA Picks height & style separation ── */
+@media (min-width: 901px) {
+    .live-feed-sidebar {
+        position: fixed !important;
+        top: 52px !important;
+        left: 0 !important;
+        bottom: 0 !important;
+        width: 300px !important;
+        height: calc(100vh - 52px) !important;
+        display: flex !important;
+        flex-direction: column !important;
+        overflow: hidden !important;
+        background: #06080f !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.12) !important;
+        flex-shrink: 0 !important;
+        z-index: 100 !important;
+    }
+    
+    .main-panel {
+        margin-left: 300px !important;
+        width: calc(100% - 300px) !important;
+    }
+}
+
+.agent-picks-panel {
+    height: 385px !important;
+    max-height: 385px !important;
+    min-height: 385px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    background: rgba(10, 13, 24, 0.6) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12) !important;
+    padding: 12px 10px !important;
+}
+
+.agent-picks-list {
+    overflow-y: auto !important;
+    flex: 1 !important;
+    min-height: 0 !important;
+    max-height: 330px !important;
+    padding-right: 4px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+}
+
+/* Custom styled scrollbars for list components inside sidebar */
+.agent-picks-list::-webkit-scrollbar,
+.anomalies-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+.agent-picks-list::-webkit-scrollbar-track,
+.anomalies-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.agent-picks-list::-webkit-scrollbar-thumb,
+.anomalies-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 2px;
+}
+
+.agent-picks-list::-webkit-scrollbar-thumb:hover,
+.anomalies-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(124, 111, 255, 0.45);
+}
+
+/* Make anomalies-list scroll area take all remaining height and behave correctly */
+.anomalies-list {
+    flex: 1 !important;
+    overflow-y: auto !important;
+    min-height: 0 !important;
+    padding: 12px 10px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+}
+
+/* High contrast premium styled anomaly card rules */
+.anomaly-card {
+    background: #0f1324 !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    border-left: 3px solid rgba(124, 111, 255, 0.4) !important;
+    border-radius: 8px !important;
+    padding: 12px !important;
+    margin-bottom: 0 !important;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3) !important;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.anomaly-card:hover {
+    background: #161c36 !important;
+    border-color: rgba(124, 111, 255, 0.5) !important;
+    border-left-color: var(--accent) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4) !important;
+}
+
+.anomaly-card.active {
+    background: #18223d !important;
+    border-color: rgba(34, 211, 160, 0.5) !important;
+    border-left-color: var(--green) !important;
+    box-shadow: 0 6px 20px rgba(34, 211, 160, 0.1) !important;
+}
+
+.card-symbol {
+    color: #fff !important;
+}
+
+.card-funding {
+    color: #f4475b !important;
+    background: rgba(244, 71, 91, 0.14) !important;
+    border: 1px solid rgba(244, 71, 91, 0.3) !important;
+    font-weight: 700 !important;
+}
+
+.card-stats {
+    color: var(--t2) !important;
+}
+
+.card-stat-val {
+    color: #fff !important;
+}
+
+.anomalies-header {
+    border-top: 1px solid rgba(255, 255, 255, 0.05) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12) !important;
+    background: rgba(10, 13, 24, 0.7) !important;
+    padding: 10px 14px !important;
+}
+
+.anomalies-count-pill {
+    font-family: var(--mono);
+    font-size: 0.58rem;
+    font-weight: 700;
+    color: var(--green);
+    background: rgba(34, 211, 160, 0.12);
+    border: 1px solid rgba(34, 211, 160, 0.25);
+    border-radius: var(--radius-xs);
+    padding: 2px 6px;
+    text-transform: uppercase;
+}
+
+/* Agent pick card pops */
+.agent-pick-card {
+    background: rgba(124, 111, 255, 0.08) !important;
+    border: 1px solid rgba(124, 111, 255, 0.2) !important;
+    border-left: 3px solid var(--accent) !important;
+    border-radius: 8px !important;
+    padding: 12px !important;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.agent-pick-card:hover {
+    background: rgba(124, 111, 255, 0.14) !important;
+    border-color: rgba(124, 111, 255, 0.4) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 4px 14px rgba(124, 111, 255, 0.15) !important;
+}
+
+.agent-pick-symbol {
+    font-family: var(--mono) !important;
+    font-weight: 700 !important;
+    font-size: 0.88rem !important;
+    color: #fff !important;
+}
+
+.agent-pick-score {
+    color: var(--green) !important;
+    font-weight: 700 !important;
+}
+
+.agent-pick-reasons {
+    color: var(--t2) !important;
+    font-size: 0.72rem !important;
+    line-height: 1.4 !important;
+    margin-top: 6px !important;
+}
+
+
+/* ── TASK 2 — Style paywall snapshot note ── */
+.paywall-snapshot-note {
+    margin-top: 12px;
+    padding: 9px 12px;
+    border: 1px solid rgba(34, 211, 160, 0.15);
+    border-radius: 6px;
+    background: rgba(34, 211, 160, 0.05);
+    color: var(--t2);
+    font-size: 0.74rem;
+    line-height: 1.55;
+    font-family: var(--sans);
+}
+
+/* ── TASK 3 — How QMA Works mini guide ── */
+.how-qma-works {
+    margin: 12px 0 10px;
+    border: 1px solid rgba(124, 111, 255, 0.18);
+    border-radius: 8px;
+    background: rgba(124, 111, 255, 0.05);
+    overflow: hidden;
+}
+
+.how-qma-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.how-qma-label {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.how-qma-chevron {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--t3);
+    line-height: 1;
+}
+
+.how-qma-body {
+    padding: 0 12px 10px;
+    border-top: 1px solid rgba(124, 111, 255, 0.1);
+}
+
+.how-qma-steps {
+    list-style: none;
+    padding: 0;
+    margin: 8px 0 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    counter-reset: qma-step;
+}
+
+.how-qma-steps li {
+    counter-increment: qma-step;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 0.76rem;
+    color: var(--t2);
+    line-height: 1.45;
+    font-family: var(--sans);
+}
+
+.how-qma-steps li::before {
+    content: counter(qma-step);
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: rgba(124, 111, 255, 0.2);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 1px;
+}
+
+.how-qma-note {
+    font-size: 0.68rem;
+    color: var(--t3);
+    font-family: var(--mono);
+    line-height: 1.4;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+    margin-top: 4px;
+}
+
+/* Collapsed state */
+.how-qma-works.collapsed .how-qma-body {
+    display: none;
+}
+
+.how-qma-works.collapsed .how-qma-chevron {
+    content: '+';
+}
+
+.how-qma-works.collapsed .how-qma-chevron::after {
+    content: '+';
+}
+
+.how-qma-works:not(.collapsed) .how-qma-chevron::after {
+    content: '–';
+}
+
+.how-qma-chevron {
+    font-size: 0;  /* hide the inline text, use ::after only */
+}
+
+@media (max-width: 600px) {
+    .workspace {
+        margin-top: 48px !important;
     }
 }

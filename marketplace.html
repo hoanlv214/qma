@@ -29,19 +29,18 @@
 </head>
 
 <body class="marketplace-body">
-    <header>
-        <div class="logo-section">
+    <nav class="market-nav">
+        <div class="market-nav-inner">
             <a href="/" class="logo-item qma-logo-item" title="QMA">
                 <div class="logo-icon">QM</div>
                 <div class="logo-text">QMA</div>
             </a>
-            <span class="header-sep"></span>
-            <a href="/app" class="header-link">Launch App</a>
+            <div class="market-nav-actions">
+                <a href="/app" class="market-page-link">Launch App</a>
+                <button type="button" class="wallet-button" id="market-connect-btn">Connect Wallet</button>
+            </div>
         </div>
-        <div class="status-indicators">
-            <button type="button" class="wallet-button" id="market-connect-btn">Connect Wallet</button>
-        </div>
-    </header>
+    </nav>
 
     <main class="marketplace-shell">
         <section class="marketplace-hero">
@@ -86,7 +85,8 @@
                 <form id="creator-application-form" class="creator-form">
                     <label>
                         Creator wallet
-                        <input class="form-input" id="creator-wallet" name="creator_wallet" required placeholder="0x...">
+                        <input class="form-input" id="creator-wallet" name="creator_wallet" required
+                            placeholder="0x...">
                     </label>
                     <label>
                         Provider ID
@@ -102,7 +102,8 @@
                     </label>
                     <label>
                         Data source
-                        <input class="form-input" name="data_source" required placeholder="Exchange API, on-chain indexer, private dataset...">
+                        <input class="form-input" name="data_source" required
+                            placeholder="Exchange API, on-chain indexer, private dataset...">
                     </label>
                     <label>
                         API base URL
@@ -110,11 +111,13 @@
                     </label>
                     <label>
                         Description
-                        <textarea class="form-input" name="description" required rows="4" placeholder="What signal/data does this provider sell?"></textarea>
+                        <textarea class="form-input" name="description" required rows="4"
+                            placeholder="What signal/data does this provider sell?"></textarea>
                     </label>
                     <label>
                         Sample schema or response
-                        <textarea class="form-input" name="sample_schema" rows="4" placeholder='{"symbol":"HYPE","confidence":0.72}'></textarea>
+                        <textarea class="form-input" name="sample_schema" rows="4"
+                            placeholder='{"symbol":"HYPE","confidence":0.72}'></textarea>
                     </label>
                     <label>
                         Creator share
