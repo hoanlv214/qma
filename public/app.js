@@ -1870,26 +1870,50 @@ function renderProfileEvents(events) {
     }).join('');
 }
 
-function renderProfilePayments(events) {
+function renderProfilePayments(events, entitlements = []) {
     if (!events.length) {
-        profilePaymentsBody.innerHTML = '<tr><td colspan="4" style="color: var(--text-dark);">No verified payments.</td></tr>';
+        profilePaymentsBody.innerHTML = '<tr><td colspan="5" style="color: var(--text-dark);">No verified payments.</td></tr>';
         return;
     }
     profilePaymentsBody.innerHTML = events.map((event) => {
+        const entitlement = findEntitlementForPayment(event, entitlements);
+        const query = entitlement?.query || entitlement?.report?.query || event.query || {};
+        const reportId = entitlement?.report ? escapeHtml(entitlementId(entitlement)) : '';
+        const action = entitlement?.report
+            ? `<button type="button" class="refresh-btn profile-open-report-btn" data-entitlement-id="${reportId}">Open</button>`
+            : '<span style="color:var(--t3); font-size:0.68rem;">No saved report</span>';
         const ref = event.explorer_url && event.transaction_hash
             ? `<a class="tx-link" href="${event.explorer_url}" target="_blank" rel="noreferrer" title="Settlement: ${escapeHtml(event.settlement_id || '')}">${shortAddress(event.transaction_hash)}</a>`
             : event.settlement_id
                 ? `<span class="mono-td" title="Settlement ID: ${escapeHtml(event.settlement_id)}">${shortAddress(event.settlement_id)}</span><div style="color:#f59e0b; font-size:0.72rem; margin-top:2px;">⏳ Arcscan tx pending</div>`
                 : '<span style="color: var(--text-dark);">n/a</span>';
         return `
-                    <tr title="${escapeHtml(formatDateTime(event.paid_at))}">
-                        <td class="mono-td">${escapeHtml(event.symbol || 'n/a')}<div style="color:var(--green); font-size:0.62rem; margin-top:2px;">${escapeHtml(event.provider_id || 'funding_memory')}</div><div style="color:var(--t3); font-size:0.66rem; margin-top:2px;">${escapeHtml(formatDateTime(event.paid_at))}</div></td>
-                        <td>${Number(event.amount_usdc || 0).toFixed(3)} USDC<div style="color:var(--t3); font-size:0.66rem;">${escapeHtml(tierLabel(event.tier_category || event.tier || 'legacy'))} / ${escapeHtml(event.buyer_type || 'human')}</div></td>
+                    <tr class="${entitlement?.report ? 'profile-payment-row is-clickable' : 'profile-payment-row'}" data-entitlement-id="${reportId}" title="${escapeHtml(formatDateTime(event.paid_at))}">
+                        <td class="mono-td">${escapeHtml(event.symbol || query.symbol || 'n/a')}<div class="quick-payment-sub">${escapeHtml(formatDateTime(event.paid_at))}</div></td>
+                        <td>${Number(event.amount_usdc || 0).toFixed(3)} USDC<div class="quick-payment-sub">${escapeHtml(tierLabel(event.tier_category || event.tier || 'legacy'))}</div></td>
                         <td>${gatewayStatusBadge(event.gateway_status)}</td>
                         <td>${ref}</td>
+                        <td>${action}</td>
                     </tr>
                 `;
     }).join('');
+    const openById = (id) => {
+        const target = entitlements.find(entry => entitlementId(entry) === id);
+        openPurchasedReport(target);
+    };
+    profilePaymentsBody.querySelectorAll('.profile-payment-row.is-clickable').forEach((row) => {
+        row.addEventListener('click', (event) => {
+            if (event.target.closest('a')) return;
+            openById(row.dataset.entitlementId);
+        });
+    });
+    profilePaymentsBody.querySelectorAll('.profile-open-report-btn').forEach((button) => {
+        button.addEventListener('click', (event) => {
+            event.stopPropagation();
+            const target = entitlements.find(entry => entitlementId(entry) === button.dataset.entitlementId);
+            openPurchasedReport(target);
+        });
+    });
 }
 
 function updatePagerControls(prefix, pageMeta) {
@@ -1945,7 +1969,7 @@ async function loadProfilePaymentsPage(account, page = profilePaymentsPage) {
     );
     profilePaymentsPage = Number(pageMeta.page || page || 1);
     profilePaymentsTotalPages = Number(pageMeta.total_pages || 1);
-    renderProfilePayments(metrics?.recent_payments || []);
+    renderProfilePayments(metrics?.recent_payments || [], metrics?.entitlements || []);
     updatePagerControls('profile-payments', pageMeta);
     return metrics;
 }
@@ -1965,7 +1989,7 @@ async function openWalletProfile() {
     profilePayments.textContent = 'loading...';
     profileSpent.textContent = 'loading...';
     profileTokenList.innerHTML = '<span class="token-chip">Loading</span>';
-    profilePaymentsBody.innerHTML = '<tr><td colspan="4" style="color: var(--text-dark);">Loading payments...</td></tr>';
+    profilePaymentsBody.innerHTML = '<tr><td colspan="5" style="color: var(--text-dark);">Loading payments...</td></tr>';
     renderProfileEvents(getWalletEvents(account));
 
     try {
@@ -1997,7 +2021,7 @@ async function openWalletProfile() {
         profilePayments.textContent = '0';
         profileSpent.textContent = '0.00 USDC';
         profileTokenList.innerHTML = '<span class="token-chip">Unavailable</span>';
-        profilePaymentsBody.innerHTML = '<tr><td colspan="4" style="color: var(--color-danger);">Could not load wallet profile.</td></tr>';
+        profilePaymentsBody.innerHTML = '<tr><td colspan="5" style="color: var(--color-danger);">Could not load wallet profile.</td></tr>';
     }
 }
 
@@ -2068,7 +2092,7 @@ async function loadLiveAnomalies() {
                     loadCardIntoForm(item);
                 });
                 anomaliesContainer.appendChild(card);
-                if (index === 0) {
+                if (index === 0 && !hasUnlockedReport) {
                     loadCardIntoForm(item);
                 }
             });
@@ -3443,6 +3467,79 @@ function updatePaymentFlowPanel(opts = {}) {
     } else if (stage === 'created' || stage === 'checking' || stage === 'cancelled') {
         if (pfArcscanRow) pfArcscanRow.style.display = 'none';
     }
+}
+
+function normalizeEntitlementReport(entry = {}) {
+    if (!entry.report) return null;
+    return {
+        ...entry.report,
+        tier: entry.tier || entry.report.tier || entry.report.invoice?.tier || 'full',
+        provider_id: entry.provider_id || entry.report.provider_id || entry.report.invoice?.provider_id || 'funding_memory',
+        query: entry.query || entry.report.query,
+        paid_at: entry.paid_at || entry.report.paid_at,
+        invoice: {
+            ...(entry.report.invoice || {}),
+            tier: entry.tier || entry.report.invoice?.tier,
+            provider_id: entry.provider_id || entry.report.invoice?.provider_id,
+            amount_usdc: entry.amount_usdc ?? entry.report.invoice?.amount_usdc,
+            settlement_id: entry.settlement_id || entry.report.invoice?.settlement_id,
+            transaction_hash: entry.transaction_hash || entry.report.invoice?.transaction_hash,
+            explorer_url: entry.explorer_url || entry.report.invoice?.explorer_url,
+            gateway_status: entry.gateway_status || entry.report.invoice?.gateway_status,
+            payer_address: entry.payer_address || entry.report.invoice?.payer_address,
+        }
+    };
+}
+
+function entitlementId(entry = {}) {
+    return entry.entitlement_id || entry.query_hash || entry.settlement_id || `${entry.symbol || 'report'}-${entry.paid_at || entry.saved_at || ''}`;
+}
+
+function findEntitlementForPayment(payment = {}, entitlements = []) {
+    if (!payment || !Array.isArray(entitlements)) return null;
+    const bySettlement = payment.settlement_id
+        ? entitlements.find(entry => entry.settlement_id && entry.settlement_id === payment.settlement_id)
+        : null;
+    if (bySettlement) return bySettlement;
+    const byInvoice = payment.invoice_id
+        ? entitlements.find(entry => entry.report?.invoice?.invoice_id && entry.report.invoice.invoice_id === payment.invoice_id)
+        : null;
+    if (byInvoice) return byInvoice;
+    const byQuery = payment.query_hash
+        ? entitlements.find(entry => entry.query_hash && entry.query_hash === payment.query_hash)
+        : null;
+    if (byQuery) return byQuery;
+    const symbol = String(payment.symbol || '').toUpperCase();
+    const tier = normalizeTier(payment.tier_category || payment.tier || 'full');
+    return entitlements.find((entry) => (
+        String(entry.symbol || entry.query?.symbol || '').toUpperCase() === symbol
+        && normalizeTier(entry.tier || entry.report?.tier || 'full') === tier
+        && Math.abs(Number(entry.paid_at || 0) - Number(payment.paid_at || 0)) < 10
+    )) || null;
+}
+
+function openPurchasedReport(entry = {}) {
+    const report = normalizeEntitlementReport(entry);
+    if (!report) {
+        showToast('This purchase does not include a saved report snapshot yet.', 'warning');
+        return;
+    }
+    const previousTier = currentInvoiceTier;
+    const previousProvider = currentProviderId;
+    currentInvoiceTier = normalizeTier(report.tier || entry.tier || 'full');
+    currentProviderId = report.provider_id || entry.provider_id || previousProvider || 'funding_memory';
+    activeQuery = normalizeSignalPayload(report.query || entry.query || { symbol: entry.symbol });
+    const cachedEntry = saveCachedReport(report, entry.payer_address || connectedWallet);
+    walletProfileModal.classList.remove('open');
+    walletProfileModal.setAttribute('aria-hidden', 'true');
+    if (currentInvoiceTier === 'preview') {
+        renderPreviewReport(report, cachedEntry);
+    } else {
+        renderReport(report, cachedEntry);
+    }
+    currentInvoiceTier = previousTier;
+    currentProviderId = previousProvider;
+    showToast(`Opened paid ${tierLabel(report.tier)} ${activeQuery.symbol} snapshot from ${formatDateTime(entry.paid_at || entry.saved_at)}.`, 'success');
 }
 
 // Render report output

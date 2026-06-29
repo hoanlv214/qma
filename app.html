@@ -400,8 +400,8 @@
                                     <a href="https://faucet.circle.com/" target="_blank"
                                         rel="noopener noreferrer">Circle Faucet →</a>
                                 </div>
-                                <p class="paywall-snapshot-note">After payment, this report snapshot is saved to your
-                                    Wallet History. <br>You can reopen it anytime.</p>
+                                <p class="paywall-snapshot-note">This exact paid snapshot is saved to Wallet History.
+                                    If the live signal changes later, reopen this snapshot or unlock the new one.</p>
                             </div>
 
                             <div class="paywall-side">
@@ -849,17 +849,25 @@
             <div class="subsection-title">Verified Web Payments</div>
             <div style="overflow-x:auto; margin-bottom:16px;">
                 <table class="activity-table">
+                    <colgroup>
+                        <col style="width: 24%;">
+                        <col style="width: 18%;">
+                        <col style="width: 18%;">
+                        <col style="width: 24%;">
+                        <col style="width: 16%;">
+                    </colgroup>
                     <thead>
                         <tr>
-                            <th>Symbol</th>
+                            <th>Signal</th>
                             <th>Amount</th>
                             <th>Status</th>
                             <th>Settlement / Tx</th>
+                            <th>Report</th>
                         </tr>
                     </thead>
                     <tbody id="profile-payments-body">
                         <tr>
-                            <td colspan="4" style="color:var(--t3);">No verified payments.</td>
+                            <td colspan="5" style="color:var(--t3);">No verified payments.</td>
                         </tr>
                     </tbody>
                 </table>

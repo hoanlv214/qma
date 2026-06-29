@@ -10,7 +10,7 @@
 .profile-shell {
     position: relative;
     z-index: 1;
-    width: min(900px, calc(100% - 48px));
+    width: min(1100px, calc(100% - 48px));
     margin: 0 auto;
     padding: 0 0 44px;
 }
@@ -265,23 +265,24 @@
 
 .profile-body .activity-table {
     font-size: 0.82rem;
+    table-layout: fixed;
 }
 
 .profile-body .activity-table th {
-    padding: 10px 14px 10px 0;
+    padding: 11px 16px 11px 0;
     font-size: 0.64rem;
     font-weight: 600;
     letter-spacing: 0.7px;
 }
 
 .profile-body .activity-table td {
-    padding: 13px 14px 13px 0;
+    padding: 16px 16px 16px 0;
     vertical-align: middle;
 }
 
 .profile-body .activity-table th:last-child,
 .profile-body .activity-table td:last-child {
-    text-align: right;
+    text-align: left;
     padding-right: 0;
 }
 
@@ -326,4 +327,187 @@
 .profile-body .refresh-btn:hover {
     color: var(--t1);
     background: rgba(255, 255, 255, 0.04);
+}
+
+.profile-body .user-payment-row.is-clickable {
+    cursor: pointer;
+}
+
+.profile-body .user-payment-row.is-clickable:hover td,
+.profile-body .user-payment-row.is-expanded td {
+    background: rgba(124, 111, 255, 0.035);
+}
+
+.profile-body .signal-cell strong,
+.profile-body .payment-amount,
+.profile-body .provider-name {
+    color: var(--t1);
+    font-family: var(--mono);
+    font-size: 0.86rem;
+}
+
+.profile-body .time-cell {
+    color: var(--t3);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    line-height: 1.45;
+}
+
+.profile-body .report-tier-pill {
+    display: inline-flex;
+    width: fit-content;
+    border: 1px solid rgba(124, 111, 255, 0.22);
+    border-radius: var(--radius-xs);
+    background: rgba(124, 111, 255, 0.08);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 3px 8px;
+}
+
+.profile-body .reference-cell {
+    display: block;
+    min-height: 18px;
+}
+
+.profile-body .receipt-detail-close {
+    border: 1px solid var(--bdr-md);
+    border-radius: var(--radius-sm);
+    background: var(--bg-2);
+    color: var(--t2);
+    cursor: pointer;
+    font-family: var(--sans);
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 5px 10px;
+}
+
+.profile-body .receipt-detail-close:hover {
+    border-color: rgba(124, 111, 255, 0.35);
+    color: var(--t1);
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.profile-body .payment-detail-row td {
+    padding: 0 0 18px;
+    border-bottom: 1px solid var(--bdr);
+}
+
+.profile-body .payment-detail-row:hover td {
+    background: transparent;
+}
+
+.receipt-detail-card {
+    margin: 0 0 4px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-md);
+    background: rgba(6, 8, 16, 0.56);
+    padding: 18px;
+}
+
+.receipt-detail-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: flex-start;
+    margin-bottom: 16px;
+}
+
+.receipt-detail-title {
+    color: var(--t1);
+    font-size: 0.95rem;
+    font-weight: 750;
+}
+
+.receipt-detail-subtitle,
+.receipt-detail-empty {
+    color: var(--t3);
+    font-size: 0.78rem;
+    line-height: 1.5;
+    margin-top: 4px;
+}
+
+.receipt-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.receipt-detail-panel {
+    min-width: 0;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.025);
+    padding: 12px;
+}
+
+.receipt-detail-panel h3 {
+    color: var(--t1);
+    font-family: var(--mono);
+    font-size: 0.64rem;
+    font-weight: 800;
+    letter-spacing: 0.8px;
+    margin: 0 0 10px;
+    text-transform: uppercase;
+}
+
+.receipt-kv {
+    display: grid;
+    gap: 3px;
+    padding: 8px 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.055);
+}
+
+.receipt-kv:first-of-type {
+    border-top: 0;
+    padding-top: 0;
+}
+
+.receipt-kv span {
+    color: var(--t3);
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.55px;
+}
+
+.receipt-kv strong {
+    color: var(--t2);
+    font-family: var(--sans);
+    font-size: 0.8rem;
+    font-weight: 650;
+    overflow-wrap: anywhere;
+}
+
+.receipt-kv.mono-value strong {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+}
+
+.receipt-detail-link {
+    display: inline-flex;
+    margin-top: 10px;
+    color: var(--accent);
+    font-size: 0.76rem;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.receipt-detail-link:hover {
+    text-decoration: underline;
+}
+
+@media (max-width: 760px) {
+    .profile-body .activity-table {
+        min-width: 920px;
+    }
+
+    .receipt-detail-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .receipt-detail-header {
+        flex-direction: column;
+    }
 }

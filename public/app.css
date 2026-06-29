@@ -3082,6 +3082,27 @@ body.basic-view .platform-stats-section {
 .paywall-trust-links a:hover {
     color: var(--green);
 }
+
+/* Quick profile history stays intentionally compact. */
+.profile-payment-row.is-clickable {
+    cursor: pointer;
+}
+
+.profile-payment-row.is-clickable:hover td {
+    background: rgba(124, 111, 255, 0.04);
+}
+
+.quick-payment-sub {
+    color: var(--t3);
+    font-size: 0.66rem;
+    margin-top: 3px;
+    font-family: var(--mono);
+}
+
+.profile-open-report-btn {
+    min-width: 54px;
+    text-align: center;
+}
 .how-qma-works {
     margin: 12px 0 10px;
     border: 1px solid rgba(124, 111, 255, 0.18);
