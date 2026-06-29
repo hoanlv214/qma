@@ -1,4 +1,4 @@
-# QMA API, Rate Limit, and Marketplace Notes
+# QMA API Security and Paid Access Model
 
 ## Security model
 

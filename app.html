@@ -347,68 +347,120 @@
                                         <span class="invoice-label">Network</span>
                                         <span class="invoice-val" id="invoice-network-display">Arc Testnet</span>
                                     </div>
-                                    <div class="invoice-row" id="inv-id-row" style="display:none;">
-                                        <span class="invoice-label">Invoice ID</span>
-                                        <span class="invoice-val" id="inv-id-display">pending…</span>
+                                </div>
+                                <div id="payment-flow-panel" class="payment-flow-panel" style="display:none;">
+                                    <div class="pf-header-label">Payment Progress</div>
+                                    <div class="pf-timeline">
+                                        <div id="pf-buyer-wallet" class="pf-row" data-payment-step="wallet">
+                                            <div class="pf-step-icon" aria-hidden="true"></div>
+                                            <div class="pf-body">
+                                                <div class="pf-step-top">
+                                                    <div class="pf-label">Wallet Connected</div>
+                                                    <span class="pf-badge" id="pf-wallet-badge">Waiting</span>
+                                                </div>
+                                                <div class="pf-val" id="pf-buyer-wallet-bal">Connect wallet to continue.</div>
+                                            </div>
+                                        </div>
+                                        <div id="pf-buyer-gateway" class="pf-row" data-payment-step="gateway">
+                                            <div class="pf-step-icon" aria-hidden="true"></div>
+                                            <div class="pf-body">
+                                                <div class="pf-step-top">
+                                                    <div class="pf-label">Deposit USDC</div>
+                                                    <span class="pf-badge" id="pf-gateway-badge">Waiting</span>
+                                                </div>
+                                                <div class="pf-val" id="pf-gateway-step-text">Gateway balance is checked when you pay.</div>
+                                            </div>
+                                        </div>
+                                        <div id="pf-settlement" class="pf-row" data-payment-step="settlement">
+                                            <div class="pf-step-icon" aria-hidden="true"></div>
+                                            <div class="pf-body">
+                                                <div class="pf-step-top">
+                                                    <div class="pf-label">Settlement</div>
+                                                    <span class="pf-badge" id="pf-settlement-badge">Waiting</span>
+                                                </div>
+                                                <div class="pf-val" id="pf-settlement-status">Awaiting payment.</div>
+                                            </div>
+                                        </div>
+                                        <div id="pf-report-unlocked" class="pf-row" data-payment-step="report">
+                                            <div class="pf-step-icon" aria-hidden="true"></div>
+                                            <div class="pf-body">
+                                                <div class="pf-step-top">
+                                                    <div class="pf-label">Report Unlocked</div>
+                                                    <span class="pf-badge" id="pf-unlock-badge">Waiting</span>
+                                                </div>
+                                                <div class="pf-val" id="pf-unlock-status">Report opens after QMA verifies the settlement.</div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                                 <div class="testnet-help">
                                     <div class="testnet-help-copy">
-                                        <strong>New wallet?</strong>
-                                        <span>Get Arc Testnet USDC before paying. Checkout will guide you to deposit it
-                                            into Circle Gateway if needed.</span>
+                                        <strong>Need Arc Testnet USDC?</strong>
                                     </div>
                                     <a href="https://faucet.circle.com/" target="_blank"
-                                        rel="noopener noreferrer">Circle Faucet</a>
+                                        rel="noopener noreferrer">Circle Faucet →</a>
                                 </div>
                                 <p class="paywall-snapshot-note">After payment, this report snapshot is saved to your
                                     Wallet History. <br>You can reopen it anytime.</p>
                             </div>
 
-                            <!-- Payment Pipeline -->
-                            <div id="payment-flow-panel" class="payment-flow-panel" style="display:none;">
-                                <div class="pf-header-label">Payment Flow</div>
-                                <div id="pf-buyer-wallet" class="pf-row">
-                                    <div class="pf-body">
-                                        <div class="pf-label">Buyer Wallet <span class="pf-sublabel">(MetaMask,
-                                                on-chain)</span></div>
-                                        <div class="pf-val" id="pf-buyer-wallet-bal">—</div>
+                            <div class="paywall-side">
+                                <div class="paywall-advanced-card">
+                                    <div class="paywall-advanced-title">Advanced Payment Details</div>
+                                    <div class="paywall-detail-row" id="inv-id-row" style="display:none;">
+                                        <span class="paywall-detail-label">Invoice ID</span>
+                                        <span class="paywall-detail-value" id="inv-id-display">pending…</span>
+                                        <button class="paywall-copy-btn" type="button" data-copy-for="inv-id-display"
+                                            title="Copy Invoice ID">Copy</button>
                                     </div>
-                                    <div class="pf-arrow">↓</div>
-                                </div>
-                                <div id="pf-buyer-gateway" class="pf-row">
-                                    <div class="pf-body">
-                                        <div class="pf-label">Circle Gateway Contract <span class="pf-sublabel">(deposit
-                                                target)</span></div>
-                                        <div class="pf-val pf-addr" id="pf-gateway-contract">—</div>
-                                        <div class="pf-sub" id="pf-buyer-gateway-bal">Gateway balance: —</div>
+                                    <div class="paywall-detail-row">
+                                        <span class="paywall-detail-label">Gateway Contract</span>
+                                        <span class="paywall-detail-value pf-addr" id="pf-gateway-contract">—</span>
+                                        <button class="paywall-copy-btn" type="button" data-copy-for="pf-gateway-contract"
+                                            title="Copy Gateway Contract">Copy</button>
                                     </div>
-                                    <div class="pf-arrow">↓</div>
-                                </div>
-                                <div id="pf-settlement" class="pf-row">
-                                    <div class="pf-body">
-                                        <div class="pf-label">Circle Settlement</div>
-                                        <div class="pf-val" id="pf-settlement-status">—</div>
-                                        <div class="pf-sub" id="pf-settlement-id">—</div>
+                                    <div class="paywall-detail-row">
+                                        <span class="paywall-detail-label">Seller Treasury</span>
+                                        <span class="paywall-detail-value pf-addr" id="pf-seller-wallet-addr">—</span>
+                                        <button class="paywall-copy-btn" type="button" data-copy-for="pf-seller-wallet-addr"
+                                            title="Copy Seller Treasury">Copy</button>
                                     </div>
-                                    <div class="pf-arrow">↓</div>
-                                </div>
-                                <div id="pf-seller-gateway" class="pf-row" style="border-bottom:none;">
-                                    <div class="pf-body">
-                                        <div class="pf-label">Seller Treasury <span class="pf-sublabel">(final
-                                                destination)</span></div>
-                                        <div class="pf-addr" id="pf-seller-wallet-addr">—</div>
-                                        <div class="pf-sub" style="margin-top:4px;">
-                                            <span style="color:var(--green);">✔ Available: </span><span
-                                                id="pf-seller-available">—</span>
-                                            &nbsp;·&nbsp;
-                                            <span style="color:var(--t3);">⏳ Pending: </span><span
-                                                id="pf-seller-pending">—</span>
-                                        </div>
-                                        <div class="pf-sub" id="pf-arcscan-tx" style="margin-top:4px; display:none;">
-                                            Arcscan: <a class="tx-link" id="pf-arcscan-link" href="#" target="_blank"
-                                                rel="noreferrer">—</a>
-                                        </div>
+                                    <div class="paywall-detail-row">
+                                        <span class="paywall-detail-label">Settlement ID</span>
+                                        <span class="paywall-detail-value" id="pf-settlement-id">—</span>
+                                        <button class="paywall-copy-btn" type="button" data-copy-for="pf-settlement-id"
+                                            title="Copy Settlement ID">Copy</button>
+                                    </div>
+                                    <div class="paywall-detail-row">
+                                        <span class="paywall-detail-label">Gateway Balance</span>
+                                        <span class="paywall-detail-value" id="pf-buyer-gateway-bal">—</span>
+                                        <button class="paywall-copy-btn" type="button" data-copy-for="pf-buyer-gateway-bal"
+                                            title="Copy Gateway Balance">Copy</button>
+                                    </div>
+                                    <div class="paywall-detail-row">
+                                        <span class="paywall-detail-label">Available Balance</span>
+                                        <span class="paywall-detail-value" id="pf-seller-available">—</span>
+                                        <button class="paywall-copy-btn" type="button" data-copy-for="pf-seller-available"
+                                            title="Copy Available Balance">Copy</button>
+                                    </div>
+                                    <div class="paywall-detail-row">
+                                        <span class="paywall-detail-label">Pending Balance</span>
+                                        <span class="paywall-detail-value" id="pf-seller-pending">—</span>
+                                        <button class="paywall-copy-btn" type="button" data-copy-for="pf-seller-pending"
+                                            title="Copy Pending Balance">Copy</button>
+                                    </div>
+                                    <div class="paywall-detail-row">
+                                        <span class="paywall-detail-label">Wallet Address</span>
+                                        <span class="paywall-detail-value pf-addr" id="pf-wallet-address">—</span>
+                                        <button class="paywall-copy-btn" type="button" data-copy-for="pf-wallet-address"
+                                            title="Copy Wallet Address">Copy</button>
+                                    </div>
+                                    <div class="paywall-detail-row" id="pf-arcscan-tx" style="display:none;">
+                                        <span class="paywall-detail-label">Arcscan Tx</span>
+                                        <a class="paywall-detail-value tx-link" id="pf-arcscan-link" href="#" target="_blank"
+                                            rel="noreferrer">—</a>
+                                        <button class="paywall-copy-btn" type="button" data-copy-for="pf-arcscan-link"
+                                            title="Copy Arcscan Transaction">Copy</button>
                                     </div>
                                 </div>
                             </div>

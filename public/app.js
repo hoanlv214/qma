@@ -112,6 +112,7 @@ let currentSellerAddress = null;
 let currentAccessToken = null;
 let activeQuery = null;
 let hasUnlockedReport = false;
+let paymentSuccessReady = false;
 let connectedWallet = null;
 let gatewayContractAddress = null;
 let sellerWalletAddress = null;
@@ -183,7 +184,12 @@ function withTimeout(promise, ms, label) {
 
 async function walletRequest(args, label, timeoutMs = WALLET_REQUEST_TIMEOUT_MS) {
     if (!window.ethereum?.request) {
-        throw new Error('MetaMask is required.');
+        if (isMobileDevice()) {
+            openMobileWalletModal();
+        } else {
+            _showDesktopInstallPrompt();
+        }
+        throw new Error('No wallet provider detected.');
     }
     if (walletRequestInFlight) {
         throw new Error('A wallet request is already in progress. Open MetaMask, finish it, then retry.');
@@ -276,6 +282,433 @@ function escapeHtml(value) {
         .replace(/'/g, '&#039;');
 }
 
+// ─────────────────────────────────────────────────────────────
+// MOBILE WALLET DETECTION & ONBOARDING
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Returns true when running on a mobile/tablet UA.
+ */
+function isMobileDevice() {
+    return /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|WPDesktop/i.test(navigator.userAgent);
+}
+
+/**
+ * Detect all injected EIP-1193 providers.
+ * Returns an array of { id, label, icon } describing each detected wallet.
+ */
+function detectInjectedProviders() {
+    const found = [];
+    const eth = window.ethereum;
+    if (!eth) return found;
+
+    // Some wallets expose an array of providers via window.ethereum.providers
+    const providerList = Array.isArray(eth.providers) ? eth.providers : [eth];
+
+    for (const p of providerList) {
+        if (p.isMetaMask && !p.isOKExWallet)  found.push({ id: 'metamask', label: 'MetaMask', icon: '🦊' });
+        if (p.isOKExWallet || p.isOKX)        found.push({ id: 'okx',      label: 'OKX Wallet', icon: '⬡' });
+        if (p.isCoinbaseWallet)                found.push({ id: 'coinbase', label: 'Coinbase Wallet', icon: '🔵' });
+        if (p.isRabby)                         found.push({ id: 'rabby',    label: 'Rabby', icon: '🐰' });
+        if (p.isPhantom && p.ethereum)         found.push({ id: 'phantom',  label: 'Phantom', icon: '👻' });
+        if (p.isTrust)                         found.push({ id: 'trust',    label: 'Trust Wallet', icon: '🛡️' });
+    }
+    // Deduplicate by id
+    return [...new Map(found.map(x => [x.id, x])).values()];
+}
+
+/**
+ * Build a WalletConnect-style deeplink URI for common mobile wallets.
+ * We use a simple `dapp` deeplink that opens the wallet's in-app browser
+ * pointing to this page — the wallet then injects window.ethereum.
+ */
+function buildMobileDeeplink(walletId) {
+    const pageUrl = encodeURIComponent(window.location.href);
+    const map = {
+        metamask: `https://metamask.app.link/dapp/${window.location.host}${window.location.pathname}${window.location.search}`,
+        okx:      `okx://wallet/dapp/url?dappUrl=${pageUrl}`,
+        coinbase:  `https://go.cb-w.com/dapp?cb_url=${pageUrl}`,
+        trust:    `https://link.trustwallet.com/open_url?coin_id=60&url=${pageUrl}`,
+        phantom:  `https://phantom.app/ul/browse/${pageUrl}?ref=${pageUrl}`,
+    };
+    return map[walletId] || null;
+}
+
+// ─── QR Code (pure-JS, no CDN required) ──────────────────────
+// Minimal QR encoder using qrcode-generator (inline-loaded lazily)
+let _qrScriptLoaded = false;
+let _qrScriptCallbacks = [];
+
+function loadQrScript(cb) {
+    if (typeof qrcode !== 'undefined') { cb(); return; }
+    if (_qrScriptLoaded) { _qrScriptCallbacks.push(cb); return; }
+    _qrScriptLoaded = true;
+    _qrScriptCallbacks.push(cb);
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+    s.onload = () => { _qrScriptCallbacks.forEach(fn => fn()); _qrScriptCallbacks = []; };
+    document.head.appendChild(s);
+}
+
+/**
+ * Render a QR code SVG string for the given text.
+ * Falls back to a simple bordered container if library fails.
+ */
+function renderQrSvg(container, text) {
+    container.innerHTML = '';
+    loadQrScript(() => {
+        try {
+            // eslint-disable-next-line no-undef
+            new QRCode(container, {
+                text,
+                width: 192,
+                height: 192,
+                colorDark: '#e8eaf0',
+                colorLight: '#0f1220',
+                correctLevel: QRCode.CorrectLevel.M
+            });
+        } catch (e) {
+            container.innerHTML = `<div style="width:192px;height:192px;display:flex;align-items:center;justify-content:center;border:1px dashed rgba(255,255,255,.15);border-radius:8px;font-size:.7rem;color:var(--t3);text-align:center;padding:12px;">QR unavailable<br>${escapeHtml(text.slice(0, 40))}...</div>`;
+        }
+    });
+}
+
+// ─── Mobile Wallet Modal ──────────────────────────────────────
+
+let _mobileModalEl = null;
+
+function getMobileModal() {
+    if (_mobileModalEl) return _mobileModalEl;
+    const el = document.createElement('div');
+    el.id = 'mobile-wallet-modal';
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-modal', 'true');
+    el.setAttribute('aria-label', 'Connect wallet on mobile');
+    el.style.cssText = [
+        'position:fixed', 'inset:0', 'z-index:2000',
+        'display:none', 'align-items:flex-end', 'justify-content:center',
+        'background:rgba(3,5,12,.78)', 'backdrop-filter:blur(14px)',
+        'padding:0'
+    ].join(';');
+
+    el.innerHTML = `
+<div id="mwm-sheet" style="
+    width:min(480px,100%);
+    max-height:92dvh;
+    overflow-y:auto;
+    background:var(--bg-2);
+    border:1px solid var(--bdr-md);
+    border-bottom:none;
+    border-radius:16px 16px 0 0;
+    padding:24px 20px 32px;
+    display:flex;
+    flex-direction:column;
+    gap:0;
+">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+        <div>
+            <div style="font-family:var(--mono);font-size:.62rem;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin-bottom:6px;">Connect Wallet</div>
+            <div style="font-size:1rem;font-weight:700;color:var(--t1);">Open in your wallet browser</div>
+        </div>
+        <button id="mwm-close" type="button" style="
+            width:30px;height:30px;border:1px solid var(--bdr);border-radius:6px;
+            background:transparent;color:var(--t3);cursor:pointer;font-size:1.1rem;
+            display:flex;align-items:center;justify-content:center;flex-shrink:0;
+        " aria-label="Close">&times;</button>
+    </div>
+
+    <!-- Trust note -->
+    <div id="mwm-trust" style="
+        border-left:2px solid var(--accent);
+        background:var(--accent-dim);
+        border-radius:0 6px 6px 0;
+        padding:10px 13px;
+        margin-bottom:18px;
+        font-size:.78rem;
+        color:var(--t2);
+        line-height:1.55;
+    ">
+        🔒 Connecting only shares your <strong style="color:var(--t1)">public address</strong>.
+        QMA cannot move funds unless you explicitly approve a transaction in your wallet.
+    </div>
+
+    <!-- Deeplink buttons (mobile-only) -->
+    <div id="mwm-deeplinks" style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px;"></div>
+
+    <!-- Separator -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">
+        <div style="flex:1;height:1px;background:var(--bdr);"></div>
+        <span style="font-size:.66rem;color:var(--t3);font-family:var(--mono);">OR SCAN WITH MOBILE WALLET</span>
+        <div style="flex:1;height:1px;background:var(--bdr);"></div>
+    </div>
+
+    <!-- QR code section -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:12px;margin-bottom:20px;">
+        <div id="mwm-qr" style="
+            background:var(--bg-1);
+            border:1px solid var(--bdr-md);
+            border-radius:10px;
+            padding:16px;
+            display:flex;align-items:center;justify-content:center;
+            min-height:224px;
+        "></div>
+        <p style="font-size:.74rem;color:var(--t3);text-align:center;line-height:1.5;max-width:280px;">
+            Scan with MetaMask, OKX, or any WalletConnect-compatible wallet to open this page inside the wallet browser.
+        </p>
+    </div>
+
+    <!-- Copy link -->
+    <button id="mwm-copy-link" type="button" style="
+        display:flex;align-items:center;justify-content:center;gap:8px;
+        width:100%;border:1px solid var(--bdr-md);border-radius:7px;
+        background:transparent;color:var(--t2);cursor:pointer;
+        padding:10px 14px;font-family:var(--sans);font-size:.84rem;font-weight:500;
+        margin-bottom:12px;transition:background .14s,color .14s;
+    ">
+        <span id="mwm-copy-icon">📋</span> Copy page link
+    </button>
+
+    <!-- Get testnet USDC hint -->
+    <a id="mwm-get-usdc" href="https://faucet.testnet.arc.network" target="_blank" rel="noreferrer" style="
+        display:flex;align-items:center;justify-content:center;gap:8px;
+        width:100%;border:1px solid rgba(34,211,160,.25);border-radius:7px;
+        background:var(--green-dim);color:var(--green);cursor:pointer;
+        padding:10px 14px;font-family:var(--sans);font-size:.84rem;font-weight:600;
+        text-decoration:none;margin-bottom:20px;
+    ">
+        ⬡ Get Arc Testnet USDC
+    </a>
+
+    <!-- Source + security links -->
+    <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap;">
+        <a href="https://github.com/hoanlv214/qma" target="_blank" rel="noreferrer"
+            style="font-size:.72rem;color:var(--t3);text-decoration:none;font-family:var(--mono);">
+            ⌥ Open source
+        </a>
+        <a href="https://github.com/hoanlv214/qma/blob/main/docs/API_SECURITY.md"
+            target="_blank" rel="noreferrer"
+            style="font-size:.72rem;color:var(--t3);text-decoration:none;font-family:var(--mono);">
+            ⚿ Payment security model
+        </a>
+    </div>
+</div>`;
+
+    document.body.appendChild(el);
+    _mobileModalEl = el;
+
+    // Close on backdrop click
+    el.addEventListener('click', (e) => {
+        if (e.target === el) closeMobileWalletModal();
+    });
+    el.querySelector('#mwm-close').addEventListener('click', closeMobileWalletModal);
+
+    // Copy link button
+    el.querySelector('#mwm-copy-link').addEventListener('click', async () => {
+        try {
+            await navigator.clipboard.writeText(window.location.href);
+            const btn = el.querySelector('#mwm-copy-link');
+            const icon = el.querySelector('#mwm-copy-icon');
+            icon.textContent = '✓';
+            btn.style.color = 'var(--green)';
+            btn.style.borderColor = 'rgba(34,211,160,.35)';
+            setTimeout(() => {
+                icon.textContent = '📋';
+                btn.style.color = '';
+                btn.style.borderColor = '';
+            }, 2000);
+        } catch (err) {
+            // Clipboard API may be blocked; show URL instead
+            prompt('Copy this URL to open in your wallet browser:', window.location.href);
+        }
+    });
+
+    return el;
+}
+
+/**
+ * Open the mobile wallet modal.
+ * Renders deeplink buttons for common wallets and a QR code of the current URL.
+ */
+function openMobileWalletModal() {
+    const modal = getMobileModal();
+    const deeplinksEl = modal.querySelector('#mwm-deeplinks');
+    const qrEl = modal.querySelector('#mwm-qr');
+
+    // Build deeplink buttons
+    const wallets = [
+        { id: 'metamask', label: 'Open in MetaMask', icon: '🦊' },
+        { id: 'okx',      label: 'Open in OKX Wallet', icon: '⬡' },
+        { id: 'trust',    label: 'Open in Trust Wallet', icon: '🛡️' },
+        { id: 'coinbase', label: 'Open in Coinbase Wallet', icon: '🔵' },
+    ];
+
+    deeplinksEl.innerHTML = wallets.map(w => {
+        const url = buildMobileDeeplink(w.id);
+        if (!url) return '';
+        return `<a href="${escapeHtml(url)}" style="
+            display:flex;align-items:center;gap:11px;
+            border:1px solid var(--bdr-md);border-radius:8px;
+            background:var(--bg-1);color:var(--t1);text-decoration:none;
+            padding:11px 14px;font-size:.86rem;font-weight:500;
+            font-family:var(--sans);transition:background .14s,border-color .14s;
+        " onmouseover="this.style.background='rgba(255,255,255,.04)'" onmouseout="this.style.background='var(--bg-1)'">
+            <span style="font-size:1.25rem;width:24px;text-align:center;">${w.icon}</span>
+            ${escapeHtml(w.label)}
+            <span style="margin-left:auto;font-size:.7rem;color:var(--t3);">→</span>
+        </a>`;
+    }).join('');
+
+    // QR code of current page URL
+    renderQrSvg(qrEl, window.location.href);
+
+    modal.style.display = 'flex';
+    // Slide-in: trigger reflow then animate sheet
+    const sheet = modal.querySelector('#mwm-sheet');
+    sheet.style.transform = 'translateY(100%)';
+    sheet.style.transition = 'none';
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            sheet.style.transition = 'transform .28s cubic-bezier(.32,1,.56,1)';
+            sheet.style.transform = 'translateY(0)';
+        });
+    });
+
+    // Trap focus: focus close button
+    setTimeout(() => modal.querySelector('#mwm-close')?.focus(), 50);
+}
+
+function closeMobileWalletModal() {
+    if (!_mobileModalEl) return;
+    const sheet = _mobileModalEl.querySelector('#mwm-sheet');
+    sheet.style.transition = 'transform .22s ease-in';
+    sheet.style.transform = 'translateY(100%)';
+    setTimeout(() => {
+        if (_mobileModalEl) _mobileModalEl.style.display = 'none';
+    }, 240);
+}
+
+/**
+ * Main entry point for the "Connect Wallet" button.
+ * On desktop with injected provider → call connectWallet().
+ * On mobile without provider → show mobile onboarding modal.
+ * On desktop without provider → show a minimal install prompt.
+ */
+function handleConnectWalletClick() {
+    if (window.ethereum) {
+        // Provider present — normal flow
+        connectWallet();
+        return;
+    }
+
+    if (isMobileDevice()) {
+        openMobileWalletModal();
+        return;
+    }
+
+    // Desktop, no extension
+    _showDesktopInstallPrompt();
+}
+
+function _showDesktopInstallPrompt() {
+    const existing = document.getElementById('desktop-wallet-prompt');
+    if (existing) { existing.remove(); }
+
+    const div = document.createElement('div');
+    div.id = 'desktop-wallet-prompt';
+    div.setAttribute('role', 'alertdialog');
+    div.setAttribute('aria-modal', 'true');
+    div.style.cssText = [
+        'position:fixed', 'inset:0', 'z-index:2000',
+        'display:flex', 'align-items:center', 'justify-content:center',
+        'background:rgba(3,5,12,.78)', 'backdrop-filter:blur(14px)', 'padding:20px'
+    ].join(';');
+    div.innerHTML = `
+<div style="
+    width:min(440px,100%);
+    background:var(--bg-2);
+    border:1px solid var(--bdr-md);
+    border-radius:12px;
+    padding:24px;
+">
+    <div style="font-size:.96rem;font-weight:700;color:var(--t1);margin-bottom:8px;">No wallet detected</div>
+    <div style="font-size:.82rem;color:var(--t2);line-height:1.6;margin-bottom:18px;">
+        Install a browser wallet extension to connect, or open this page in your wallet's built-in browser on mobile.
+    </div>
+
+    <!-- Trust note -->
+    <div style="
+        border-left:2px solid var(--accent);background:var(--accent-dim);
+        border-radius:0 6px 6px 0;padding:9px 12px;margin-bottom:18px;
+        font-size:.76rem;color:var(--t2);line-height:1.55;
+    ">
+        🔒 Connecting only shares your <strong style="color:var(--t1)">public address</strong>.
+        QMA cannot move funds unless you explicitly approve a transaction.
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px;">
+        <a href="https://metamask.io/download/" target="_blank" rel="noreferrer" style="
+            display:flex;align-items:center;gap:10px;
+            border:1px solid var(--bdr-md);border-radius:7px;background:var(--bg-1);
+            color:var(--t1);text-decoration:none;padding:10px 13px;
+            font-size:.84rem;font-weight:500;font-family:var(--sans);
+        ">🦊 Install MetaMask</a>
+        <a href="https://www.okx.com/web3" target="_blank" rel="noreferrer" style="
+            display:flex;align-items:center;gap:10px;
+            border:1px solid var(--bdr-md);border-radius:7px;background:var(--bg-1);
+            color:var(--t1);text-decoration:none;padding:10px 13px;
+            font-size:.84rem;font-weight:500;font-family:var(--sans);
+        ">⬡ Install OKX Wallet</a>
+    </div>
+
+    <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin-bottom:18px;">
+        <a href="https://github.com/hoanlv214/qma" target="_blank" rel="noreferrer"
+            style="font-size:.72rem;color:var(--t3);text-decoration:none;font-family:var(--mono);">
+            ⌥ Open source
+        </a>
+        <a href="https://github.com/hoanlv214/qma/blob/main/docs/API_SECURITY.md"
+            target="_blank" rel="noreferrer"
+            style="font-size:.72rem;color:var(--t3);text-decoration:none;font-family:var(--mono);">
+            ⚿ Payment security model
+        </a>
+    </div>
+
+    <button id="dwp-close" type="button" style="
+        width:100%;border:1px solid var(--bdr);border-radius:7px;
+        background:transparent;color:var(--t3);cursor:pointer;
+        padding:9px;font-family:var(--sans);font-size:.82rem;
+    ">Dismiss</button>
+</div>`;
+    document.body.appendChild(div);
+    div.querySelector('#dwp-close').addEventListener('click', () => div.remove());
+    div.addEventListener('click', (e) => { if (e.target === div) div.remove(); });
+}
+
+// ─── Trust layer injected inside the payment paywall ─────────
+/**
+ * Insert (or update) the security notice + source links inside the paywall element.
+ * Called once when the paywall element is first shown.
+ */
+function ensurePaywallTrustLayer() {
+    const paywall = document.getElementById('paywall-element');
+    const paywallMain = paywall?.querySelector('.paywall-main');
+    if (!paywallMain || paywallMain.querySelector('#paywall-trust-layer')) return;
+
+    const trust = document.createElement('div');
+    trust.id = 'paywall-trust-layer';
+    trust.className = 'paywall-trust-layer';
+    trust.innerHTML = `
+<span class="paywall-trust-title">Wallet connection only exposes your public address.</span>
+<span class="paywall-trust-links">
+    <a href="https://github.com/hoanlv214/qma/blob/main/docs/API_SECURITY.md" target="_blank" rel="noreferrer">Learn more →</a>
+</span>`;
+
+    const snapshotNote = paywallMain.querySelector('.paywall-snapshot-note');
+    if (snapshotNote) {
+        snapshotNote.insertAdjacentElement('afterend', trust);
+    } else {
+        paywallMain.appendChild(trust);
+    }
+}
 function formatCompact(num) {
     if (!Number.isFinite(num)) return 'n/a';
     return new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(num);
@@ -291,6 +724,154 @@ function formatDatasetDate(value) {
 function shortAddress(value) {
     if (!value) return 'n/a';
     return `${value.slice(0, 6)}...${value.slice(-4)}`;
+}
+
+function shouldShortenPaymentValue(value) {
+    const text = String(value || '');
+    return /^0x[a-fA-F0-9]{10,}$/.test(text) || (/^\S{29,}$/.test(text));
+}
+
+function setPaymentDetailValue(id, value, fallback = '—') {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const raw = value == null || value === '' ? fallback : String(value);
+    const hasFull = raw !== fallback && raw !== 'n/a';
+    const display = hasFull && shouldShortenPaymentValue(raw) ? shortAddress(raw) : raw;
+    el.textContent = display;
+    el.title = hasFull ? raw : '';
+    if (hasFull) {
+        el.dataset.fullValue = raw;
+        el.dataset.hasFull = 'true';
+    } else {
+        delete el.dataset.fullValue;
+        delete el.dataset.hasFull;
+    }
+}
+
+function setupPaywallCopyButtons() {
+    if (!paywallElement) return;
+    paywallElement.addEventListener('click', async (event) => {
+        const btn = event.target.closest('.paywall-copy-btn');
+        if (!btn) return;
+        const target = document.getElementById(btn.dataset.copyFor);
+        if (!target) return;
+        const value = target.dataset.fullValue || target.getAttribute('href') || target.textContent.trim();
+        if (!value || value === '—' || value === 'n/a') return;
+        try {
+            await navigator.clipboard.writeText(value);
+            btn.classList.add('copied');
+            const previous = btn.textContent;
+            btn.textContent = 'Copied';
+            setTimeout(() => {
+                btn.classList.remove('copied');
+                btn.textContent = previous;
+            }, 1400);
+        } catch (err) {
+            console.error('Failed to copy payment detail', err);
+        }
+    });
+}
+
+function setPaymentStepState(stepId, state, label) {
+    const row = document.getElementById(stepId);
+    if (!row) return;
+    row.classList.remove('is-waiting', 'is-active', 'is-pending', 'is-completed', 'is-failed');
+    row.classList.add(`is-${state}`);
+    const badge = row.querySelector('.pf-badge');
+    if (badge) {
+        badge.className = `pf-badge is-${state}`;
+        badge.textContent = label;
+    }
+}
+
+function updatePaymentTimeline(stage = 'created', cancelMessage = '') {
+    if (stage === 'completed') {
+        setPaymentStepState('pf-buyer-wallet', 'completed', 'Connected');
+        setPaymentStepState('pf-buyer-gateway', 'completed', 'Confirmed');
+        setPaymentStepState('pf-settlement', 'completed', 'Completed');
+        setPaymentStepState('pf-report-unlocked', 'completed', 'Completed');
+        const unlock = document.getElementById('pf-unlock-status');
+        if (unlock) unlock.textContent = 'Report is unlocked and ready.';
+        return;
+    }
+    if (stage === 'received') {
+        setPaymentStepState('pf-buyer-wallet', 'completed', 'Connected');
+        setPaymentStepState('pf-buyer-gateway', 'completed', 'Confirmed');
+        setPaymentStepState('pf-settlement', 'active', 'Pending');
+        setPaymentStepState('pf-report-unlocked', 'waiting', 'Waiting');
+        const unlock = document.getElementById('pf-unlock-status');
+        if (unlock) unlock.textContent = 'Unlocking after settlement verification.';
+        return;
+    }
+    if (stage === 'checking') {
+        setPaymentStepState('pf-buyer-wallet', connectedWallet ? 'completed' : 'active', connectedWallet ? 'Connected' : 'Waiting');
+        setPaymentStepState('pf-buyer-gateway', 'active', 'Pending');
+        setPaymentStepState('pf-settlement', 'waiting', 'Waiting');
+        setPaymentStepState('pf-report-unlocked', 'waiting', 'Waiting');
+        return;
+    }
+    if (stage === 'cancelled') {
+        setPaymentStepState('pf-buyer-wallet', connectedWallet ? 'completed' : 'waiting', connectedWallet ? 'Connected' : 'Waiting');
+        setPaymentStepState('pf-buyer-gateway', 'failed', 'Failed');
+        setPaymentStepState('pf-settlement', 'waiting', 'Waiting');
+        setPaymentStepState('pf-report-unlocked', 'waiting', 'Waiting');
+        const unlock = document.getElementById('pf-unlock-status');
+        if (unlock) unlock.textContent = cancelMessage || 'Payment cancelled. No report unlocked.';
+        return;
+    }
+    setPaymentStepState('pf-buyer-wallet', connectedWallet ? 'completed' : 'active', connectedWallet ? 'Connected' : 'Waiting');
+    setPaymentStepState('pf-buyer-gateway', connectedWallet ? 'active' : 'waiting', connectedWallet ? 'Pending' : 'Waiting');
+    setPaymentStepState('pf-settlement', 'waiting', 'Waiting');
+    setPaymentStepState('pf-report-unlocked', 'waiting', 'Waiting');
+}
+
+function resetPaywallSuccessState() {
+    paymentSuccessReady = false;
+    paywallElement?.classList.remove('payment-success');
+}
+
+function resetPaymentDetailPanel() {
+    document.getElementById('inv-id-row')?.style.setProperty('display', 'none');
+    setPaymentDetailValue('inv-id-display', null);
+    setPaymentDetailValue('pf-settlement-id', null);
+    setPaymentDetailValue('pf-gateway-contract', null);
+    setPaymentDetailValue('pf-seller-wallet-addr', null);
+    setPaymentDetailValue('pf-buyer-gateway-bal', null);
+    setPaymentDetailValue('pf-seller-available', null);
+    setPaymentDetailValue('pf-seller-pending', null);
+    setPaymentDetailValue('pf-wallet-address', null);
+    const arcscanRow = document.getElementById('pf-arcscan-tx');
+    if (arcscanRow) arcscanRow.style.display = 'none';
+}
+
+function showPaymentUnlockingState() {
+    paywallElement.style.display = 'flex';
+    paywallElement.classList.add('payment-success');
+    paywallTitle.textContent = 'Payment Confirmed';
+    paywallDesc.textContent = 'Settlement accepted. Unlocking report...';
+    document.getElementById('payment-flow-panel').style.display = 'block';
+    const unlockStatus = document.getElementById('pf-unlock-status');
+    if (unlockStatus) unlockStatus.textContent = 'QMA is loading your report.';
+    payButton.disabled = true;
+    payButton.innerHTML = `
+                <div class="spinner" style="width: 16px; height: 16px;"></div>
+                <span>Unlocking Report...</span>
+            `;
+}
+
+function showPaymentSuccessState() {
+    paymentSuccessReady = true;
+    paywallElement.style.display = 'flex';
+    paywallElement.classList.add('payment-success');
+    paywallElement.classList.remove('compact-paywall');
+    document.getElementById('payment-flow-panel').style.display = 'block';
+    paywallTitle.textContent = 'Payment Confirmed';
+    paywallDesc.textContent = 'Settlement complete. Your report is ready.';
+    updatePaymentTimeline('completed');
+    const unlockStatus = document.getElementById('pf-unlock-status');
+    if (unlockStatus) unlockStatus.textContent = 'Report is unlocked and ready.';
+    payButton.disabled = false;
+    payButton.innerHTML = '<span>Open Report</span>';
 }
 
 function explorerTx(hash) {
@@ -1001,7 +1582,13 @@ function updateWalletUi() {
 
 async function connectWallet(options = {}) {
     if (!window.ethereum) {
-        if (!options.silent) alert('MetaMask is required to connect a wallet.');
+        if (!options.silent) {
+            if (isMobileDevice()) {
+                openMobileWalletModal();
+            } else {
+                _showDesktopInstallPrompt();
+            }
+        }
         return null;
     }
     const method = options.silent ? 'eth_accounts' : 'eth_requestAccounts';
@@ -1752,11 +2339,7 @@ async function loadHealthInfo() {
             updateTierPriceLabels();
             await refreshQuotedPrices();
             if (gatewayContractAddress) {
-                const gwEl = document.getElementById('pf-gateway-contract');
-                if (gwEl) {
-                    gwEl.textContent = gatewayContractAddress;
-                    gwEl.title = gatewayContractAddress;
-                }
+                setPaymentDetailValue('pf-gateway-contract', gatewayContractAddress);
             }
             updateWalletUi();
         }
@@ -2141,6 +2724,7 @@ function formSignalFromAnomaly(item) {
 function hidePaywall() {
     paywallElement.style.display = 'none';
     paywallElement.classList.remove('compact-paywall');
+    resetPaywallSuccessState();
     currentInvoiceId = null;
     currentInvoiceSecret = null;
     currentArcGatewayUrl = null;
@@ -2149,6 +2733,14 @@ function hidePaywall() {
     currentAccessToken = null;
     document.getElementById('inv-id-row').style.display = 'none';
     document.getElementById('payment-flow-panel').style.display = 'none';
+    setPaymentDetailValue('inv-id-display', null);
+    setPaymentDetailValue('pf-settlement-id', null);
+    setPaymentDetailValue('pf-gateway-contract', null);
+    setPaymentDetailValue('pf-seller-wallet-addr', null);
+    setPaymentDetailValue('pf-buyer-gateway-bal', null);
+    setPaymentDetailValue('pf-seller-available', null);
+    setPaymentDetailValue('pf-seller-pending', null);
+    setPaymentDetailValue('pf-wallet-address', null);
 }
 
 function showSignalPaywall(source, options = {}) {
@@ -2172,6 +2764,8 @@ function showSignalPaywall(source, options = {}) {
     currentSettlementId = null;
     currentSellerAddress = null;
     currentAccessToken = null;
+    resetPaywallSuccessState();
+    resetPaymentDetailPanel();
     paywallTitle.textContent = options.title || (isBasicView() ? 'Unlock Historical Comparison' : 'USDC Micro-Payment Required');
     paywallDesc.textContent = options.description || (
         isBasicView()
@@ -2187,6 +2781,7 @@ function showSignalPaywall(source, options = {}) {
     payButton.innerHTML = `<span>Create ${tierLabel(tier)} Invoice First</span>`;
     paywallElement.style.display = 'flex';
     paywallElement.classList.remove('compact-paywall');
+    ensurePaywallTrustLayer();
 }
 
 function loadCardIntoForm(item) {
@@ -2228,6 +2823,7 @@ function loadCardIntoForm(item) {
 function lockViewport() {
     paywallElement.style.display = 'flex';
     paywallElement.classList.remove('compact-paywall');
+    resetPaywallSuccessState();
     if (!hasUnlockedReport) {
         document.getElementById('viewport-container').classList.remove('unlocked');
     }
@@ -2237,12 +2833,13 @@ function lockViewport() {
     currentSettlementId = null;
     currentSellerAddress = null;
     currentAccessToken = null;
+    resetPaymentDetailPanel();
     invoiceSignalDisplay.textContent = activeQuery ? displaySignalLabel(activeQuery) : 'n/a';
     document.getElementById('invoice-amount-display').textContent = formatTierPrice(currentInvoiceTier);
     document.getElementById('invoice-tier-display').textContent = tierLabel(currentInvoiceTier);
     const lockPayAmount = tierPrice(currentInvoiceTier);
     payButton.innerHTML = lockPayAmount != null
-        ? `<span>Pay on Arc Testnet (${lockPayAmount.toFixed(3)} USDC)</span>`
+        ? `<span>Pay ${lockPayAmount.toFixed(3)} USDC</span>`
         : '<span>Pay on Arc Testnet</span>';
     document.getElementById('inv-id-row').style.display = 'none';
     document.getElementById('payment-flow-panel').style.display = 'none';
@@ -2296,8 +2893,8 @@ queryForm.addEventListener('submit', async (e) => {
         currentInvoiceTier = normalizeTier(invoiceData.tier || currentInvoiceTier);
         currentProviderId = invoiceData.provider_id || currentProviderId;
         currentSellerAddress = invoiceData.wallet_address;
-        document.getElementById('inv-id-display').textContent = currentInvoiceId;
-        document.getElementById('inv-id-row').style.display = 'flex';
+        setPaymentDetailValue('inv-id-display', currentInvoiceId);
+        document.getElementById('inv-id-row').style.display = 'grid';
         invoiceSignalDisplay.textContent = displaySignalLabel(activeQuery);
         paywallTitle.textContent = `${tierLabel(currentInvoiceTier)} Payment Required`;
         if (isBasicView()) {
@@ -2312,15 +2909,16 @@ queryForm.addEventListener('submit', async (e) => {
         document.getElementById('invoice-amount-display').textContent = `${invoiceData.amount} ${invoiceData.currency}`;
         document.getElementById('invoice-tier-display').textContent = invoiceData.tier_label || tierLabel(currentInvoiceTier);
         document.getElementById('invoice-network-display').textContent = invoiceData.network_name || invoiceData.network;
-        payButton.innerHTML = `<span>Pay on Arc Testnet (${Number(invoiceData.amount).toFixed(3)} USDC)</span>`;
+        payButton.innerHTML = `<span>Pay ${Number(invoiceData.amount).toFixed(3)} USDC</span>`;
 
         const pfPanel = document.getElementById('payment-flow-panel');
         if (pfPanel) {
             pfPanel.style.display = 'block';
         }
-        document.getElementById('pf-seller-wallet-addr').textContent = invoiceData.wallet_address || '—';
+        setPaymentDetailValue('pf-seller-wallet-addr', invoiceData.wallet_address);
         // Gateway contract address
-        document.getElementById('pf-gateway-contract').textContent = gatewayContractAddress || 'Circle Gateway Contract (fetching...)';
+        setPaymentDetailValue('pf-gateway-contract', gatewayContractAddress || 'Circle Gateway Contract (fetching...)');
+        setPaymentDetailValue('pf-wallet-address', connectedWallet);
 
         // Pre-fetch balance status if wallet connected
         let currentWalletBal = null;
@@ -2351,6 +2949,10 @@ queryForm.addEventListener('submit', async (e) => {
 
 // Circle Gateway x402 payment on Arc Testnet
 payButton.addEventListener('click', async () => {
+    if (paymentSuccessReady) {
+        hidePaywall();
+        return;
+    }
     if (!currentInvoiceId) {
         alert("Please submit the query first to generate an invoice.");
         return;
@@ -2360,7 +2962,11 @@ payButton.addEventListener('click', async () => {
         return;
     }
     if (!window.ethereum) {
-        alert("MetaMask is required to pay on Arc Testnet.");
+        if (isMobileDevice()) {
+            openMobileWalletModal();
+        } else {
+            _showDesktopInstallPrompt();
+        }
         return;
     }
 
@@ -2609,6 +3215,7 @@ payButton.addEventListener('click', async () => {
                 txHash: verifyData.transaction_hash,
                 explorerUrl: verifyData.explorer_url,
             });
+            showPaymentUnlockingState();
             // Pull paid QMA output for the selected tier
             const outputEndpoint = currentInvoiceTier === 'preview'
                 ? `/api/v1/providers/${encodeURIComponent(currentProviderId)}/preview`
@@ -2631,6 +3238,7 @@ payButton.addEventListener('click', async () => {
             } else {
                 renderReport(reportData);
             }
+            showPaymentSuccessState();
             await syncWalletEntitlements(account);
             updateAnomalyPaidState(activeQuery);
         } else {
@@ -2676,11 +3284,13 @@ payButton.addEventListener('click', async () => {
             alert("Error during payment verification: " + err.message);
         }
     } finally {
-        payButton.disabled = false;
-        const resetPayAmount = tierPrice(currentInvoiceTier);
-        payButton.innerHTML = resetPayAmount != null
-            ? `<span>Pay on Arc Testnet (${resetPayAmount.toFixed(3)} USDC)</span>`
-            : '<span>Pay on Arc Testnet</span>';
+        if (!paymentSuccessReady) {
+            payButton.disabled = false;
+            const resetPayAmount = tierPrice(currentInvoiceTier);
+            payButton.innerHTML = resetPayAmount != null
+                ? `<span>Pay ${resetPayAmount.toFixed(3)} USDC</span>`
+                : '<span>Pay on Arc Testnet</span>';
+        }
     }
 });
 
@@ -2688,7 +3298,7 @@ payButton.addEventListener('click', async () => {
  * updatePaymentFlowPanel — updates the 4-level payment flow panel.
  * stages: 'created' | 'checking' | 'received' | 'completed' | 'cancelled'
  */
-function updatePaymentFlowPanel(opts = {}) {
+function updatePaymentFlowPanelLegacy(opts = {}) {
     const { stage, buyerWalletBal, buyerGatewayBal, settlementId, gatewayStatus, sellerAvailable, sellerPending, sellerWallet, txHash, explorerUrl, cancelMessage } = opts;
 
     // Buyer wallet balance
@@ -2749,6 +3359,87 @@ function updatePaymentFlowPanel(opts = {}) {
         pfArcscanLink.textContent = shortAddress(txHash);
         pfArcscanLink.title = txHash;
         pfArcscanRow.style.display = 'block';
+    } else if (stage === 'created' || stage === 'checking' || stage === 'cancelled') {
+        if (pfArcscanRow) pfArcscanRow.style.display = 'none';
+    }
+}
+
+function updatePaymentFlowPanel(opts = {}) {
+    const { stage = 'created', buyerWalletBal, buyerGatewayBal, settlementId, gatewayStatus, sellerAvailable, sellerPending, sellerWallet, txHash, explorerUrl, cancelMessage } = opts;
+    updatePaymentTimeline(stage, cancelMessage);
+    setPaymentDetailValue('pf-wallet-address', connectedWallet);
+
+    const pfBuyerWalletBal = document.getElementById('pf-buyer-wallet-bal');
+    if (pfBuyerWalletBal) {
+        if (buyerWalletBal != null) {
+            pfBuyerWalletBal.textContent = `Connected - wallet balance ${Number(buyerWalletBal).toFixed(6)} USDC`;
+        } else if (connectedWallet) {
+            pfBuyerWalletBal.textContent = `Connected - ${shortAddress(connectedWallet)}`;
+        } else {
+            pfBuyerWalletBal.textContent = 'Connect wallet to continue.';
+        }
+    }
+
+    if (buyerGatewayBal != null) {
+        setPaymentDetailValue('pf-buyer-gateway-bal', `${Number(buyerGatewayBal).toFixed(6)} USDC`);
+    } else if (stage === 'created') {
+        setPaymentDetailValue('pf-buyer-gateway-bal', null);
+    }
+
+    const pfGatewayStepText = document.getElementById('pf-gateway-step-text');
+    if (pfGatewayStepText) {
+        if (stage === 'checking') {
+            pfGatewayStepText.textContent = buyerGatewayBal != null
+                ? `Gateway balance checked: ${Number(buyerGatewayBal).toFixed(6)} USDC`
+                : 'Checking Gateway balance...';
+        } else if (stage === 'received' || stage === 'completed') {
+            pfGatewayStepText.textContent = 'USDC payment authorization accepted.';
+        } else if (stage === 'cancelled') {
+            pfGatewayStepText.textContent = cancelMessage || 'Payment cancelled before settlement.';
+        } else {
+            pfGatewayStepText.textContent = 'Gateway balance is checked when you pay.';
+        }
+    }
+
+    const pfStatus = document.getElementById('pf-settlement-status');
+    if (pfStatus) {
+        if (stage === 'received') {
+            pfStatus.textContent = 'Circle accepted payment. Waiting for on-chain batch.';
+        } else if (stage === 'completed') {
+            pfStatus.textContent = 'Settlement complete.';
+        } else if (stage === 'checking') {
+            pfStatus.textContent = 'Preparing signature and settlement.';
+        } else if (stage === 'cancelled') {
+            pfStatus.textContent = cancelMessage || 'Payment cancelled. No funds sent.';
+        } else {
+            pfStatus.textContent = 'Awaiting payment.';
+        }
+    }
+
+    if (settlementId) {
+        setPaymentDetailValue('pf-settlement-id', settlementId);
+    } else if (stage === 'created' || stage === 'checking' || stage === 'cancelled') {
+        setPaymentDetailValue('pf-settlement-id', null);
+    }
+
+    if (sellerAvailable != null) setPaymentDetailValue('pf-seller-available', `${Number(sellerAvailable).toFixed(6)} USDC`);
+    if (sellerPending != null) setPaymentDetailValue('pf-seller-pending', `${Number(sellerPending).toFixed(6)} USDC`);
+    if (sellerWallet) setPaymentDetailValue('pf-seller-wallet-addr', sellerWallet);
+
+    const unlockStatus = document.getElementById('pf-unlock-status');
+    if (unlockStatus && gatewayStatus && stage !== 'completed') {
+        unlockStatus.textContent = `Gateway status: ${gatewayStatus}`;
+    }
+
+    const pfArcscanRow = document.getElementById('pf-arcscan-tx');
+    const pfArcscanLink = document.getElementById('pf-arcscan-link');
+    if (txHash && explorerUrl && pfArcscanRow && pfArcscanLink) {
+        pfArcscanLink.href = explorerUrl;
+        pfArcscanLink.textContent = shortAddress(txHash);
+        pfArcscanLink.title = txHash;
+        pfArcscanLink.dataset.fullValue = txHash;
+        pfArcscanLink.dataset.hasFull = 'true';
+        pfArcscanRow.style.display = 'grid';
     } else if (stage === 'created' || stage === 'checking' || stage === 'cancelled') {
         if (pfArcscanRow) pfArcscanRow.style.display = 'none';
     }
@@ -2990,7 +3681,7 @@ async function hydrateReportPayment(report) {
 walletButton.addEventListener('click', async (event) => {
     event.stopPropagation();
     if (!connectedWallet) {
-        await connectWallet();
+        handleConnectWalletClick();
         return;
     }
     walletMenu.classList.toggle('open');
@@ -3002,6 +3693,7 @@ paywallClose.addEventListener('click', () => {
     hidePaywall();
     showToast('Payment panel closed. Select another signal or click Retrieve to reopen it.', 'info');
 });
+setupPaywallCopyButtons();
 
 const copyBtn = document.getElementById('wallet-copy-btn');
 if (copyBtn) {
