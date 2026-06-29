@@ -1703,11 +1703,6 @@
         overflow-y: auto;
     }
 
-    .main-panel,
-    .report-viewport {
-        overflow: visible;
-    }
-
     body:not(.landing-body):not(.profile-body) {
         height: auto;
         min-height: 100vh;

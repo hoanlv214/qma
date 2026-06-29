@@ -247,16 +247,6 @@
     margin-bottom: 0;
 }
 
-.profile-body .token-chip {
-    border-color: var(--bdr-md);
-    border-radius: var(--radius-sm);
-    background: var(--bg-2);
-    color: var(--t2);
-    font-size: 0.74rem;
-    font-weight: 600;
-    padding: 6px 11px;
-}
-
 .profile-body .token-chip-muted {
     color: var(--t3);
     background: transparent;
@@ -307,7 +297,8 @@
 }
 
 .profile-body .table-pager {
-    justify-content: flex-start;
+    justify-content: space-between;
+    color: var(--accent);
     gap: 12px;
     margin-top: 16px;
     font-size: 0.72rem;
@@ -320,13 +311,19 @@
     color: var(--t2);
     padding: 6px 13px;
     font-family: var(--sans);
-    font-size: 0.78rem;
+    font-size: .78rem;
     font-weight: 600;
 }
 
-.profile-body .refresh-btn:hover {
-    color: var(--t1);
-    background: rgba(255, 255, 255, 0.04);
+.profile-body .refresh-btn:not(:disabled):hover {
+    color: var(--accent);
+    border-color: var(--accent);
+    cursor: pointer;
+}
+
+.profile-body .refresh-btn:disabled {
+    opacity: .55;
+    cursor: not-allowed;
 }
 
 .profile-body .user-payment-row.is-clickable {

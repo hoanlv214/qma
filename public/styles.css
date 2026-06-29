@@ -526,6 +526,7 @@ header {
 }
 
 .profile-pager {
+    color: var(--accent);
     justify-content: space-between;
     margin: -6px 0 16px;
 }
