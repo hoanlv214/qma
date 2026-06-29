@@ -74,6 +74,14 @@ qma/
 5. QMA verifies Circle Gateway settlement and records a wallet entitlement.
 6. The exact query-bound report unlocks.
 
+## Agent Buyer Flow
+
+```text
+signal -> invoice -> x402 pay -> JSON report
+```
+
+QMA supports human buyers through the web app and autonomous buyers through the paid API path. An external agent can evaluate a suggested signal, create an invoice, pay within a budget, and receive a structured report response without using the dashboard.
+
 ## Data Policy
 
 The public repo includes sample CSVs:

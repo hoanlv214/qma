@@ -68,13 +68,17 @@
         </nav>
 
         <section class="landing-hero">
-            <div class="landing-kicker">Historical Market Memory Platform</div>
+            <div class="landing-kicker">Evidence-Based Market Research</div>
             <h1>See what happened the last time the market looked like this</h1>
             <p>
                 QMA retrieves similar historical market situations and generates evidence-backed reports instead of
                 trying to predict prices. Compare today's live signals with similar past events, and unlock detailed
                 memory reports instantly using friction-free, pay-per-query payments.
             </p>
+            <div class="landing-agent-note">
+                <span>Agent-native</span>
+                <p>QMA's ranking engine autonomously scores live funding anomalies and surfaces the signals most worth querying.</p>
+            </div>
             <div class="landing-actions">
                 <a class="btn-green landing-primary" href="/app" target="_blank" rel="noopener noreferrer">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -192,20 +196,21 @@
         <section class="landing-proof">
             <div>
                 <div class="section-eyebrow landing-section-label">Open intelligence marketplace</div>
-                <h2>A Marketplace for Historical Market Memory</h2>
+                <h2>A Marketplace for Market Intelligence</h2>
                 <p>
                     QMA operates as a decentralized platform for historical market context. Independent intelligence
-                    providers package private datasets—from funding rate histories and order flow dynamics to whale
-                    metrics and social indicators—as paid APIs that users and autonomous agents can query instantly.
+                    providers package private datasets - from funding rate histories and order flow dynamics to whale
+                    metrics and social indicators - as paid APIs that users and autonomous agents can query instantly.
                 </p>
             </div>
             <div class="landing-proof-card">
                 <div><span>Active Providers</span><strong>Funding Memory, OI Memory</strong></div>
-                <div><span>Upcoming Feeds</span><strong>Whale Memory, Social Memory</strong></div>
-                <div><span>Model Type</span><strong>Historical Analog Analysis</strong></div>
-                <div><span>Pricing</span><strong>Fractional USDC per query</strong></div>
-                <div><span>Access Link</span><strong>On-chain wallet entitlement</strong></div>
-                <div><span>Settlement</span><strong>Arc USDC Micropayments</strong></div>
+                <div><span>Coming Soon</span><strong>Whale Memory, Social Memory</strong></div>
+                <div><span>Approach</span><strong>Compare today's market with past setups</strong></div>
+                <div><span>Pricing</span><strong>Pay only for the report you want</strong></div>
+                <div><span>Access</span><strong>Connect wallet to view unlocked reports</strong></div>
+                <div><span>Settlement</span><strong>Instant USDC on Arc Testnet</strong></div>
+                <div class="proof-tech"><span>Tech</span><strong>Arc Testnet USDC / Circle Gateway / x402-style API</strong></div>
             </div>
         </section>
 
@@ -214,23 +219,62 @@
             <div class="landing-flow-steps">
                 <div class="flow-step">
                     <div class="flow-step-num">Step 1</div>
-                    <span>Analyze Scenario</span>
+                    <span>Pick a Signal</span>
                     <p>Select a live market anomaly or input custom parameters representing a current market situation.
                     </p>
                 </div>
                 <div class="flow-step">
                     <div class="flow-step-num">Step 2</div>
-                    <span>Micro-Payment</span>
-                    <p>Securely purchase a specific report query with a low-cost, pay-per-view payment settled instantly
-                        on-chain.</p>
+                    <span>Pay for This Report</span>
+                    <p>Pay a small USDC amount for exactly the report you want - no subscription, settled instantly on Arc.</p>
                 </div>
                 <div class="flow-step">
                     <div class="flow-step-num">Step 3</div>
-                    <span>Read Analog Report</span>
+                    <span>Read the Historical Comparison</span>
                     <p>View the historical analog report showing past outcomes and statistical context, linked
                         permanently to your wallet.</p>
                 </div>
             </div>
+        </section>
+
+        <section class="landing-audience">
+            <div class="section-eyebrow landing-section-label">Who it's for</div>
+            <div class="landing-audience-grid">
+                <article>
+                    <strong>Traders</strong>
+                    <p>Want historical context before making decisions - not price predictions.</p>
+                </article>
+                <article>
+                    <strong>Researchers</strong>
+                    <p>Need evidence and statistical distributions, not speculation.</p>
+                </article>
+                <article>
+                    <strong>AI Agents</strong>
+                    <p>Query via API, pay per call in USDC. <span data-traction="agent_unlocks">-</span> autonomous agent unlocks logged on Arc testnet.</p>
+                </article>
+            </div>
+        </section>
+
+        <section class="landing-agent-api">
+            <div>
+                <div class="section-eyebrow landing-section-label">Agent-native API</div>
+                <h2>External agents can buy reports without using the dashboard</h2>
+                <p>
+                    A buyer agent can evaluate a ranked signal, create an invoice, settle the x402-style payment,
+                    and receive a structured JSON report within its budget.
+                </p>
+                <div class="landing-actions">
+                    <a class="btn-green landing-primary" href="/docs" data-api-path="/docs" target="_blank"
+                        rel="noopener noreferrer">Open API Docs</a>
+                    <a class="landing-secondary" href="https://github.com/hoanlv214/qma/blob/main/examples/README.md"
+                        target="_blank" rel="noopener noreferrer">View Agent Example</a>
+                </div>
+            </div>
+            <pre class="agent-terminal" aria-label="Agent buyer flow example"><code><span class="t-prompt">$</span> <span class="t-cmd">npm run agent:dry</span>
+<span class="t-key">pick:</span>    <span class="t-val">H</span>  score=<span class="t-num">41</span>  tier=<span class="t-badge">preview</span>
+<span class="t-key">invoice:</span> <span class="t-dim">inv_...</span>  amount=<span class="t-green">0.001 USDC</span>
+<span class="t-key">pay:</span>     x402 authorization <span class="t-green">accepted</span>
+<span class="t-key">result:</span>  JSON report <span class="t-accent">unlocked ✓</span></code></pre>
         </section>
 
         <section class="landing-builders">

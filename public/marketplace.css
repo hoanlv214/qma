@@ -1,38 +1,69 @@
-/* ========================================================
-   QMA — Marketplace page styles
+﻿/* ========================================================
+   QMA â€” Marketplace page styles
    Foundation tokens live in styles.css (:root).
    Protected IDs: #market-connect-btn  #creator-wallet
                   #creator-application-form  #creator-form-status
                   #marketplace-provider-list
    ======================================================== */
 
-/* ── Body ─────────────────────────────────────────────── */
+/* â”€â”€ Body â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .marketplace-body {
+    min-height: 100vh;
+    height: auto;
+    display: block;
+    overflow-y: auto;
+    background: var(--bg-0);
+    color: var(--t1);
     letter-spacing: 0;
 }
 
-/* ── Shell ────────────────────────────────────────────── */
 .marketplace-shell {
     --marketplace-left-col: minmax(0, 0.60fr);
     --marketplace-right-col: minmax(320px, 0.40fr);
     --marketplace-gap: var(--space-5);
+    width: min(1180px, calc(100% - 32px));
+    margin: 0 auto;
     padding-top: var(--space-10);
     padding-bottom: var(--space-16);
 }
 
-/* ── Hero ─────────────────────────────────────────────── */
 .marketplace-hero {
+    display: grid;
+    grid-template-columns: var(--marketplace-left-col) var(--marketplace-right-col);
     gap: var(--space-8);
     margin-bottom: var(--space-8);
     align-items: start;
 }
 
 .marketplace-hero .landing-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: fit-content;
     margin-bottom: var(--space-3);
+    border: 1px solid rgba(124, 111, 255, 0.22);
+    border-radius: var(--radius-pill);
+    background: var(--accent-dim);
+    color: var(--green);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    padding: 5px 13px;
+}
+
+.marketplace-hero .landing-kicker::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    display: inline-block;
 }
 
 .marketplace-hero h1 {
     margin: var(--space-3) 0 var(--space-4);
+    font-family: var(--mono);
     font-size: clamp(2rem, 5.2vw, 4rem);
     font-weight: 750;
     line-height: 0.96;
@@ -47,7 +78,6 @@
     margin: 0;
 }
 
-/* ── Summary receipt panel ────────────────────────────── */
 .marketplace-summary {
     display: flex;
     flex-direction: column;
@@ -61,7 +91,6 @@
     align-self: start;
 }
 
-/* Override the shared .marketplace-summary div / .marketplace-stats-grid div rule */
 .marketplace-summary>div {
     display: flex;
     align-items: center;
@@ -97,22 +126,30 @@
     text-align: right;
 }
 
-/* ── Layout grid ──────────────────────────────────────── */
 .marketplace-layout {
+    display: grid;
+    grid-template-columns: var(--marketplace-left-col) var(--marketplace-right-col);
     gap: var(--space-5);
     align-items: start;
 }
 
-/* ── Section card ─────────────────────────────────────── */
 .marketplace-section {
+    border: 1px solid var(--bdr);
+    border-radius: var(--radius-md);
+    background: rgba(15, 18, 34, 0.72);
     padding: var(--space-5);
+    min-width: 0;
 }
 
 .marketplace-section-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
     gap: var(--space-4);
     margin-bottom: var(--space-5);
     padding-bottom: var(--space-4);
     min-height: 0;
+    border-bottom: 1px solid var(--bdr);
 }
 
 .marketplace-section-head .sidebar-title {
@@ -133,17 +170,58 @@
     margin: 0;
 }
 
-/* ── Provider grid ────────────────────────────────────── */
+.marketplace-body .landing-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--bdr);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--t2);
+    font-family: var(--sans);
+    font-size: var(--text-base);
+    font-weight: 500;
+    padding: 7px 11px;
+    text-decoration: none;
+}
+
+.marketplace-body .landing-secondary:hover {
+    color: var(--accent);
+    border-color: var(--bdr-hi);
+}
+
 .marketplace-provider-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--space-4);
 }
 
-/* ── Provider card ────────────────────────────────────── */
 .marketplace-provider-card {
-    display: flex;
-    flex-direction: column;
+    --provider-header-h: 112px;
+    --provider-desc-h: 64px;
+    --provider-stats-h: 172px;
+    --provider-owner-h: 18px;
+    --provider-symbols-h: 76px;
+    display: grid;
+    grid-template-rows:
+        var(--provider-header-h)
+        var(--provider-desc-h)
+        var(--provider-stats-h)
+        var(--provider-owner-h)
+        var(--provider-symbols-h);
+    row-gap: var(--space-3);
+    border: 1px solid var(--bdr);
+    border-radius: var(--radius-md);
+    background: rgba(15, 18, 34, 0.72);
     padding: var(--space-4);
+    min-width: 0;
+    align-items: stretch;
+    box-sizing: border-box;
     transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.marketplace-provider-card>* {
+    min-width: 0;
 }
 
 .marketplace-provider-card:hover {
@@ -152,16 +230,47 @@
 }
 
 .marketplace-provider-top {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 64px;
+    align-items: start;
     gap: var(--space-3);
-    margin-bottom: var(--space-3);
+    margin: 0;
+    height: var(--provider-header-h);
+    min-height: var(--provider-header-h);
+    max-height: var(--provider-header-h);
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.marketplace-provider-top>div {
+    display: grid;
+    grid-template-rows: 24px 48px 18px;
+    row-gap: var(--space-1);
+    min-width: 0;
+    height: 100%;
+    overflow: hidden;
+}
+
+.marketplace-provider-top .landing-secondary {
+    justify-self: end;
+    width: 64px;
+    min-width: 64px;
+    justify-content: center;
+    box-sizing: border-box;
 }
 
 .marketplace-provider-card h2 {
-    margin: var(--space-2) 0 var(--space-1);
+    margin: 0;
     font-size: var(--text-lg);
     font-weight: 700;
     line-height: 1.25;
     letter-spacing: 0;
+    min-height: 48px;
+    max-height: 48px;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
 }
 
 .provider-id-line {
@@ -169,20 +278,21 @@
     font-size: var(--text-xs);
     color: var(--t3);
     letter-spacing: 0.3px;
-    min-height: auto;
-    margin-bottom: var(--space-3);
+    height: 18px;
+    line-height: 18px;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .marketplace-provider-desc {
     font-size: var(--text-sm);
     color: var(--t2);
     line-height: 1.6;
-    margin-bottom: var(--space-3);
-    flex: none;
-
-    /* Lock to exactly 3 lines — long text gets ellipsis, short text keeps consistent height */
-    height: calc(3 * 1.6em);
-    /* 4.8 em ≈ 58 px at text-sm */
+    margin: 0;
+    height: var(--provider-desc-h);
+    /* 4.8 em â‰ˆ 58 px at text-sm */
     overflow: hidden;
     display: -webkit-box;
     -webkit-line-clamp: 3;
@@ -191,50 +301,91 @@
 
 /* Stats tiles inside provider card */
 .marketplace-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(3, 52px);
+    grid-auto-rows: 52px;
     gap: var(--space-2);
-    margin: 0 0 var(--space-3);
+    width: 100%;
+    height: var(--provider-stats-h);
+    min-height: var(--provider-stats-h);
+    max-height: var(--provider-stats-h);
+    margin: 0;
+    overflow: hidden;
+    align-self: stretch;
+    align-content: start;
+    box-sizing: border-box;
 }
 
 .marketplace-stats-grid div {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    height: 52px;
+    min-height: 52px;
+    max-height: 52px;
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.025);
     padding: var(--space-2) var(--space-3);
+    box-sizing: border-box;
 }
 
 .marketplace-stats-grid span {
+    display: block;
+    color: var(--t3);
+    font-family: var(--mono);
     font-size: var(--text-2xs);
+    text-transform: uppercase;
     letter-spacing: 0.6px;
     margin-bottom: var(--space-1);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .marketplace-stats-grid strong {
+    display: block;
+    color: var(--t1);
+    font-family: var(--mono);
     font-size: var(--text-sm);
     font-weight: 600;
+    line-height: 1.35;
 }
 
 /* Owner line */
 .marketplace-owner {
     font-family: var(--mono);
     font-size: var(--text-2xs);
+    line-height: var(--provider-owner-h);
     color: var(--t3);
-    margin-bottom: var(--space-3);
+    height: var(--provider-owner-h);
+    margin: 0;
     letter-spacing: 0.3px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-/* Symbol chips — reserved minimum height keeps stats grid aligned across cards */
 .marketplace-symbols {
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-1) var(--space-2);
-    min-height: var(--space-12);
-    /* ≈ 48 px — room for ~2 rows of chips */
+    height: var(--provider-symbols-h);
+    min-height: var(--provider-symbols-h);
+    max-height: var(--provider-symbols-h);
     align-content: flex-start;
-    /* chips pack to the top; empty space stays below */
     margin-top: 0;
+    overflow: hidden;
 }
 
 .marketplace-symbols span {
+    border: 1px solid rgba(124, 111, 255, 0.2);
+    background: rgba(124, 111, 255, 0.08);
+    color: var(--accent);
+    font-family: var(--mono);
     font-size: var(--text-2xs);
     padding: 3px var(--space-2);
     border-radius: var(--radius-xs);
@@ -243,10 +394,35 @@
 
 /* Status badge */
 .provider-status {
+    display: inline-flex;
+    width: fit-content;
+    max-width: 100%;
+    justify-self: start;
+    align-self: start;
+    border: 1px solid rgba(34, 211, 160, 0.26);
+    border-radius: var(--radius-pill);
+    background: rgba(34, 211, 160, 0.08);
+    color: var(--green);
+    font-family: var(--mono);
+    font-weight: 700;
     font-size: var(--text-2xs);
     padding: 3px var(--space-2);
     letter-spacing: 0.3px;
     white-space: nowrap;
+}
+
+.provider-status.experimental,
+.provider-status.pending,
+.provider-status.needs_changes {
+    border-color: rgba(245, 158, 11, 0.28);
+    background: rgba(245, 158, 11, 0.08);
+    color: var(--amber);
+}
+
+.provider-status.rejected {
+    border-color: rgba(244, 63, 94, 0.28);
+    background: rgba(244, 63, 94, 0.08);
+    color: #fb7185;
 }
 
 /* Empty state */
@@ -258,7 +434,6 @@
     color: var(--t3);
 }
 
-/* ── Creator application form ─────────────────────────── */
 .creator-apply-card {
     box-sizing: border-box;
 }
@@ -315,7 +490,16 @@
 }
 
 .creator-form .submit-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
     width: 100%;
+    border: 0;
+    background: var(--accent);
+    color: #fff;
+    cursor: pointer;
+    font-family: var(--mono);
     padding: var(--space-3) var(--space-4);
     font-size: var(--text-sm);
     font-weight: 700;
@@ -323,6 +507,10 @@
     height: auto;
     margin-top: var(--space-2);
     border-radius: var(--radius-sm);
+}
+
+.creator-form .submit-btn:hover {
+    opacity: 0.85;
 }
 
 #creator-form-status {
@@ -341,17 +529,12 @@
     color: var(--red);
 }
 
-/* ── Market nav (mirrors .profile-nav from styles.css) ── */
 .market-nav {
     position: sticky;
     top: 0;
     z-index: 50;
-    /* background: rgba(6, 8, 15, 0.86);
-    border-bottom: 1px solid var(--bdr);
-    backdrop-filter: blur(14px); */
 }
 
-/* Inner wrapper — matches marketplace-shell width so content aligns */
 .market-nav-inner {
     width: min(1180px, calc(100% - 32px));
     margin: 0 auto;
@@ -415,7 +598,6 @@
     }
 }
 
-/* ── Tablet ≤ 900px ───────────────────────────────────── */
 @media (max-width: 900px) {
     .marketplace-shell {
         padding-top: var(--space-8);
@@ -467,7 +649,6 @@
     }
 }
 
-/* ── Mobile ≤ 600px ───────────────────────────────────── */
 @media (max-width: 600px) {
     .marketplace-shell {
         padding-top: var(--space-5);
@@ -483,6 +664,11 @@
         padding: var(--space-4);
     }
 
+    .marketplace-provider-card {
+        --provider-header-h: 128px;
+        --provider-symbols-h: 96px;
+    }
+
     .marketplace-section-head {
         flex-direction: column;
         align-items: flex-start;
@@ -493,10 +679,9 @@
         justify-content: center;
     }
 
-    .marketplace-provider-top {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: var(--space-2);
+    .marketplace-provider-card h2 {
+        min-height: 48px;
+        max-height: 48px;
     }
 
     /* Summary: back to single column stacked rows */
@@ -527,8 +712,11 @@
     }
 }
 
-/* ── Small mobile ≤ 420px ─────────────────────────────── */
 @media (max-width: 420px) {
+    .marketplace-provider-card {
+        --provider-stats-h: 352px;
+    }
+
     .marketplace-summary>div {
         flex-direction: column;
         align-items: flex-start;
@@ -541,6 +729,7 @@
 
     .marketplace-stats-grid {
         grid-template-columns: 1fr;
+        grid-template-rows: repeat(6, 52px);
     }
 
     .creator-form {
