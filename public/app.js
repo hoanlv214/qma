@@ -189,7 +189,8 @@ function withTimeout(promise, ms, label) {
 }
 
 async function walletRequest(args, label, timeoutMs = WALLET_REQUEST_TIMEOUT_MS) {
-    if (!window.ethereum?.request) {
+    const provider = await getWalletProvider();
+    if (!provider?.request) {
         if (isMobileDevice()) {
             openMobileWalletModal();
         } else {
@@ -200,7 +201,7 @@ async function walletRequest(args, label, timeoutMs = WALLET_REQUEST_TIMEOUT_MS)
     if (walletRequestInFlight) {
         throw new Error('A wallet request is already in progress. Open MetaMask, finish it, then retry.');
     }
-    walletRequestInFlight = withTimeout(window.ethereum.request(args), timeoutMs, label);
+    walletRequestInFlight = withTimeout(provider.request(args), timeoutMs, label);
     try {
         return await walletRequestInFlight;
     } catch (err) {
@@ -261,12 +262,27 @@ const walletMenuAddress = document.getElementById('wallet-menu-address');
 const walletProfileBtn = document.getElementById('wallet-profile-btn');
 const walletQuickProfileBtn = document.getElementById('wallet-quick-profile-btn');
 const walletAgentRunBtn = document.getElementById('wallet-agent-run-btn');
+const walletFundArcBtn = document.getElementById('wallet-fund-arc-btn');
 const walletDisconnectBtn = document.getElementById('wallet-disconnect-btn');
 const walletProfileModal = document.getElementById('wallet-profile-modal');
 const walletProfileClose = document.getElementById('wallet-profile-close');
 const agentRunModal = document.getElementById('agent-run-modal');
 const agentRunClose = document.getElementById('agent-run-close');
 const agentRunDismiss = document.getElementById('agent-run-dismiss');
+const fundArcModal = document.getElementById('fund-arc-modal');
+const fundArcClose = document.getElementById('fund-arc-close');
+const fundArcDismiss = document.getElementById('fund-arc-dismiss');
+const paywallFundingAssistantBtn = document.getElementById('paywall-funding-assistant-btn');
+const fundWalletStatus = document.getElementById('fund-wallet-status');
+const fundProviderStatus = document.getElementById('fund-provider-status');
+const fundChainStatus = document.getElementById('fund-chain-status');
+const fundArcStatus = document.getElementById('fund-arc-status');
+const fundWalletUsdc = document.getElementById('fund-wallet-usdc');
+const fundGatewayBalance = document.getElementById('fund-gateway-balance');
+const fundRequiredAmount = document.getElementById('fund-required-amount');
+const fundReadinessStatus = document.getElementById('fund-readiness-status');
+const fundNextStep = document.getElementById('fund-next-step');
+const fundPrimaryAction = document.getElementById('fund-primary-action');
 const walletProfileAddress = document.getElementById('wallet-profile-address');
 const profileGatewayBalance = document.getElementById('profile-gateway-balance');
 const profileChainBalance = document.getElementById('profile-chain-balance');
@@ -330,6 +346,55 @@ function detectInjectedProviders() {
     }
     // Deduplicate by id
     return [...new Map(found.map(x => [x.id, x])).values()];
+}
+
+function getInjectedProviderCandidates() {
+    const providers = [];
+    const push = (provider, fallbackLabel = 'Injected Wallet') => {
+        if (!provider?.request || providers.some((entry) => entry.provider === provider)) return;
+        let label = fallbackLabel;
+        if (provider.isOKExWallet || provider.isOKX) label = 'OKX Wallet';
+        else if (provider.isMetaMask && !provider.isOKExWallet) label = 'MetaMask';
+        else if (provider.isCoinbaseWallet) label = 'Coinbase Wallet';
+        else if (provider.isRabby) label = 'Rabby';
+        else if (provider.isTrust) label = 'Trust Wallet';
+        providers.push({ provider, label });
+    };
+
+    const eth = window.ethereum;
+    if (Array.isArray(eth?.providers)) {
+        eth.providers.forEach((provider) => push(provider));
+    }
+    push(window.okxwallet, 'OKX Wallet');
+    push(window.ethereum);
+    return providers;
+}
+
+async function getWalletProvider() {
+    const candidates = getInjectedProviderCandidates();
+    if (!candidates.length) return null;
+    if (!connectedWallet) return candidates[0].provider;
+
+    for (const entry of candidates) {
+        try {
+            const accounts = await withTimeout(
+                entry.provider.request({ method: 'eth_accounts' }),
+                3000,
+                `${entry.label} account lookup`
+            );
+            if ((accounts || []).some((account) => sameAddress(account, connectedWallet))) {
+                return entry.provider;
+            }
+        } catch (err) {
+            console.warn(`${entry.label} account lookup failed`, err);
+        }
+    }
+    return candidates[0].provider;
+}
+
+function getWalletProviderLabel(provider) {
+    const entry = getInjectedProviderCandidates().find((candidate) => candidate.provider === provider);
+    return entry?.label || 'Injected Wallet';
 }
 
 /**
@@ -977,12 +1042,14 @@ const ARC_TESTNET = {
 };
 
 async function ensureArcTestnet() {
+    const provider = await getWalletProvider();
+    if (!provider?.request) throw new Error('No wallet provider detected.');
     const current = await withTimeout(
-        ethereum.request({ method: 'eth_chainId' }),
+        provider.request({ method: 'eth_chainId' }),
         15000,
         'Arc network check'
     );
-    if (current === ARC_TESTNET_HEX) return;
+    if (normalizeChainId(current) === ARC_TESTNET_HEX) return;
     try {
         await walletRequest(
             {
@@ -1576,6 +1643,9 @@ function setConnectedWallet(account) {
         localStorage.removeItem('qma_connected_wallet');
     }
     updateWalletUi();
+    if (fundArcModal?.classList.contains('open')) {
+        refreshFundingReadiness();
+    }
 }
 
 function updateWalletUi() {
@@ -1603,7 +1673,8 @@ function updateWalletUi() {
 }
 
 async function connectWallet(options = {}) {
-    if (!window.ethereum) {
+    const provider = await getWalletProvider();
+    if (!provider?.request) {
         if (!options.silent) {
             if (isMobileDevice()) {
                 openMobileWalletModal();
@@ -1617,7 +1688,7 @@ async function connectWallet(options = {}) {
     let accounts = [];
     try {
         accounts = options.silent
-            ? await withTimeout(ethereum.request({ method }), 15000, 'Wallet session restore')
+            ? await withTimeout(provider.request({ method }), 15000, 'Wallet session restore')
             : await walletRequest({ method }, 'Wallet connection');
     } catch (err) {
         const message = describeWalletError(err);
@@ -1646,8 +1717,9 @@ async function connectWallet(options = {}) {
 
 async function disconnectWallet() {
     try {
-        if (window.ethereum?.request) {
-            await ethereum.request({
+        const provider = await getWalletProvider();
+        if (provider?.request) {
+            await provider.request({
                 method: 'wallet_revokePermissions',
                 params: [{ eth_accounts: {} }]
             });
@@ -1659,6 +1731,7 @@ async function disconnectWallet() {
     walletMenu.classList.remove('open');
     walletProfileModal.classList.remove('open');
     walletProfileModal.setAttribute('aria-hidden', 'true');
+    closeFundArcModal();
 }
 
 async function restoreWalletSession() {
@@ -1719,8 +1792,10 @@ async function getWalletStatus(account) {
 }
 
 async function waitForReceipt(txHash) {
+    const provider = await getWalletProvider();
+    if (!provider?.request) throw new Error('No wallet provider detected.');
     for (let i = 0; i < 60; i++) {
-        const receipt = await ethereum.request({
+        const receipt = await provider.request({
             method: 'eth_getTransactionReceipt',
             params: [txHash]
         });
@@ -1976,8 +2051,33 @@ function fallbackPageMeta(meta, currentPage, pageSize, totalFallback, visibleCou
     };
 }
 
+function renderWalletProfileSummary(metrics, walletStatus) {
+    const gatewayBalance = metrics?.gateway_balance?.available_usdc;
+    profileGatewayBalance.textContent = gatewayBalance === null || gatewayBalance === undefined
+        ? 'n/a'
+        : `${Number(gatewayBalance).toFixed(6)} USDC`;
+    const chainBalance = getOnChainUsdcBalance(walletStatus);
+    profileChainBalance.textContent = chainBalance
+        ? `${Number(chainBalance).toFixed(6)} USDC`
+        : 'n/a';
+    const tierCounts = metrics?.tier_counts || {};
+    const legacyProfile = Number(tierCounts.legacy || 0);
+    profilePayments.textContent = `${metrics?.current_payments ?? metrics?.payments ?? 0} (P:${tierCounts.preview || 0} F:${tierCounts.full || 0}${legacyProfile ? ` L:${legacyProfile}` : ''})`;
+    profileSpent.textContent = `${Number(metrics?.spent_usdc || 0).toFixed(3)} USDC`;
+
+    const symbols = metrics?.purchased_symbols || [];
+    profileTokenList.innerHTML = symbols.length
+        ? symbols.map(symbol => `<span class="token-chip">${escapeHtml(symbol)}</span>`).join('')
+        : '<span class="token-chip">None yet</span>';
+}
+
 async function loadProfilePaymentsPage(account, page = profilePaymentsPage) {
-    const resp = await fetch(apiUrl(`/api/v1/metrics/wallet/${account}?payment_page=${page}&payment_page_size=${PROFILE_PAYMENTS_PAGE_SIZE}`));
+    const params = new URLSearchParams({
+        payment_page: String(page),
+        payment_page_size: String(PROFILE_PAYMENTS_PAGE_SIZE),
+        entitlement_page_size: '100'
+    });
+    const resp = await fetch(apiUrl(`/api/v1/metrics/wallet/${account}?${params.toString()}`));
     const metrics = resp.ok ? await resp.json() : null;
     if (!metrics) {
         throw new Error('Could not load wallet profile.');
@@ -2019,23 +2119,7 @@ async function openWalletProfile() {
             loadProfilePaymentsPage(account, 1),
             getWalletStatus(account)
         ]);
-        const gatewayBalance = metrics?.gateway_balance?.available_usdc;
-        profileGatewayBalance.textContent = gatewayBalance === null || gatewayBalance === undefined
-            ? 'n/a'
-            : `${Number(gatewayBalance).toFixed(6)} USDC`;
-        const chainBalance = getOnChainUsdcBalance(walletStatus);
-        profileChainBalance.textContent = chainBalance
-            ? `${Number(chainBalance).toFixed(6)} USDC`
-            : 'n/a';
-        const tierCounts = metrics?.tier_counts || {};
-        const legacyProfile = Number(tierCounts.legacy || 0);
-        profilePayments.textContent = `${metrics?.current_payments ?? metrics?.payments ?? 0} (P:${tierCounts.preview || 0} F:${tierCounts.full || 0}${legacyProfile ? ` L:${legacyProfile}` : ''})`;
-        profileSpent.textContent = `${Number(metrics?.spent_usdc || 0).toFixed(3)} USDC`;
-
-        const symbols = metrics?.purchased_symbols || [];
-        profileTokenList.innerHTML = symbols.length
-            ? symbols.map(symbol => `<span class="token-chip">${escapeHtml(symbol)}</span>`).join('')
-            : '<span class="token-chip">None yet</span>';
+        renderWalletProfileSummary(metrics, walletStatus);
     } catch (err) {
         console.warn('Wallet profile unavailable', err);
         profileGatewayBalance.textContent = 'n/a';
@@ -2179,6 +2263,7 @@ function appendAgentRunTrace(text, tone = '') {
 function openAgentRunModal() {
     if (!agentRunModal) return;
     walletMenu.classList.remove('open');
+    closeFundArcModal();
     if (agentRunDismiss) agentRunDismiss.textContent = currentInvoiceBuyerType === 'agent' && currentInvoiceId
         ? 'Continue to Payment'
         : 'Close';
@@ -2190,6 +2275,214 @@ function closeAgentRunModal() {
     if (!agentRunModal) return;
     agentRunModal.classList.remove('open');
     agentRunModal.setAttribute('aria-hidden', 'true');
+}
+
+function formatChainLabel(chainId) {
+    const normalized = normalizeChainId(chainId);
+    const labels = {
+        [ARC_TESTNET_HEX]: 'Arc Testnet',
+        '0x1': 'Ethereum Mainnet',
+        '0xaa36a7': 'Ethereum Sepolia',
+        '0x2105': 'Base',
+        '0x14a34': 'Base Sepolia',
+        '0x89': 'Polygon',
+        '0xa': 'Optimism',
+        '0xa4b1': 'Arbitrum One'
+    };
+    return labels[normalized] ? `${labels[normalized]} (${normalized})` : normalized;
+}
+
+function normalizeChainId(chainId) {
+    if (chainId === null || chainId === undefined || chainId === '') return '';
+    const value = String(chainId).trim().toLowerCase();
+    if (value.startsWith('0x')) return value;
+    const num = Number(value);
+    return Number.isFinite(num) ? `0x${num.toString(16)}` : value;
+}
+
+function formatFundingAmount(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return 'n/a';
+    return `${num.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')} USDC`;
+}
+
+function parseFundingAmount(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const normalized = typeof value === 'string'
+        ? value.replace(/USDC/ig, '').replace(/,/g, '').trim()
+        : value;
+    const num = Number(normalized);
+    return Number.isFinite(num) ? num : null;
+}
+
+function getFundingRequiredAmount() {
+    const paywallVisible = paywallElement && paywallElement.style.display !== 'none';
+    if (paywallVisible && Number.isFinite(Number(currentInvoiceAmount)) && Number(currentInvoiceAmount) > 0) {
+        return Number(currentInvoiceAmount);
+    }
+    const price = tierPrice(currentInvoiceTier || 'full');
+    return Number.isFinite(Number(price)) && Number(price) > 0 ? Number(price) : null;
+}
+
+function setFundingPrimaryAction({ action, label, disabled = false }) {
+    if (!fundPrimaryAction) return;
+    fundPrimaryAction.dataset.action = action || '';
+    fundPrimaryAction.textContent = label || 'Close';
+    fundPrimaryAction.disabled = Boolean(disabled);
+}
+
+function setFundingPill(label, tone = '') {
+    if (!fundReadinessStatus) return;
+    fundReadinessStatus.textContent = label;
+    fundReadinessStatus.classList.remove('ready', 'warn');
+    if (tone) fundReadinessStatus.classList.add(tone);
+}
+
+function renderFundingReadiness(state = {}) {
+    const required = state.requiredAmount;
+    const walletBalance = state.walletBalance;
+    const gatewayBalance = state.gatewayBalance;
+    const requiredLabel = formatFundingAmount(required);
+
+    if (fundWalletStatus) {
+        fundWalletStatus.textContent = state.account ? shortAddress(state.account) : 'Not connected';
+        fundWalletStatus.title = state.account || '';
+    }
+    if (fundProviderStatus) fundProviderStatus.textContent = state.providerLabel || 'n/a';
+    if (fundChainStatus) fundChainStatus.textContent = state.chainLabel || 'n/a';
+    if (fundArcStatus) {
+        fundArcStatus.textContent = state.chainMismatch
+            ? 'Provider mismatch'
+            : (state.isArc ? 'Arc Testnet' : (state.account ? 'Wrong network' : 'Unknown'));
+    }
+    if (fundWalletUsdc) fundWalletUsdc.textContent = formatFundingAmount(walletBalance);
+    if (fundGatewayBalance) fundGatewayBalance.textContent = formatFundingAmount(gatewayBalance);
+    if (fundRequiredAmount) fundRequiredAmount.textContent = requiredLabel;
+
+    if (!state.account) {
+        setFundingPill('Wallet needed', 'warn');
+        if (fundNextStep) fundNextStep.textContent = 'Connect wallet first';
+        setFundingPrimaryAction({ action: 'connect', label: 'Connect wallet first' });
+        return;
+    }
+
+    if (state.chainMismatch) {
+        setFundingPill('Provider mismatch', 'warn');
+        if (fundNextStep) fundNextStep.textContent = 'Wallet provider chain is inconsistent. Close the wallet network panel, refresh QMA, then reconnect the intended wallet.';
+        setFundingPrimaryAction({ action: 'refresh', label: 'Refresh readiness' });
+        return;
+    }
+
+    if (state.chainId && normalizeChainId(state.chainId) !== ARC_TESTNET_HEX) {
+        setFundingPill('Wrong chain', 'warn');
+        if (fundNextStep) fundNextStep.textContent = 'Switch to Arc Testnet before creating or paying an invoice.';
+        setFundingPrimaryAction({ action: 'switch', label: 'Switch to Arc Testnet' });
+        return;
+    }
+
+    if (state.error) {
+        setFundingPill('Check failed', 'warn');
+        if (fundNextStep) fundNextStep.textContent = 'Funding status is unavailable. Retry or continue to payment.';
+        setFundingPrimaryAction({ action: 'refresh', label: 'Retry readiness check' });
+        return;
+    }
+
+    if (required == null) {
+        setFundingPill('Ready check', '');
+        if (fundNextStep) fundNextStep.textContent = 'Select a report first, then QMA can estimate the required amount.';
+        setFundingPrimaryAction({ action: 'close', label: 'Close' });
+        return;
+    }
+
+    if (gatewayBalance != null && gatewayBalance + 1e-9 >= required) {
+        setFundingPill('Ready', 'ready');
+        if (fundNextStep) fundNextStep.textContent = 'Gateway balance is ready for the selected report.';
+        setFundingPrimaryAction({ action: 'close', label: 'Continue to payment' });
+        return;
+    }
+
+    const availableWallet = walletBalance || 0;
+    const availableGateway = gatewayBalance || 0;
+    if (availableWallet + availableGateway + 1e-9 >= required) {
+        setFundingPill('Gateway low', 'warn');
+        if (fundNextStep) fundNextStep.textContent = 'Continue to payment; QMA will prompt Gateway Deposit';
+        setFundingPrimaryAction({ action: 'close', label: 'Continue to payment' });
+        return;
+    }
+
+    setFundingPill('Funding needed', 'warn');
+    if (fundNextStep) fundNextStep.textContent = 'Use Faucet or CCTP/App Kit, then retry. Arc uses USDC for gas and payment funding.';
+    setFundingPrimaryAction({ action: 'faucet', label: 'Open Circle Faucet' });
+}
+
+async function refreshFundingReadiness() {
+    const account = connectedWallet;
+    const requiredAmount = getFundingRequiredAmount();
+    const state = {
+        account,
+        requiredAmount,
+        chainId: null,
+        chainLabel: 'n/a',
+        providerLabel: 'n/a',
+        chainMismatch: false,
+        isArc: false,
+        walletBalance: null,
+        gatewayBalance: null,
+        error: null
+    };
+
+    if (!account) {
+        renderFundingReadiness(state);
+        return;
+    }
+
+    try {
+        const provider = await getWalletProvider();
+        state.providerLabel = getWalletProviderLabel(provider);
+        if (provider?.request) {
+            state.chainId = await withTimeout(
+                provider.request({ method: 'eth_chainId' }),
+                15000,
+                'Funding chain check'
+            );
+            const providerChainHex = normalizeChainId(provider.chainId || provider.networkVersion);
+            const requestChainHex = normalizeChainId(state.chainId);
+            state.chainMismatch = Boolean(providerChainHex && providerChainHex !== requestChainHex);
+            state.isArc = !state.chainMismatch && requestChainHex === ARC_TESTNET_HEX;
+            state.chainLabel = state.chainMismatch
+                ? `${formatChainLabel(state.chainId)} / provider ${formatChainLabel(providerChainHex)}`
+                : formatChainLabel(state.chainId);
+        } else {
+            state.chainLabel = 'No wallet provider';
+        }
+
+        const [walletStatus, gatewayBalance] = await Promise.all([
+            getWalletStatus(account),
+            checkGatewayBalance(account)
+        ]);
+        state.walletBalance = parseFundingAmount(getOnChainUsdcBalance(walletStatus));
+        state.gatewayBalance = gatewayBalance;
+    } catch (err) {
+        console.warn('Funding readiness check failed', err);
+        state.error = err;
+    }
+
+    renderFundingReadiness(state);
+}
+
+function openFundArcModal() {
+    if (!fundArcModal) return;
+    walletMenu.classList.remove('open');
+    closeAgentRunModal();
+    fundArcModal.classList.add('open');
+    fundArcModal.setAttribute('aria-hidden', 'false');
+    refreshFundingReadiness();
+}
+
+function closeFundArcModal() {
+    if (!fundArcModal) return;
+    fundArcModal.classList.remove('open');
+    fundArcModal.setAttribute('aria-hidden', 'true');
 }
 
 function recommendationTierPrice(pick = {}, tier = 'preview', pricing = {}) {
@@ -3279,8 +3572,9 @@ payButton.addEventListener('click', async () => {
 
     let account = null;
     try {
+        const provider = await getWalletProvider();
         const accounts = await withTimeout(
-            ethereum.request({ method: 'eth_accounts' }),
+            provider.request({ method: 'eth_accounts' }),
             15000,
             'Wallet account lookup'
         );
@@ -3298,6 +3592,16 @@ payButton.addEventListener('click', async () => {
         if (!sameAddress(account, connectedWallet)) {
             setConnectedWallet(account);
             syncWalletEntitlements(account);
+        }
+        const currentChainId = provider?.request
+            ? await withTimeout(provider.request({ method: 'eth_chainId' }), 15000, 'Payment chain check')
+            : null;
+        if (currentChainId && normalizeChainId(currentChainId) !== ARC_TESTNET_HEX) {
+            payButton.innerHTML = `
+                        <div class="spinner" style="width: 16px; height: 16px;"></div>
+                        <span>Switch to Arc Testnet in your wallet...</span>
+                    `;
+            showToast(`Wrong network: ${formatChainLabel(currentChainId)}. Please approve the switch to Arc Testnet.`, 'info');
         }
         await ensureArcTestnet();
         await sleep(250);
@@ -3566,7 +3870,7 @@ payButton.addEventListener('click', async () => {
         if (isCancelError) {
             let cancelMessage = "Payment cancelled";
             if (err.message?.includes('Payment requires Circle Gateway balance')) {
-                cancelMessage = "Cancelled: Gateway balance insufficient. Deposit required.";
+                cancelMessage = "Gateway balance is insufficient. Open Funding Assistant to check Arc USDC, use Faucet or CCTP/App Kit funding if needed, then retry payment. QMA will prompt Gateway Deposit during checkout.";
             } else if (err.message?.includes('User rejected')) {
                 cancelMessage = "MetaMask signature rejected — no funds sent";
             }
@@ -4072,11 +4376,13 @@ walletButton.addEventListener('click', async (event) => {
 walletProfileBtn.addEventListener('click', openWalletProfilePage);
 if (walletQuickProfileBtn) walletQuickProfileBtn.addEventListener('click', openWalletProfile);
 if (walletAgentRunBtn) walletAgentRunBtn.addEventListener('click', openAgentRunModal);
+if (walletFundArcBtn) walletFundArcBtn.addEventListener('click', openFundArcModal);
 walletDisconnectBtn.addEventListener('click', disconnectWallet);
 paywallClose.addEventListener('click', () => {
     hidePaywall();
     showToast('Payment panel closed. Select another signal or click Retrieve to reopen it.', 'info');
 });
+if (paywallFundingAssistantBtn) paywallFundingAssistantBtn.addEventListener('click', openFundArcModal);
 setupPaywallCopyButtons();
 
 const copyBtn = document.getElementById('wallet-copy-btn');
@@ -4166,8 +4472,9 @@ document.addEventListener('click', (event) => {
         walletMenu.classList.remove('open');
     }
 });
-if (window.ethereum?.on) {
-    ethereum.on('accountsChanged', async (accounts) => {
+getInjectedProviderCandidates().forEach(({ provider }) => {
+    if (!provider?.on) return;
+    provider.on('accountsChanged', async (accounts) => {
         const account = accounts && accounts[0] ? accounts[0] : null;
         setConnectedWallet(account);
         hasUnlockedReport = false;
@@ -4177,10 +4484,13 @@ if (window.ethereum?.on) {
         }
         loadLiveAnomalies();
     });
-    ethereum.on('chainChanged', () => {
+    provider.on('chainChanged', () => {
         updateWalletUi();
+        if (fundArcModal?.classList.contains('open')) {
+            refreshFundingReadiness();
+        }
     });
-}
+});
 restoreWalletSession();
 loadProviders();
 loadLiveAnomalies();
@@ -4235,6 +4545,48 @@ if (agentRunModal) {
         if (event.target === agentRunModal) {
             closeAgentRunModal();
         }
+    });
+}
+if (fundArcClose) fundArcClose.addEventListener('click', closeFundArcModal);
+if (fundArcDismiss) fundArcDismiss.addEventListener('click', closeFundArcModal);
+if (fundArcModal) {
+    fundArcModal.addEventListener('click', (event) => {
+        if (event.target === fundArcModal) {
+            closeFundArcModal();
+        }
+    });
+}
+if (fundPrimaryAction) {
+    fundPrimaryAction.addEventListener('click', async () => {
+        const action = fundPrimaryAction.dataset.action;
+        if (action === 'connect') {
+            handleConnectWalletClick();
+            setTimeout(refreshFundingReadiness, 900);
+            return;
+        }
+        if (action === 'switch') {
+            try {
+                fundPrimaryAction.disabled = true;
+                fundPrimaryAction.textContent = 'Switching...';
+                await ensureArcTestnet();
+                showToast('Arc Testnet selected. Refreshing funding readiness.', 'success');
+                await refreshFundingReadiness();
+            } catch (err) {
+                console.warn('Arc switch failed', err);
+                showToast(describeWalletError(err), 'error');
+                await refreshFundingReadiness();
+            }
+            return;
+        }
+        if (action === 'refresh') {
+            await refreshFundingReadiness();
+            return;
+        }
+        if (action === 'faucet') {
+            window.open('https://faucet.circle.com/', '_blank', 'noopener,noreferrer');
+            return;
+        }
+        closeFundArcModal();
     });
 }
 

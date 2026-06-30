@@ -175,6 +175,15 @@
                         </svg>
                         <span>Agent Run / Judge Mode</span>
                     </button>
+                    <button type="button" id="wallet-fund-arc-btn" class="wallet-menu-item">
+                        <svg class="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                            aria-hidden="true">
+                            <path d="M12 2v20"></path>
+                            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7H14a3.5 3.5 0 0 1 0 7H6"></path>
+                        </svg>
+                        <span>Fund Arc Wallet</span>
+                    </button>
                     <a href="/marketplace" class="wallet-menu-link wallet-menu-item" id="wallet-marketplace-link">
                         <svg class="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
@@ -408,10 +417,9 @@
                                 </div>
                                 <div class="testnet-help">
                                     <div class="testnet-help-copy">
-                                        <strong>Need Arc Testnet USDC?</strong>
+                                        <strong>Need Arc USDC?</strong>
                                     </div>
-                                    <a href="https://faucet.circle.com/" target="_blank"
-                                        rel="noopener noreferrer">Circle Faucet →</a>
+                                    <button type="button" id="paywall-funding-assistant-btn">Open Funding Assistant</button>
                                 </div>
                                 <p class="paywall-snapshot-note">This exact paid snapshot is saved to Wallet History.
                                     If the live signal changes later, reopen this snapshot or unlock the new one.</p>
@@ -950,12 +958,108 @@
                     <div class="agent-run-line muted">Ready. The agent will rank live signals, choose an affordable report, and create an agent invoice.</div>
                 </div>
                 <div class="agent-run-help">
-                    For safety, browser judge mode requires wallet confirmation. Full autonomy is shown in the
-                    CLI/server agent: <code>AGENT_PRIVATE_KEY=0x... node examples/agent_buyer.mjs --live</code>.
+                    Browser Judge Mode intentionally keeps private keys inside the wallet. Full autonomous mode runs
+                    inside the CLI agent using an isolated <code>AGENT_PRIVATE_KEY</code>. Both modes share the same
+                    payment engine: <code>node examples/agent_buyer.mjs --live</code>.
                 </div>
             </div>
             <div class="withdraw-actions">
                 <button class="refresh-btn" id="agent-run-dismiss" type="button">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Funding Readiness Modal -->
+    <div class="modal-backdrop" id="fund-arc-modal" aria-hidden="true">
+        <div class="wallet-profile-modal funding-modal" role="dialog" aria-modal="true"
+            aria-labelledby="fund-arc-title">
+            <div class="modal-header">
+                <div>
+                    <div class="modal-title" id="fund-arc-title">Fund Arc Wallet</div>
+                    <div class="modal-subtitle">Read-only funding readiness before QMA spends Gateway balance through x402.</div>
+                </div>
+                <button class="icon-button" id="fund-arc-close" type="button" title="Close">x</button>
+            </div>
+            <div class="funding-body">
+                <section class="funding-section">
+                    <div class="funding-section-top">
+                        <div>
+                            <div class="funding-section-title">Wallet Status</div>
+                            <p>QMA checks readiness before payment without bridging or depositing from this modal.</p>
+                        </div>
+                        <span class="funding-status-pill" id="fund-readiness-status">Checking</span>
+                    </div>
+                    <div class="funding-status-grid">
+                        <div class="funding-status-item">
+                            <span>Connected wallet</span>
+                            <strong id="fund-wallet-status">Not connected</strong>
+                        </div>
+                        <div class="funding-status-item">
+                            <span>Wallet provider</span>
+                            <strong id="fund-provider-status">n/a</strong>
+                        </div>
+                        <div class="funding-status-item">
+                            <span>Current chain</span>
+                            <strong id="fund-chain-status">n/a</strong>
+                        </div>
+                        <div class="funding-status-item">
+                            <span>Arc network</span>
+                            <strong id="fund-arc-status">Unknown</strong>
+                        </div>
+                        <div class="funding-status-item">
+                            <span>Arc USDC balance</span>
+                            <strong id="fund-wallet-usdc">n/a</strong>
+                        </div>
+                        <div class="funding-status-item">
+                            <span>Gateway balance</span>
+                            <strong id="fund-gateway-balance">n/a</strong>
+                        </div>
+                        <div class="funding-status-item">
+                            <span>Required amount</span>
+                            <strong id="fund-required-amount">n/a</strong>
+                        </div>
+                    </div>
+                    <div class="funding-next-step">
+                        <span>Next Step</span>
+                        <strong id="fund-next-step">Connect wallet first</strong>
+                        <button type="button" id="fund-primary-action">Connect wallet first</button>
+                    </div>
+                </section>
+
+                <section class="funding-section">
+                    <div class="funding-section-title">Funding Options</div>
+                    <div class="funding-route-grid">
+                        <a class="funding-route-card" href="https://faucet.circle.com/" target="_blank"
+                            rel="noopener noreferrer">
+                            <span>Option A</span>
+                            <strong>Circle Faucet</strong>
+                            <small>Get Arc Testnet USDC for demos, judge testing, and Arc network fees.</small>
+                        </a>
+                        <a class="funding-route-card" href="https://developers.circle.com/" target="_blank"
+                            rel="noopener noreferrer">
+                            <span>Option B</span>
+                            <strong>CCTP / Arc App Kit</strong>
+                            <small>Move existing USDC from another supported chain into Arc. QMA does not execute the bridge in-browser.</small>
+                        </a>
+                        <div class="funding-route-card">
+                            <span>Option C</span>
+                            <strong>Gateway Deposit</strong>
+                            <small>Gateway balance is what QMA spends during x402 checkout. Deposit prompts stay inside payment flow.</small>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="funding-section">
+                    <div class="funding-section-title">Autonomous Agent Flow</div>
+                    <div class="funding-lifecycle">
+                        <span>External USDC</span>
+                        <span>CCTP / App Kit</span>
+                        <span>Arc Wallet</span>
+                        <span>Gateway Deposit</span>
+                        <span>Agent buys reports</span>
+                        <span>Wallet-bound entitlement</span>
+                    </div>
+                </section>
             </div>
         </div>
     </div>
