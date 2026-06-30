@@ -1064,12 +1064,6 @@ header {
         width: 100%;
     }
 
-    .wallet-menu {
-        left: 0;
-        right: auto;
-        width: 100%;
-    }
-
     .status-indicators {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));

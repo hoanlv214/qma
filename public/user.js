@@ -124,6 +124,7 @@ function findEntitlementForPayment(payment = {}, entitlements = []) {
 }
 
 function normalizeEntitlementReport(entry = {}) {
+    entry = entry || {};
     if (!entry.report) return null;
     return {
         ...entry.report,
@@ -141,6 +142,39 @@ function normalizeEntitlementReport(entry = {}) {
             payer_address: entry.payer_address || entry.report.invoice?.payer_address,
         }
     };
+}
+
+function normalizeEntitlementsList(value) {
+    if (Array.isArray(value)) return value;
+    if (Array.isArray(value?.items)) return value.items;
+    if (Array.isArray(value?.data)) return value.data;
+    if (Array.isArray(value?.entitlements)) return value.entitlements;
+    return [];
+}
+
+function paymentsFromEntitlements(entitlements = []) {
+    return normalizeEntitlementsList(entitlements)
+        .map((entry) => {
+            const report = normalizeEntitlementReport(entry);
+            const invoice = report?.invoice || entry.report?.invoice || {};
+            return {
+                symbol: entry.symbol || entry.query?.symbol || report?.query?.symbol,
+                paid_at: entry.paid_at || report?.paid_at,
+                amount_usdc: entry.amount_usdc ?? invoice.amount_usdc,
+                tier: entry.tier || report?.tier,
+                provider_id: entry.provider_id || report?.provider_id,
+                buyer_type: entry.buyer_type || invoice.buyer_type,
+                gateway_status: entry.gateway_status || invoice.gateway_status,
+                settlement_id: entry.settlement_id || invoice.settlement_id,
+                transaction_hash: entry.transaction_hash || invoice.transaction_hash,
+                explorer_url: entry.explorer_url || invoice.explorer_url,
+                payer_address: entry.payer_address || invoice.payer_address,
+                invoice_id: invoice.invoice_id,
+                query_hash: entry.query_hash,
+                query: entry.query || report?.query,
+            };
+        })
+        .filter((event) => event.symbol || event.settlement_id || event.invoice_id);
 }
 
 function paymentRowId(event = {}, index = 0) {
@@ -167,6 +201,7 @@ function firstDefined(...values) {
 }
 
 function renderPaymentDetail(event = {}, entitlement = {}, rowId = '') {
+    entitlement = entitlement || {};
     const report = normalizeEntitlementReport(entitlement);
     if (!report) {
         return `
@@ -277,8 +312,9 @@ function renderEvents(account) {
 }
 
 function renderPayments(events, entitlements = []) {
+    entitlements = normalizeEntitlementsList(entitlements);
     if (!events.length) {
-        paymentsBody.innerHTML = '<tr class="empty-row"><td colspan="7">No verified payments yet.</td></tr>';
+        paymentsBody.innerHTML = '<tr class="empty-row"><td colspan="8">No verified payments yet.</td></tr>';
         return;
     }
     paymentsBody.innerHTML = events.map((event, index) => {
@@ -419,10 +455,14 @@ async function loadProfile(account, page = 1) {
         loadWalletStatus(account)
     ]);
     if (!metricsResp.ok) {
-        paymentsBody.innerHTML = '<tr class="empty-row"><td colspan="5">Could not load wallet history.</td></tr>';
+        paymentsBody.innerHTML = '<tr class="empty-row"><td colspan="8">Could not load wallet history.</td></tr>';
         return;
     }
     const metrics = await metricsResp.json();
+    renderProfileSummary(metrics, walletStatus);
+}
+
+function renderProfileSummary(metrics, walletStatus) {
     const gatewayBalance = metrics?.gateway_balance?.available_usdc;
     const chainBalance = walletStatus?.usdc?.formatted ?? walletStatus?.usdcBalance?.formatted ?? null;
     chainBalanceEl.textContent = chainBalance ? `${Number(chainBalance).toFixed(6)} USDC` : 'n/a';
@@ -435,7 +475,11 @@ async function loadProfile(account, page = 1) {
     tokenListEl.innerHTML = symbols.length
         ? symbols.map((symbol) => `<span class="token-chip">${escapeHtml(symbol)}</span>`).join('')
         : '<span class="token-chip token-chip-muted">No signals purchased yet</span>';
-    renderPayments(metrics.recent_payments || [], metrics.entitlements || []);
+    const entitlements = normalizeEntitlementsList(metrics.entitlements || []);
+    const payments = (metrics.recent_payments || []).length
+        ? metrics.recent_payments
+        : paymentsFromEntitlements(entitlements);
+    renderPayments(payments, entitlements);
     updatePage(fallbackPageMeta(
         metrics.recent_payments_page,
         PAGE_SIZE,
