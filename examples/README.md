@@ -6,12 +6,14 @@ The example agent:
 
 ```text
 1. Reads /api/v1/agent/recommendations
-2. Chooses the highest-scoring affordable signal under budget
-3. Creates a provider-bound invoice
-4. Ensures Circle Gateway balance is available
-5. Pays the x402 requirement with Arc Testnet USDC
-6. Verifies settlement with QMA
-7. Fetches the paid JSON report
+2. Optionally loads wallet entitlements from /api/v1/entitlements/wallet/{address}
+3. Chooses an affordable signal under budget and max-price policy
+4. Upgrades Preview -> Full when Preview was already paid, and skips symbols with Full already paid
+5. Creates a provider-bound invoice
+6. Ensures Circle Gateway balance is available
+7. Pays the x402 requirement with Arc Testnet USDC
+8. Verifies settlement with QMA
+9. Fetches the paid JSON report
 ```
 
 The web dashboard is not required for this flow.
@@ -32,6 +34,12 @@ Dry run is safe for demos. It creates an invoice but does not sign or spend USDC
 npm run agent:dry
 ```
 
+If you want dry-run policy to check paid history without signing, pass the wallet address to inspect:
+
+```powershell
+node examples/agent_buyer.mjs --dry-run --wallet 0xYOUR_AGENT_WALLET
+```
+
 Optional filters:
 
 ```powershell
@@ -40,6 +48,35 @@ node examples/agent_buyer.mjs --dry-run --tier full
 node examples/agent_buyer.mjs --dry-run --symbol HYPE
 node examples/agent_buyer.mjs --dry-run --api http://127.0.0.1:8000
 ```
+
+## Selection Policy
+
+There are two ways to run the buyer:
+
+```text
+Auto policy mode:
+  node examples/agent_buyer.mjs --dry-run
+  node examples/agent_buyer.mjs --live
+
+Forced tier mode:
+  npm run agent:preview
+  npm run agent:full
+  node examples/agent_buyer.mjs --live --tier preview
+  node examples/agent_buyer.mjs --live --tier full
+```
+
+Auto policy mode is the autonomous agent behavior. It checks wallet entitlements when an agent wallet is known:
+
+- If a symbol has no paid report yet, the agent can buy the suggested Preview or Full report.
+- If a symbol already has Preview but not Full, the agent upgrades to Full instead of buying Preview again.
+- If a symbol already has Full, the agent skips it and evaluates the next opportunity.
+- Among remaining choices, it prefers Preview -> Full upgrades first, then ranks by `score / price`.
+
+Forced tier mode is a command primitive. It respects the tier you requested:
+
+- `agent:preview` buys Preview opportunities only.
+- `agent:full` buys Full opportunities only.
+- If the requested tier was already purchased for a symbol, the buyer skips that symbol and moves to the next affordable opportunity.
 
 ## Live Payment
 
@@ -58,6 +95,12 @@ Full report:
 
 ```powershell
 npm run agent:full
+```
+
+Run the fully automatic policy without forcing a tier:
+
+```powershell
+node examples/agent_buyer.mjs --live
 ```
 
 ## Testnet USDC
@@ -85,6 +128,7 @@ Supported environment variables:
 ```env
 QMA_API_URL=https://qma-api.onrender.com
 AGENT_PRIVATE_KEY=0x...
+AGENT_WALLET_ADDRESS=0x... # optional dry-run policy wallet when no private key is loaded
 AGENT_BUDGET_USDC=0.01
 AGENT_MAX_PRICE_USDC=0.005
 AGENT_GATEWAY_DEPOSIT_USDC=1

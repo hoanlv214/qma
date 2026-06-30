@@ -4,6 +4,7 @@
  *
  * Dry-run mode is the default and is safe for demos:
  *   node examples/agent_buyer.mjs --dry-run
+ *   node examples/agent_buyer.mjs --dry-run --wallet 0x...  # checks paid history policy
  *
  * Live payment mode requires a funded Arc Testnet private key with Circle
  * Gateway balance already deposited:
@@ -81,6 +82,19 @@ function normalizeTier(tier) {
   return tier === "full" ? "full" : "preview";
 }
 
+function tierPrice(pricing = {}, tier = "preview") {
+  const normalized = normalizeTier(tier);
+  const keys = normalized === "preview"
+    ? ["preview_usdc", "preview_base_usdc"]
+    : ["full_usdc", "full_base_usdc"];
+  for (const key of keys) {
+    if (pricing[key] !== undefined && pricing[key] !== null && Number.isFinite(Number(pricing[key]))) {
+      return Number(pricing[key]);
+    }
+  }
+  return null;
+}
+
 function short(value) {
   const text = String(value || "");
   return text.length > 14 ? `${text.slice(0, 8)}...${text.slice(-6)}` : text;
@@ -142,6 +156,44 @@ async function checkGatewayBalance(invoice, address) {
 
 async function getWalletStatus(invoice, address) {
   return gatewayRequest(invoice, `/api/wallet-status/${address}`);
+}
+
+async function loadWalletEntitlements(address) {
+  if (!address) return [];
+  try {
+    const data = await request(`/api/v1/entitlements/wallet/${address}`);
+    return data.entitlements || [];
+  } catch (err) {
+    console.warn(`Could not load wallet entitlements for ${short(address)}: ${err.message}`);
+    return [];
+  }
+}
+
+function entitlementTier(entry = {}) {
+  return normalizeTier(entry.tier || entry.report?.tier || entry.report?.invoice?.tier || "full");
+}
+
+function entitlementSymbol(entry = {}) {
+  return String(entry.symbol || entry.query?.symbol || entry.report?.query_symbol || entry.report?.query?.symbol || "").trim().toUpperCase();
+}
+
+function findSymbolEntitlement(entitlements = [], symbol, tier) {
+  const normalizedSymbol = String(symbol || "").trim().toUpperCase();
+  const normalizedTier = normalizeTier(tier);
+  return entitlements.find((entry) => (
+    entitlementSymbol(entry) === normalizedSymbol
+    && entitlementTier(entry) === normalizedTier
+  )) || null;
+}
+
+function recommendationTierPrice(pick = {}, pricing = {}, tier = "preview") {
+  const normalizedTier = normalizeTier(tier);
+  if (normalizeTier(pick.suggested_tier || "preview") === normalizedTier
+    && pick.suggested_price_usdc !== undefined
+    && Number.isFinite(Number(pick.suggested_price_usdc))) {
+    return Number(pick.suggested_price_usdc);
+  }
+  return tierPrice(pricing, normalizedTier) ?? Number(pick.suggested_price_usdc || 0);
 }
 
 function normalizeTx(tx) {
@@ -228,25 +280,66 @@ async function ensureGatewayBalance(invoice, account) {
   return refreshed;
 }
 
-async function chooseRecommendation() {
+async function chooseRecommendation(entitlements = []) {
   const data = await request(`/api/v1/agent/recommendations?limit=${CONFIG.limit}`);
   const picks = data.recommendations || [];
   if (!picks.length) throw new Error("QMA returned no recommendations.");
 
   const requestedSymbol = CONFIG.symbol?.trim().toUpperCase();
-  const tier = CONFIG.tier;
+  const forcedTier = CONFIG.tier;
   const maxPrice = CONFIG.maxPriceUsdc;
   const budget = CONFIG.budgetUsdc;
 
-  const affordable = picks
-    .filter((pick) => !requestedSymbol || pick.symbol === requestedSymbol)
-    .map((pick) => ({
-      ...pick,
-      agent_tier: tier || normalizeTier(pick.suggested_tier),
-      agent_price: tier === "full" ? data.pricing.full_usdc : tier === "preview" ? data.pricing.preview_usdc : pick.suggested_price_usdc,
-    }))
-    .filter((pick) => Number(pick.agent_price) <= maxPrice && Number(pick.agent_price) <= budget)
-    .sort((a, b) => Number(b.score) - Number(a.score));
+  const evaluated = picks
+    .filter((pick) => !requestedSymbol || String(pick.symbol || "").toUpperCase() === requestedSymbol)
+    .map((pick) => {
+      const symbol = String(pick.symbol || pick.query?.symbol || "").toUpperCase();
+      const fullEntry = findSymbolEntitlement(entitlements, symbol, "full");
+      const previewEntry = findSymbolEntitlement(entitlements, symbol, "preview");
+      let agentTier = forcedTier || normalizeTier(pick.suggested_tier);
+      const upgradeFromPreview = !forcedTier && agentTier === "preview" && previewEntry && !fullEntry;
+      if (upgradeFromPreview) agentTier = "full";
+      const agentPrice = recommendationTierPrice(pick, data.pricing || {}, agentTier);
+      let skipReason = "";
+      if (fullEntry) {
+        skipReason = "Full Report already purchased";
+      } else if (forcedTier && findSymbolEntitlement(entitlements, symbol, forcedTier)) {
+        skipReason = `${forcedTier} already purchased`;
+      } else if (!Number.isFinite(Number(agentPrice)) || Number(agentPrice) <= 0) {
+        skipReason = "missing price";
+      } else if (Number(agentPrice) > budget) {
+        skipReason = `over budget (${Number(agentPrice).toFixed(3)} > ${budget.toFixed(3)})`;
+      } else if (Number(agentPrice) > maxPrice) {
+        skipReason = `over max/report (${Number(agentPrice).toFixed(3)} > ${maxPrice.toFixed(3)})`;
+      }
+      return {
+        ...pick,
+        agent_tier: agentTier,
+        agent_price: Number(agentPrice),
+        agent_upgrade_from_preview: Boolean(upgradeFromPreview),
+        agent_skip_reason: skipReason,
+        agent_value_density: Number(agentPrice) > 0 ? Number(pick.score || 0) / Number(agentPrice) : 0,
+      };
+    });
+
+  for (const pick of evaluated.slice(0, 8)) {
+    if (pick.agent_skip_reason) {
+      console.log(`Skip ${pick.symbol}: ${pick.agent_skip_reason}`);
+    } else if (pick.agent_upgrade_from_preview) {
+      console.log(`Candidate ${pick.symbol}: preview already paid, evaluating full upgrade at ${pick.agent_price.toFixed(3)} USDC`);
+    } else {
+      console.log(`Candidate ${pick.symbol}: score=${pick.score} tier=${pick.agent_tier} price=${pick.agent_price.toFixed(3)} USDC`);
+    }
+  }
+
+  const affordable = evaluated
+    .filter((pick) => !pick.agent_skip_reason)
+    .sort((a, b) => {
+      const upgradeDiff = Number(Boolean(b.agent_upgrade_from_preview)) - Number(Boolean(a.agent_upgrade_from_preview));
+      if (upgradeDiff) return upgradeDiff;
+      const densityDiff = Number(b.agent_value_density || 0) - Number(a.agent_value_density || 0);
+      return densityDiff || Number(b.score || 0) - Number(a.score || 0);
+    });
 
   if (!affordable.length) {
     throw new Error(`No affordable recommendation found for budget=${budget} maxPrice=${maxPrice}.`);
@@ -385,6 +478,7 @@ const CONFIG = {
   depositUsdc: Number(process.env.AGENT_GATEWAY_DEPOSIT_USDC || argValue("deposit", "1")),
   approveUsdc: Number(process.env.AGENT_GATEWAY_APPROVE_USDC || argValue("approve", "10")),
   rpcUrl: process.env.ARC_TESTNET_RPC || argValue("rpc", "https://rpc.testnet.arc.network"),
+  policyWallet: process.env.AGENT_WALLET_ADDRESS || argValue("wallet"),
   tier: argValue("tier") ? normalizeTier(argValue("tier")) : null,
   symbol: argValue("symbol"),
   limit: Number(argValue("limit", "8")),
@@ -398,8 +492,27 @@ async function main() {
   console.log(`Mode: ${CONFIG.live ? "LIVE x402 payment" : "DRY RUN"}`);
   console.log(`Budget: ${CONFIG.budgetUsdc} USDC | Max price: ${CONFIG.maxPriceUsdc} USDC`);
 
-  const { pick } = await chooseRecommendation();
+  let account = null;
+  if (CONFIG.privateKey) {
+    account = privateKeyToAccount(CONFIG.privateKey);
+    console.log(`Agent wallet: ${account.address}`);
+  } else if (CONFIG.live) {
+    throw new Error("Live mode requires AGENT_PRIVATE_KEY=0x... for a funded test wallet.");
+  }
+
+  const policyWallet = account?.address || CONFIG.policyWallet;
+  const entitlements = policyWallet ? await loadWalletEntitlements(policyWallet) : [];
+  if (policyWallet) {
+    console.log(`Loaded ${entitlements.length} paid entitlements for policy checks (${short(policyWallet)}).`);
+  } else {
+    console.log("No agent wallet loaded; dry-run policy cannot check paid entitlements. Pass --wallet 0x... to test upgrade/skip policy.");
+  }
+
+  const { pick } = await chooseRecommendation(entitlements);
   console.log(`\nAgent pick: ${pick.symbol} score=${pick.score} tier=${pick.agent_tier} price=${pick.agent_price} USDC`);
+  if (pick.agent_upgrade_from_preview) {
+    console.log("Policy: preview was already paid, so the agent is upgrading to full instead of rebuying preview.");
+  }
   console.log(`Reasons: ${(pick.reasons || []).join(" | ") || "n/a"}`);
 
   const invoice = await createInvoice(pick);
@@ -413,11 +526,6 @@ async function main() {
     return;
   }
 
-  if (!CONFIG.privateKey) {
-    throw new Error("Live mode requires AGENT_PRIVATE_KEY=0x... for a funded test wallet.");
-  }
-
-  const account = privateKeyToAccount(CONFIG.privateKey);
   console.log(`\nAgent wallet: ${account.address}`);
   await ensureGatewayBalance(invoice, account);
   const { paymentHeader } = await signX402Payment(invoice, account);

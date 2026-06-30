@@ -340,7 +340,7 @@
 .profile-body .provider-name {
     color: var(--t1);
     font-family: var(--mono);
-    font-size: 0.86rem;
+    font-size: 0.72rem;
 }
 
 .profile-body .time-cell {

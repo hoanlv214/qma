@@ -124,10 +124,16 @@ let payerBreakdownTotalPages = 1;
 let profilePaymentsPage = 1;
 let profilePaymentsTotalPages = 1;
 let activeProfileWallet = null;
+let nextInvoiceBuyerType = 'human';
+let currentInvoiceBuyerType = 'human';
+let agentRunTraceLines = [];
+let liveFeedRefreshInFlight = false;
+let agentRecommendationsInFlight = false;
 const WITHDRAW_FEE_RESERVE_USDC = 0.0035;
 const PAYMENT_ACTIVITY_PAGE_SIZE = 10;
 const PAYER_BREAKDOWN_PAGE_SIZE = 10;
 const PROFILE_PAYMENTS_PAGE_SIZE = 10;
+const LIVE_FEED_REFRESH_MS = 30000;
 const API_BASE_URL = String(window.QMA_API_BASE_URL || '').replace(/\/$/, '');
 
 function apiUrl(path) {
@@ -215,7 +221,12 @@ const paywallTitle = document.getElementById('paywall-title');
 const paywallDesc = document.getElementById('paywall-desc');
 const invoiceSignalDisplay = document.getElementById('invoice-signal-display');
 const refreshBtn = document.getElementById('refresh-anomalies-btn');
+const liveRefreshPill = document.getElementById('live-refresh-pill');
 const agentPicksContainer = document.getElementById('agent-picks-container');
+const agentRunBtn = document.getElementById('agent-run-btn');
+const agentRunBudgetInput = document.getElementById('agent-run-budget');
+const agentRunMaxPriceInput = document.getElementById('agent-run-max-price');
+const agentRunTrace = document.getElementById('agent-run-trace');
 const providerMarketplaceContainer = document.getElementById('provider-marketplace-container');
 const providerSelect = document.getElementById('q-provider');
 const dsProvider = document.getElementById('ds-provider');
@@ -249,9 +260,13 @@ const walletMenu = document.getElementById('wallet-menu');
 const walletMenuAddress = document.getElementById('wallet-menu-address');
 const walletProfileBtn = document.getElementById('wallet-profile-btn');
 const walletQuickProfileBtn = document.getElementById('wallet-quick-profile-btn');
+const walletAgentRunBtn = document.getElementById('wallet-agent-run-btn');
 const walletDisconnectBtn = document.getElementById('wallet-disconnect-btn');
 const walletProfileModal = document.getElementById('wallet-profile-modal');
 const walletProfileClose = document.getElementById('wallet-profile-close');
+const agentRunModal = document.getElementById('agent-run-modal');
+const agentRunClose = document.getElementById('agent-run-close');
+const agentRunDismiss = document.getElementById('agent-run-dismiss');
 const walletProfileAddress = document.getElementById('wallet-profile-address');
 const profileGatewayBalance = document.getElementById('profile-gateway-balance');
 const profileChainBalance = document.getElementById('profile-chain-balance');
@@ -1132,11 +1147,11 @@ function formatTierPrice(tier = 'full') {
 }
 
 function updateTierPriceLabels() {
-    document.querySelectorAll('[data-tier="preview"] span').forEach((el) => {
+    document.querySelectorAll('.tier-btn[data-tier="preview"] span').forEach((el) => {
         const price = tierPrice('preview');
         if (price != null) el.textContent = `${tierButtonLabel('preview')} ${price.toFixed(3)}`;
     });
-    document.querySelectorAll('[data-tier="full"] span').forEach((el) => {
+    document.querySelectorAll('.tier-btn[data-tier="full"] span').forEach((el) => {
         const price = tierPrice('full');
         if (price != null) el.textContent = `${tierButtonLabel('full')} ${price.toFixed(3)}`;
     });
@@ -1393,6 +1408,13 @@ function getCachedReportsForSymbol(symbol) {
     }
 
     return reports.sort((a, b) => Number(b.saved_at || 0) - Number(a.saved_at || 0));
+}
+
+function getLatestCachedReportForSymbolTier(symbol, tier = 'preview') {
+    const normalizedTier = normalizeTier(tier);
+    return getCachedReportsForSymbol(symbol).find((entry) => (
+        normalizeTier(entry.tier || entry.report?.tier || entry.report?.invoice?.tier || 'full') === normalizedTier
+    )) || null;
 }
 
 function paidBadgeText(entry) {
@@ -2032,30 +2054,53 @@ async function openWalletProfilePage() {
     window.location.href = `/user?wallet=${encodeURIComponent(account)}`;
 }
 
+function setLiveRefreshState(label, tone = '') {
+    if (!liveRefreshPill) return;
+    liveRefreshPill.textContent = label;
+    liveRefreshPill.classList.toggle('is-refreshing', tone === 'refreshing');
+    liveRefreshPill.classList.toggle('is-error', tone === 'error');
+}
+
 // Load Live Feed
-async function loadLiveAnomalies() {
+async function loadLiveAnomalies(options = {}) {
+    const { silent = false, preserveSelection = false } = options;
+    if (liveFeedRefreshInFlight) return;
+    liveFeedRefreshInFlight = true;
+    const activeCard = preserveSelection ? anomaliesContainer?.querySelector('.anomaly-card.active') : null;
+    const activeSummary = activeCard?.dataset?.signalSummary || null;
+    const activeSymbol = activeCard?.dataset?.symbol || null;
     try {
-        anomaliesContainer.innerHTML = `
+        setLiveRefreshState('Refreshing', 'refreshing');
+        if (!silent) {
+            anomaliesContainer.innerHTML = `
                     <div style="text-align: center; color: var(--text-dark); margin-top: 40px;">
                         <div class="spinner" style="margin: 0 auto 12px;"></div>
                         Scanning live exchanges...
                     </div>
                 `;
+        }
         const resp = await fetch(apiUrl('/api/v1/live-anomalies'));
         const data = await resp.json();
 
         if (data.anomalies && data.anomalies.length > 0) {
             anomaliesContainer.innerHTML = '';
+            let restoredSelection = false;
             data.anomalies.forEach((item, index) => {
                 const card = document.createElement('div');
-                card.className = `anomaly-card ${index === 0 ? 'active' : ''}`;
 
                 const fundingPercent = (item.fundingRate * 100).toFixed(3);
                 const mcapMillions = (item.marketCap / 1000000).toFixed(1);
                 const volMillions = (item.volume24h / 1000000).toFixed(1);
                 const signal = formSignalFromAnomaly(item);
+                const signalSummaryText = signalSummary(signal);
+                const shouldRestore = preserveSelection
+                    && ((activeSummary && activeSummary === signalSummaryText)
+                        || (activeSymbol && activeSymbol === signal.symbol));
+                const shouldAutoSelect = !preserveSelection && index === 0;
+                card.className = `anomaly-card ${shouldRestore || shouldAutoSelect ? 'active' : ''}`;
+                if (shouldRestore) restoredSelection = true;
                 card.dataset.symbol = signal.symbol;
-                card.dataset.signalSummary = signalSummary(signal);
+                card.dataset.signalSummary = signalSummaryText;
                 const cachedEntry = getCachedReport(signal, 'full') || getCachedReport(signal, 'preview');
                 const isPaid = Boolean(cachedEntry?.report);
                 const historyEntries = isPaid ? [] : getCachedReportsForSymbol(signal.symbol);
@@ -2092,22 +2137,233 @@ async function loadLiveAnomalies() {
                     loadCardIntoForm(item);
                 });
                 anomaliesContainer.appendChild(card);
-                if (index === 0 && !hasUnlockedReport) {
+                if (index === 0 && !hasUnlockedReport && !preserveSelection) {
                     loadCardIntoForm(item);
                 }
             });
+            if (preserveSelection && !restoredSelection && !hasUnlockedReport && data.anomalies[0]) {
+                const firstCard = anomaliesContainer.querySelector('.anomaly-card');
+                if (firstCard) firstCard.classList.add('active');
+            }
+            const updatedAt = data.last_updated ? new Date(data.last_updated) : new Date();
+            setLiveRefreshState(`Updated ${updatedAt.toLocaleTimeString()}`);
         } else {
             anomaliesContainer.innerHTML = '<div style="text-align: center; color: var(--text-dark); margin-top: 40px;">No funding anomalies found (funding <= -0.25%).</div>';
+            setLiveRefreshState('No signals');
         }
     } catch (err) {
         console.error(err);
-        anomaliesContainer.innerHTML = '<div style="text-align: center; color: var(--color-danger); margin-top: 40px;">Error scanning MEXC. Try again.</div>';
+        if (!silent || !anomaliesContainer.children.length) {
+            anomaliesContainer.innerHTML = '<div style="text-align: center; color: var(--color-danger); margin-top: 40px;">Error scanning MEXC. Try again.</div>';
+        }
+        setLiveRefreshState('Refresh error', 'error');
+    } finally {
+        liveFeedRefreshInFlight = false;
     }
 }
 
-async function loadAgentRecommendations() {
+function setAgentRunTrace(lines = []) {
+    agentRunTraceLines = lines.filter(Boolean);
+    if (!agentRunTrace) return;
+    agentRunTrace.innerHTML = agentRunTraceLines.map((line) => {
+        const text = typeof line === 'string' ? line : line.text;
+        const tone = typeof line === 'string' ? '' : line.tone || '';
+        return `<div class="agent-run-line ${escapeHtml(tone)}">${escapeHtml(text)}</div>`;
+    }).join('');
+}
+
+function appendAgentRunTrace(text, tone = '') {
+    setAgentRunTrace([...agentRunTraceLines, { text, tone }]);
+}
+
+function openAgentRunModal() {
+    if (!agentRunModal) return;
+    walletMenu.classList.remove('open');
+    if (agentRunDismiss) agentRunDismiss.textContent = currentInvoiceBuyerType === 'agent' && currentInvoiceId
+        ? 'Continue to Payment'
+        : 'Close';
+    agentRunModal.classList.add('open');
+    agentRunModal.setAttribute('aria-hidden', 'false');
+}
+
+function closeAgentRunModal() {
+    if (!agentRunModal) return;
+    agentRunModal.classList.remove('open');
+    agentRunModal.setAttribute('aria-hidden', 'true');
+}
+
+function recommendationTierPrice(pick = {}, tier = 'preview', pricing = {}) {
+    const normalizedTier = normalizeTier(tier);
+    if (normalizeTier(pick.suggested_tier || 'preview') === normalizedTier
+        && pick.suggested_price_usdc != null
+        && Number.isFinite(Number(pick.suggested_price_usdc))) {
+        return Number(pick.suggested_price_usdc);
+    }
+    const pricingKeys = normalizedTier === 'preview'
+        ? ['preview_base_usdc', 'preview_usdc']
+        : ['full_base_usdc', 'full_usdc'];
+    for (const key of pricingKeys) {
+        if (pricing?.[key] != null && Number.isFinite(Number(pricing[key]))) {
+            return Number(pricing[key]);
+        }
+    }
+    const providerPrice = providerCatalog[pick.provider_id || currentProviderId]?.pricing?.[normalizedTier]?.amount_usdc;
+    if (providerPrice != null && Number.isFinite(Number(providerPrice))) {
+        return Number(providerPrice);
+    }
+    const configuredPrice = pricingConfig[normalizedTier];
+    if (configuredPrice != null && Number.isFinite(Number(configuredPrice))) {
+        return Number(configuredPrice);
+    }
+    return tierPrice(normalizedTier) || 0;
+}
+
+function agentPendingInvoiceFor(signal, tier) {
+    if (!currentInvoiceId || currentInvoiceBuyerType !== 'agent' || paymentSuccessReady) return false;
+    if (normalizeTier(currentInvoiceTier) !== normalizeTier(tier)) return false;
+    if (!activeQuery?.symbol) return false;
+    return signalSummary(activeQuery) === signalSummary(signal);
+}
+
+function agentPolicyPick(recommendations = [], budget = 0.01, maxPrice = 0.005, pricing = {}) {
+    const audit = [];
+    const candidates = recommendations
+        .map((pick) => {
+            let tier = normalizeTier(pick.suggested_tier || 'preview');
+            const signal = normalizeSignalPayload(pick.query || { symbol: pick.symbol });
+            const fullEntry = getCachedReport(signal, 'full');
+            const exactPreviewEntry = fullEntry ? null : getCachedReport(signal, 'preview');
+            const symbolPreviewEntry = exactPreviewEntry || getLatestCachedReportForSymbolTier(signal.symbol, 'preview');
+            const shouldUpgrade = tier === 'preview' && symbolPreviewEntry?.report && !fullEntry?.report;
+            if (shouldUpgrade) {
+                tier = 'full';
+            }
+            const price = recommendationTierPrice(pick, tier, pricing);
+            const pendingInvoice = agentPendingInvoiceFor(signal, tier);
+            let skippedReason = '';
+            if (price <= 0) {
+                skippedReason = 'missing price';
+            } else if (fullEntry?.report) {
+                skippedReason = 'Full Report already purchased';
+            } else if (pendingInvoice) {
+                skippedReason = `invoice ${shortAddress(currentInvoiceId)} is already waiting for payment`;
+            } else if (price > budget) {
+                skippedReason = `over budget (${price.toFixed(3)} > ${budget.toFixed(3)})`;
+            } else if (price > maxPrice) {
+                skippedReason = `over max/report (${price.toFixed(3)} > ${maxPrice.toFixed(3)})`;
+            }
+            return {
+                ...pick,
+                agent_tier: tier,
+                agent_price: price,
+                agent_signal: signal,
+                agent_upgrade_from_preview: shouldUpgrade,
+                agent_upgrade_match: exactPreviewEntry?.report ? 'exact Preview snapshot' : 'previous Preview for same symbol',
+                agent_skipped_reason: skippedReason,
+                agent_value_density: price > 0 ? Number(pick.score || 0) / price : 0,
+            };
+        });
+    candidates.slice(0, 5).forEach((pick) => {
+        if (pick.agent_skipped_reason) {
+            audit.push({ text: `Skipped ${pick.symbol}: ${pick.agent_skipped_reason}.`, tone: 'muted' });
+        } else if (pick.agent_upgrade_from_preview) {
+            audit.push({ text: `Candidate ${pick.symbol}: ${pick.agent_upgrade_match} already paid, evaluating Full Report upgrade at ${pick.agent_price.toFixed(3)} USDC.`, tone: 'active' });
+        } else {
+            audit.push({ text: `Candidate ${pick.symbol}: score ${Number(pick.score || 0).toFixed(1)}, value density ${pick.agent_value_density.toFixed(1)}.`, tone: 'active' });
+        }
+    });
+    const selected = candidates
+        .filter((pick) => !pick.agent_skipped_reason)
+        .sort((a, b) => {
+            const upgradeDiff = Number(Boolean(b.agent_upgrade_from_preview)) - Number(Boolean(a.agent_upgrade_from_preview));
+            if (upgradeDiff) return upgradeDiff;
+            const valueDiff = Number(b.agent_value_density || 0) - Number(a.agent_value_density || 0);
+            return valueDiff || Number(b.score || 0) - Number(a.score || 0);
+        })[0] || null;
+    return { selected, audit };
+}
+
+async function runAgentDecision() {
+    if (!agentRunBtn) return;
+    const budget = Number(agentRunBudgetInput?.value || 0.01);
+    const maxPrice = Number(agentRunMaxPriceInput?.value || 0.005);
+    if (!Number.isFinite(budget) || budget <= 0 || !Number.isFinite(maxPrice) || maxPrice <= 0) {
+        showToast('Agent policy needs a positive budget and max price.', 'warning');
+        return;
+    }
+
+    agentRunBtn.disabled = true;
+    agentRunBtn.textContent = 'Agent running...';
+    setAgentRunTrace([
+        { text: `Policy loaded: budget ${budget.toFixed(3)} USDC, max/report ${maxPrice.toFixed(3)} USDC.`, tone: 'active' },
+        'Fetching live paid opportunities from /api/v1/agent/recommendations...'
+    ]);
+
+    try {
+        const resp = await fetch(apiUrl('/api/v1/agent/recommendations?limit=8'));
+        if (!resp.ok) throw new Error(`Agent endpoint returned ${resp.status}`);
+        const data = await resp.json();
+        const picks = data.recommendations || [];
+        appendAgentRunTrace(`Scanned ${picks.length} ranked opportunities.`);
+        const { selected, audit } = agentPolicyPick(picks, budget, maxPrice, data.pricing || {});
+        audit.forEach((line) => appendAgentRunTrace(line.text, line.tone));
+        if (!selected) {
+            appendAgentRunTrace('No affordable report matched the current budget policy.', 'warning');
+            showToast('Agent found no affordable report under this policy.', 'warning');
+            return;
+        }
+
+        const signal = selected.agent_signal || normalizeSignalPayload(selected.query || { symbol: selected.symbol });
+        appendAgentRunTrace(`Selected ${selected.symbol}: score ${Number(selected.score || 0).toFixed(1)}, ${tierLabel(selected.agent_tier)}, ${selected.agent_price.toFixed(3)} USDC.`, 'success');
+        if (selected.agent_upgrade_from_preview) {
+            appendAgentRunTrace('Upgrade rule: paid Preview exists, so agent is buying the Full Report instead of paying for Preview again.', 'success');
+        }
+        appendAgentRunTrace(`Decision rule: complete paid Preview snapshots first, then choose highest value density under budget.`);
+        appendAgentRunTrace(`Reasoning: ${(selected.reasons || ['fresh live anomaly']).join(' | ')}`);
+        appendAgentRunTrace('Creating provider-bound invoice with buyer_type=agent...');
+
+        applySignalToState(signal);
+        currentProviderId = selected.provider_id || 'funding_memory';
+        if (providerSelect && providerCatalog[currentProviderId]) {
+            providerSelect.value = currentProviderId;
+        }
+        currentInvoiceTier = normalizeTier(selected.agent_tier);
+        currentInvoiceAmount = selected.agent_price;
+        nextInvoiceBuyerType = 'agent';
+
+        const cachedEntry = getCachedReport(signal, currentInvoiceTier);
+        if (cachedEntry?.report) {
+            appendAgentRunTrace(`Wallet already has this paid ${tierLabel(currentInvoiceTier)} snapshot. Opening cached report instead.`, 'success');
+            if (normalizeTier(cachedEntry.tier || cachedEntry.report?.tier) === 'preview') {
+                renderPreviewReport(cachedEntry.report, cachedEntry);
+            } else {
+                renderReport(cachedEntry.report, cachedEntry);
+            }
+            return;
+        }
+
+        const submitBtn = queryForm.querySelector(`button[type="submit"][data-tier="${currentInvoiceTier}"]`)
+            || queryForm.querySelector('button[type="submit"][data-tier="full"]');
+        if (!submitBtn) throw new Error(`No submit button found for ${currentInvoiceTier} tier.`);
+        queryForm.requestSubmit(submitBtn);
+    } catch (err) {
+        console.warn('Agent run failed', err);
+        appendAgentRunTrace(`Agent run failed: ${err.message || err}`, 'error');
+        showToast(`Agent run failed: ${err.message || err}`, 'error');
+    } finally {
+        agentRunBtn.disabled = false;
+        agentRunBtn.textContent = 'Run Agent Decision';
+    }
+}
+
+async function loadAgentRecommendations(options = {}) {
     if (!agentPicksContainer) return;
-    agentPicksContainer.innerHTML = '<div class="agent-empty">Ranking live signals...</div>';
+    const { silent = false } = options;
+    if (agentRecommendationsInFlight) return;
+    agentRecommendationsInFlight = true;
+    if (!silent) {
+        agentPicksContainer.innerHTML = '<div class="agent-empty">Ranking live signals...</div>';
+    }
     try {
         const resp = await fetch(apiUrl('/api/v1/agent/recommendations'));
         if (!resp.ok) throw new Error(`Agent endpoint returned ${resp.status}`);
@@ -2177,14 +2433,23 @@ async function loadAgentRecommendations() {
                     return;
                 }
 
-                const submitBtn = document.querySelector(`[data-tier="${currentInvoiceTier}"]`) || document.querySelector('[data-tier="full"]');
+                const submitBtn = queryForm.querySelector(`button[type="submit"][data-tier="${currentInvoiceTier}"]`)
+                    || queryForm.querySelector('button[type="submit"][data-tier="full"]');
+                if (!submitBtn) {
+                    showToast(`No submit button found for ${tierLabel(currentInvoiceTier)}.`, 'error');
+                    return;
+                }
                 showToast(`Agent selected ${pick.symbol}: ${pick.reasons?.[0] || 'ranked opportunity'}. Creating ${tierLabel(currentInvoiceTier)} invoice.`, 'info');
                 queryForm.requestSubmit(submitBtn);
             });
         });
     } catch (err) {
         console.warn('Agent recommendations unavailable', err);
-        agentPicksContainer.innerHTML = '<div class="agent-empty">Agent ranking unavailable.</div>';
+        if (!silent || !agentPicksContainer.children.length) {
+            agentPicksContainer.innerHTML = '<div class="agent-empty">Agent ranking unavailable.</div>';
+        }
+    } finally {
+        agentRecommendationsInFlight = false;
     }
 }
 
@@ -2873,6 +3138,8 @@ function lockViewport() {
 queryForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
+    const invoiceBuyerType = nextInvoiceBuyerType === 'agent' ? 'agent' : 'human';
+    nextInvoiceBuyerType = 'human';
     activeQuery = resolveActiveQuery();
     currentProviderId = providerSelect?.value || currentProviderId || 'funding_memory';
     currentInvoiceTier = normalizeTier(e.submitter?.dataset?.tier || 'full');
@@ -2903,7 +3170,7 @@ queryForm.addEventListener('submit', async (e) => {
             body: JSON.stringify({
                 ...activeQuery,
                 provider_id: currentProviderId,
-                buyer_type: 'human',
+                buyer_type: invoiceBuyerType,
                 tier: currentInvoiceTier,
                 resource_type: 'qma_signal_report'
             })
@@ -2916,7 +3183,14 @@ queryForm.addEventListener('submit', async (e) => {
         currentInvoiceAmount = Number(invoiceData.amount);
         currentInvoiceTier = normalizeTier(invoiceData.tier || currentInvoiceTier);
         currentProviderId = invoiceData.provider_id || currentProviderId;
+        currentInvoiceBuyerType = invoiceData.buyer_type || invoiceBuyerType;
         currentSellerAddress = invoiceData.wallet_address;
+        if (currentInvoiceBuyerType === 'agent') {
+            appendAgentRunTrace(`Invoice ${shortAddress(currentInvoiceId)} ready: ${Number(invoiceData.amount).toFixed(3)} USDC via ${invoiceData.provider_id}.`, 'success');
+            appendAgentRunTrace('Payment panel is ready behind this modal. Close the modal to sign x402 with the connected wallet.');
+            appendAgentRunTrace('CLI live mode can run the same payment loop fully autonomously with AGENT_PRIVATE_KEY.');
+            if (agentRunDismiss) agentRunDismiss.textContent = 'Continue to Payment';
+        }
         setPaymentDetailValue('inv-id-display', currentInvoiceId);
         document.getElementById('inv-id-row').style.display = 'grid';
         invoiceSignalDisplay.textContent = displaySignalLabel(activeQuery);
@@ -2967,6 +3241,9 @@ queryForm.addEventListener('submit', async (e) => {
             buyerGatewayBal: currentGwBal
         });
     } catch (err) {
+        if (invoiceBuyerType === 'agent') {
+            appendAgentRunTrace(`Invoice creation failed: ${err.message || err}`, 'error');
+        }
         alert("Failed to initiate micro-payment invoice. Backend may be offline.");
     }
 });
@@ -3179,6 +3456,9 @@ payButton.addEventListener('click', async () => {
         if (!currentSettlementId) {
             throw new Error('Arc Gateway did not return a settlementId.');
         }
+        if (currentInvoiceBuyerType === 'agent') {
+            appendAgentRunTrace(`x402 settlement accepted: ${shortAddress(currentSettlementId)}.`, 'success');
+        }
         saveWalletEvent(account, {
             type: 'x402_settlement',
             amount_usdc: paidData.amount_usdc,
@@ -3211,6 +3491,9 @@ payButton.addEventListener('click', async () => {
             currentAccessToken = verifyData.access_token || null;
             if (!currentAccessToken) {
                 throw new Error('QMA verification did not return an access token for this paid report.');
+            }
+            if (currentInvoiceBuyerType === 'agent') {
+                appendAgentRunTrace(`QMA verified agent payment. Access token issued for ${tierLabel(currentInvoiceTier)} report.`, 'success');
             }
             saveWalletEvent(account, {
                 type: 'verified_payment',
@@ -3255,6 +3538,9 @@ payButton.addEventListener('click', async () => {
             const reportData = await analyzeResp.json();
             if (!analyzeResp.ok) {
                 throw new Error(reportData.detail?.message || reportData.detail || 'Analysis request failed.');
+            }
+            if (currentInvoiceBuyerType === 'agent') {
+                appendAgentRunTrace(`Paid report returned for ${activeQuery.symbol}. Agent run complete.`, 'success');
             }
 
             if (currentInvoiceTier === 'preview') {
@@ -3785,6 +4071,7 @@ walletButton.addEventListener('click', async (event) => {
 });
 walletProfileBtn.addEventListener('click', openWalletProfilePage);
 if (walletQuickProfileBtn) walletQuickProfileBtn.addEventListener('click', openWalletProfile);
+if (walletAgentRunBtn) walletAgentRunBtn.addEventListener('click', openAgentRunModal);
 walletDisconnectBtn.addEventListener('click', disconnectWallet);
 paywallClose.addEventListener('click', () => {
     hidePaywall();
@@ -3925,10 +4212,31 @@ if (queryForm) {
     });
 }
 setInterval(loadMetrics, 15000);
-refreshBtn.addEventListener('click', () => {
-    loadLiveAnomalies();
-    loadAgentRecommendations();
-});
+function refreshLiveWorkspace(options = {}) {
+    loadLiveAnomalies(options);
+    loadAgentRecommendations({ silent: options.silent });
+}
+if (refreshBtn) {
+    refreshBtn.addEventListener('click', () => {
+        refreshLiveWorkspace({ silent: false, preserveSelection: true });
+    });
+}
+setInterval(() => {
+    if (document.hidden) return;
+    refreshLiveWorkspace({ silent: true, preserveSelection: true });
+}, LIVE_FEED_REFRESH_MS);
+if (agentRunBtn) {
+    agentRunBtn.addEventListener('click', runAgentDecision);
+}
+if (agentRunClose) agentRunClose.addEventListener('click', closeAgentRunModal);
+if (agentRunDismiss) agentRunDismiss.addEventListener('click', closeAgentRunModal);
+if (agentRunModal) {
+    agentRunModal.addEventListener('click', (event) => {
+        if (event.target === agentRunModal) {
+            closeAgentRunModal();
+        }
+    });
+}
 
 const basicToggleFieldsBtn = document.getElementById('basic-toggle-fields-btn');
 if (basicToggleFieldsBtn) {

@@ -214,7 +214,7 @@ function renderPaymentDetail(event = {}, entitlement = {}, rowId = '') {
     const explorer = invoice.explorer_url || event.explorer_url;
     return `
         <tr class="payment-detail-row" id="receipt-detail-${escapeHtml(rowId)}" hidden>
-            <td colspan="7">
+            <td colspan="8">
                 <div class="receipt-detail-card">
                     <div class="receipt-detail-header">
                         <div>

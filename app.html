@@ -162,6 +162,19 @@
                         </svg>
                         <span>Quick Profile Modal</span>
                     </button>
+                    <button type="button" id="wallet-agent-run-btn" class="wallet-menu-item">
+                        <svg class="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                            aria-hidden="true">
+                            <path d="M12 8V4H8"></path>
+                            <rect x="4" y="8" width="16" height="12" rx="2"></rect>
+                            <path d="M2 14h2"></path>
+                            <path d="M20 14h2"></path>
+                            <path d="M9 13h.01"></path>
+                            <path d="M15 13h.01"></path>
+                        </svg>
+                        <span>Agent Run / Judge Mode</span>
+                    </button>
                     <a href="/marketplace" class="wallet-menu-link wallet-menu-item" id="wallet-marketplace-link">
                         <svg class="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
@@ -213,8 +226,8 @@
             </div>
             <div class="agent-picks-panel sidebar-panel" data-sidebar-panel>
                 <div class="sidebar-header agent-picks-header sidebar-panel-toggle" role="button" tabindex="0">
-                    <span class="sidebar-title">QMA Picks</span>
-                    <span class="agent-mode-pill">Suggested reports</span>
+                    <span class="sidebar-title">Ranked Opportunities</span>
+                    <span class="agent-mode-pill">Human review</span>
                 </div>
                 <div class="agent-picks-list sidebar-panel-body" id="agent-picks-container">
                     <div class="agent-empty">Ranking live signals...</div>
@@ -222,7 +235,7 @@
             </div>
             <div class="sidebar-header anomalies-header">
                 <span class="sidebar-title">All Live Signals</span>
-                <span class="anomalies-count-pill">Live</span>
+                <span class="anomalies-count-pill" id="live-refresh-pill">Auto 30s</span>
             </div>
             <div class="anomalies-list" id="anomalies-container">
                 <div style="text-align:center; color:var(--t3); margin-top:48px;">
@@ -894,6 +907,55 @@
                         </tr>
                     </tbody>
                 </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ AGENT RUN MODAL ═══ -->
+    <div class="modal-backdrop" id="agent-run-modal" aria-hidden="true">
+        <div class="wallet-profile-modal agent-run-modal" role="dialog" aria-modal="true"
+            aria-labelledby="agent-run-title">
+            <div class="modal-header">
+                <div>
+                    <div class="modal-title" id="agent-run-title">Browser Judge Mode</div>
+                    <div class="modal-subtitle">QMA ranks live opportunities, chooses an affordable report, and creates an agent invoice.</div>
+                </div>
+                <button class="icon-button" id="agent-run-close" type="button" title="Close">x</button>
+            </div>
+            <div class="agent-run-body">
+                <div class="agent-mode-grid">
+                    <div class="agent-mode-card active">
+                        <span>Browser Judge Mode</span>
+                        <strong>Human-safe payment</strong>
+                        <small>Agent decides. Judge wallet confirms x402.</small>
+                    </div>
+                    <div class="agent-mode-card">
+                        <span>CLI Live Agent</span>
+                        <strong>Autonomous payment</strong>
+                        <small>Server/CLI signs with AGENT_PRIVATE_KEY.</small>
+                    </div>
+                </div>
+                <div class="agent-run-policy">
+                    <label>
+                        <span>Budget</span>
+                        <input id="agent-run-budget" type="number" min="0.001" step="0.001" value="0.010">
+                    </label>
+                    <label>
+                        <span>Max/report</span>
+                        <input id="agent-run-max-price" type="number" min="0.001" step="0.001" value="0.005">
+                    </label>
+                </div>
+                <button type="button" class="agent-run-btn" id="agent-run-btn">Run Agent Decision</button>
+                <div class="agent-run-trace" id="agent-run-trace">
+                    <div class="agent-run-line muted">Ready. The agent will rank live signals, choose an affordable report, and create an agent invoice.</div>
+                </div>
+                <div class="agent-run-help">
+                    For safety, browser judge mode requires wallet confirmation. Full autonomy is shown in the
+                    CLI/server agent: <code>AGENT_PRIVATE_KEY=0x... node examples/agent_buyer.mjs --live</code>.
+                </div>
+            </div>
+            <div class="withdraw-actions">
+                <button class="refresh-btn" id="agent-run-dismiss" type="button">Close</button>
             </div>
         </div>
     </div>
