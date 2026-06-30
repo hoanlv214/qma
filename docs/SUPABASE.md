@@ -74,6 +74,9 @@ create index if not exists qma_paid_reports_wallet_idx
 create index if not exists qma_paid_reports_query_idx
   on public.qma_paid_reports (provider_id, query_hash, tier);
 
+create index if not exists qma_paid_reports_settlement_idx
+  on public.qma_paid_reports (settlement_id);
+
 create table if not exists public.qma_invoices (
   invoice_id text primary key,
   status text,
@@ -96,6 +99,9 @@ create index if not exists qma_invoices_created_at_idx
 
 create index if not exists qma_invoices_payer_idx
   on public.qma_invoices (payer_address, created_at desc);
+
+create index if not exists qma_invoices_payer_status_paid_idx
+  on public.qma_invoices (payer_address, status, paid_at desc);
 
 create table if not exists public.qma_creator_applications (
   application_id text primary key,

@@ -19,25 +19,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 # Import QMA Engine
-try:
-    from qma_engine import QMAEngine
-except ImportError:
-    from qma.qma_engine import QMAEngine
-
-try:
-    import paid_intelligence_kit as paid_kit
-except ImportError:
-    from qma import paid_intelligence_kit as paid_kit
-
-try:
-    from providers import create_default_registry
-except ImportError:
-    from qma.providers import create_default_registry
-
-try:
-    from storage import create_storage_backend
-except ImportError:
-    from qma.storage import create_storage_backend
+from qma_engine import QMAEngine
+import paid_intelligence_kit as paid_kit
+from providers import create_default_registry
+from storage import create_storage_backend
 
 # Configure Logger
 logging.basicConfig(level=logging.INFO)
@@ -175,6 +160,18 @@ def load_payment_ledger() -> list:
         logger.warning(f"Could not load payment ledger: {exc}")
         return []
 
+def load_payment_events_for_wallet(address: str) -> list:
+    try:
+        if hasattr(storage_backend, "load_payment_events_for_wallet"):
+            return storage_backend.load_payment_events_for_wallet(address)
+    except Exception as exc:
+        logger.warning(f"Could not load wallet payment events: {exc}")
+    normalized = normalize_address(address)
+    return [
+        event for event in load_payment_ledger()
+        if normalize_address(event.get("payer_address")) == normalized
+    ]
+
 def save_payment_ledger(events: list) -> None:
     try:
         storage_backend.save_payment_events(events)
@@ -190,6 +187,31 @@ def load_paid_reports() -> dict:
         logger.warning(f"Could not load paid reports: {exc}")
         return {}
 
+def load_paid_reports_for_wallet(
+    address: str,
+    *,
+    symbol: Optional[str] = None,
+    provider_id: Optional[str] = None,
+) -> dict:
+    try:
+        if hasattr(storage_backend, "load_paid_reports_for_wallet"):
+            return storage_backend.load_paid_reports_for_wallet(
+                address,
+                symbol=symbol,
+                provider_id=provider_id,
+            )
+    except Exception as exc:
+        logger.warning(f"Could not load wallet paid reports: {exc}")
+    normalized = normalize_address(address)
+    symbol_filter = str(symbol or "").strip().upper()
+    return {
+        entitlement_id: record for entitlement_id, record in load_paid_reports().items()
+        if isinstance(record, dict)
+        and normalize_address(record.get("payer_address")) == normalized
+        and (not symbol_filter or str(record.get("symbol", "")).upper() == symbol_filter)
+        and (not provider_id or record.get("provider_id", "funding_memory") == provider_id)
+    }
+
 def save_paid_reports(reports: dict) -> None:
     try:
         storage_backend.save_paid_reports(reports)
@@ -204,6 +226,20 @@ def load_invoices() -> dict:
     except Exception as exc:
         logger.warning(f"Could not load invoices: {exc}")
         return {}
+
+def load_paid_invoices_for_wallet(address: str) -> dict:
+    try:
+        if hasattr(storage_backend, "load_paid_invoices_for_wallet"):
+            return storage_backend.load_paid_invoices_for_wallet(address)
+    except Exception as exc:
+        logger.warning(f"Could not load wallet paid invoices: {exc}")
+    normalized = normalize_address(address)
+    return {
+        invoice_id: invoice for invoice_id, invoice in load_invoices().items()
+        if isinstance(invoice, dict)
+        and normalize_address(invoice.get("payer_address")) == normalized
+        and invoice.get("status") == "paid"
+    }
 
 def save_invoice(invoice: dict) -> None:
     try:
@@ -230,10 +266,11 @@ def save_creator_application(application: dict) -> bool:
 invoices_db: Dict[str, dict] = load_invoices()
 creator_applications: Dict[str, dict] = load_creator_applications()
 
-def reload_persistent_state(include_invoices: bool = False) -> None:
+def reload_persistent_state(include_reports: bool = True, include_invoices: bool = False) -> None:
     global payment_events, paid_reports, invoices_db
     payment_events = load_payment_ledger()
-    paid_reports = load_paid_reports()
+    if include_reports:
+        paid_reports = load_paid_reports()
     if include_invoices:
         invoices_db = load_invoices()
     creator_applications.update(load_creator_applications())
@@ -774,7 +811,7 @@ def require_admin_token(x_qma_admin_token: Optional[str] = None):
     return True
 
 def payment_events_for_provider(provider_id: str) -> list:
-    reload_persistent_state()
+    reload_persistent_state(include_reports=False)
     paid_invoices = [
         invoice for invoice in invoices_db.values()
         if invoice.get("status") == "paid"
@@ -907,7 +944,7 @@ def list_creator_applications(
     x_qma_admin_token: Optional[str] = Header(default=None),
 ):
     """Lists creator applications. Wallet can read its own; admin can read all."""
-    reload_persistent_state()
+    reload_persistent_state(include_reports=False)
     is_admin = bool(ADMIN_TOKEN and hmac.compare_digest(str(x_qma_admin_token or ""), ADMIN_TOKEN))
     if not wallet and not is_admin:
         raise HTTPException(status_code=403, detail="Pass wallet=0x... or admin token.")
@@ -955,7 +992,7 @@ def get_metrics(
     payer_page: int = Query(default=1, ge=1),
     payer_page_size: int = Query(default=10, ge=1, le=100),
 ):
-    reload_persistent_state()
+    reload_persistent_state(include_reports=False)
     refresh_unresolved_payment_events()
     paid_invoices = [invoice for invoice in invoices_db.values() if invoice.get("status") == "paid"]
     all_events = payment_events + [
@@ -1084,18 +1121,8 @@ def get_wallet_metrics(
     entitlement_page: int = Query(default=1, ge=1),
     entitlement_page_size: int = Query(default=50, ge=1, le=100),
 ):
-    reload_persistent_state()
-    refresh_unresolved_payment_events()
-    normalized = normalize_address(address)
-    events = [
-        event for event in payment_events
-        if normalize_address(event.get("payer_address")) == normalized
-    ]
-    paid_invoices = [
-        invoice for invoice in invoices_db.values()
-        if normalize_address(invoice.get("payer_address")) == normalized
-        and invoice.get("status") == "paid"
-    ]
+    events = load_payment_events_for_wallet(address)
+    paid_invoices = list(load_paid_invoices_for_wallet(address).values())
     for invoice in paid_invoices:
         if not any(event.get("settlement_id") == invoice.get("settlement_id") for event in events):
             events.append({
@@ -1130,7 +1157,8 @@ def get_wallet_metrics(
         buyer_type_counts[buyer_type] = buyer_type_counts.get(buyer_type, 0) + 1
         provider_id = event.get("provider_id", "funding_memory")
         provider_counts[provider_id] = provider_counts.get(provider_id, 0) + 1
-    entitlements = paid_kit.list_wallet_entitlements(paid_reports, address)
+    wallet_reports = load_paid_reports_for_wallet(address)
+    entitlements = paid_kit.list_wallet_entitlements(wallet_reports, address)
     recent_payments, recent_payments_page = paginate_items(events, payment_page, payment_page_size)
     entitlement_items, entitlements_page = paginate_items(entitlements, entitlement_page, entitlement_page_size)
     return {
@@ -1156,8 +1184,8 @@ def get_wallet_entitlements(
     symbol: Optional[str] = Query(default=None),
     provider_id: Optional[str] = Query(default=None),
 ):
-    reload_persistent_state()
-    records = paid_kit.list_wallet_entitlements(paid_reports, address, symbol=symbol, provider_id=provider_id)
+    wallet_reports = load_paid_reports_for_wallet(address, symbol=symbol, provider_id=provider_id)
+    records = paid_kit.list_wallet_entitlements(wallet_reports, address, symbol=symbol, provider_id=provider_id)
     return {
         "address": address,
         "symbol": symbol,
@@ -1330,7 +1358,7 @@ def verify_payment(invoice_id: str = Query(...), proof: Optional[PaymentVerifyRe
     invoice["verification_mode"] = "circle-gateway-arc-testnet"
     save_invoice(invoice)
 
-    reload_persistent_state()
+    reload_persistent_state(include_reports=False)
     if not any(event.get("settlement_id") == proof.settlement_id for event in payment_events):
         payment_events.append({
             "invoice_id": invoice_id,
