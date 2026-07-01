@@ -3,6 +3,7 @@ services:
     name: qma-api
     env: python
     plan: free
+    region: singapore
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
@@ -23,7 +24,7 @@ services:
       - key: QMA_ARC_EXPLORER
         value: https://testnet.arcscan.app
       - key: QMA_ARC_GATEWAY_WALLET
-        value: 0x0077777d7EBA4688BDeF3E311b846F25870A19B9
+        value: "0x0077777d7EBA4688BDeF3E311b846F25870A19B9"
       - key: QMA_ARC_GATEWAY_URL
         value: https://qma-arc-gateway.onrender.com
       - key: QMA_ARC_SELLER_ADDRESS
@@ -53,6 +54,7 @@ services:
     name: qma-arc-gateway
     env: node
     plan: free
+    region: singapore
     rootDir: arc_gateway
     buildCommand: npm install
     startCommand: npm start
