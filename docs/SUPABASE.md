@@ -158,7 +158,68 @@ python scripts/migrate_json_to_supabase.py
 
 The script reads `.env`, then upserts existing local JSON into Supabase.
 
-## 5. Deploy on Render
+## 5. Migrate from an old Supabase project
+
+If you are moving from one Supabase project to another, first create the tables above in the new project. Then add the old project credentials to `.env`:
+
+```env
+OLD_SUPABASE_URL=https://old-project-ref.supabase.co
+OLD_SUPABASE_SERVICE_ROLE_KEY=old-service-role-key
+
+# New project. These are also used by the backend.
+SUPABASE_URL=https://new-project-ref.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=new-service-role-key
+SUPABASE_SCHEMA=public
+```
+
+Preview the migration without writing:
+
+```powershell
+python scripts/migrate_supabase_to_supabase.py
+```
+
+Copy rows into the new project:
+
+```powershell
+python scripts/migrate_supabase_to_supabase.py --apply
+```
+
+By default this migrates the three core payment tables: invoices, paid reports, and payment events. If you later use creator applications, create that table and add `--include-optional`.
+
+The migration only upserts rows by primary key. It does not delete or mutate the old project.
+
+## 6. Repair migrated payment rows
+
+Migration copies rows exactly as they exist. If old rows have missing scalar fields, run the repair script against the new project.
+
+Preview local consistency repairs without external settlement lookup:
+
+```powershell
+python scripts/repair_supabase_payments.py
+```
+
+Preview deeper repairs with Circle Gateway and Arcscan lookup:
+
+```powershell
+python scripts/repair_supabase_payments.py --refresh-settlements
+```
+
+Write the repaired rows:
+
+```powershell
+python scripts/repair_supabase_payments.py --refresh-settlements --apply
+```
+
+The script can:
+
+- backfill missing `qma_payment_events` from `qma_paid_reports`
+- update invoice scalar fields from matching payment/report data
+- refresh `gateway_status` from Circle settlement ids
+- fill `transaction_hash` and `explorer_url` when Arcscan exposes the completed batch tx
+
+It cannot recover a truly unpaid invoice that has no `settlement_id` and no matching paid report/payment event. Those rows should remain `expired`.
+
+## 7. Deploy on Render
 
 Add these environment variables to the `qma-api` Render service:
 
@@ -168,7 +229,7 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 SUPABASE_SCHEMA=public
 ```
 
-Redeploy the backend. The `/api/v1/health` response should include:
+Redeploy the backend. The lightweight `/api/v1/health` response should include:
 
 ```json
 {
@@ -184,7 +245,9 @@ If the env vars are missing, QMA falls back to local JSON:
 }
 ```
 
-## 6. What changed in the source code
+The frontend bootstrap configuration lives at `/api/v1/config`.
+
+## 8. What changed in the source code
 
 `storage.py`
 
@@ -204,14 +267,27 @@ If the env vars are missing, QMA falls back to local JSON:
 
 - one-time migration from local JSON to Supabase.
 
-## 7. Operational notes
+`scripts/migrate_supabase_to_supabase.py`
+
+- one-time migration from an old Supabase project to a new Supabase project.
+
+`scripts/repair_supabase_payments.py`
+
+- consistency repair/backfill for migrated payment rows.
+
+`scripts/migrate_supabase_to_supabase.py`
+
+- one-time migration from an old Supabase project into a new Supabase project.
+- dry-run by default, writes only with `--apply`.
+
+## 8. Operational notes
 
 - Never expose `SUPABASE_SERVICE_ROLE_KEY` in Vercel/frontend.
 - Keep report snapshots in `qma_paid_reports.entitlement` so old paid reports survive live market changes.
 - Keep full private CSV data outside the public repo. Supabase stores purchases and report snapshots, not necessarily the full market dataset.
 - JSON fallback is still useful for local development and judging demos without a configured Supabase project.
 
-## 8. Later upgrades
+## 9. Later upgrades
 
 After the hackathon, the next clean steps are:
 

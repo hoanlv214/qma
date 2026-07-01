@@ -88,6 +88,8 @@ RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("QMA_RATE_LIMIT_WINDOW_SECONDS", "60")
 # Default False = unlock immediately on "received" (x402 UX). Set to "true" in .env for strict.
 REQUIRE_COMPLETED_SETTLEMENT = os.getenv("QMA_REQUIRE_COMPLETED_SETTLEMENT", "false").lower() in ("true", "1", "yes")
 GATEWAY_DEFAULT_DEPOSIT_USDC = float(os.getenv("QMA_ARC_DEFAULT_DEPOSIT_USDC", "1.00"))
+ARC_BATCH_TX_CACHE_TTL_SECONDS = int(os.getenv("QMA_ARC_BATCH_TX_CACHE_TTL_SECONDS", "60"))
+PAYMENT_EVENT_REFRESH_TTL_SECONDS = int(os.getenv("QMA_PAYMENT_EVENT_REFRESH_TTL_SECONDS", "90"))
 GATEWAY_DEFAULT_APPROVE_USDC = float(os.getenv("QMA_ARC_DEFAULT_APPROVE_USDC", "10.00"))
 provider_registry = create_default_registry(engine=engine, default_owner_wallet=PAYMENT_WALLET_ADDRESS)
 storage_backend = create_storage_backend(
@@ -172,6 +174,14 @@ def load_payment_events_for_wallet(address: str) -> list:
         if normalize_address(event.get("payer_address")) == normalized
     ]
 
+def load_payment_event_summaries(limit: int = 5000) -> list:
+    try:
+        if hasattr(storage_backend, "load_payment_event_summaries"):
+            return storage_backend.load_payment_event_summaries(limit=limit)
+    except Exception as exc:
+        logger.warning(f"Could not load payment event summaries: {exc}")
+    return sorted(load_payment_ledger(), key=lambda item: item.get("paid_at") or 0, reverse=True)[:limit]
+
 def save_payment_ledger(events: list) -> None:
     try:
         storage_backend.save_payment_events(events)
@@ -212,6 +222,80 @@ def load_paid_reports_for_wallet(
         and (not provider_id or record.get("provider_id", "funding_memory") == provider_id)
     }
 
+def load_paid_report_summaries_for_wallet(
+    address: str,
+    *,
+    symbol: Optional[str] = None,
+    provider_id: Optional[str] = None,
+) -> list:
+    try:
+        if hasattr(storage_backend, "load_paid_report_summaries_for_wallet"):
+            return storage_backend.load_paid_report_summaries_for_wallet(
+                address,
+                symbol=symbol,
+                provider_id=provider_id,
+            )
+    except Exception as exc:
+        logger.warning(f"Could not load wallet report summaries: {exc}")
+    return [
+        {
+            "entitlement_id": entitlement_id,
+            "payer_address": record.get("payer_address"),
+            "symbol": record.get("symbol"),
+            "tier": record.get("tier"),
+            "provider_id": record.get("provider_id", "funding_memory"),
+            "query_hash": record.get("query_hash"),
+            "settlement_id": record.get("settlement_id"),
+            "paid_at": record.get("paid_at"),
+            "saved_at": record.get("saved_at"),
+            "has_report": isinstance(record.get("report"), dict),
+        }
+        for entitlement_id, record in load_paid_reports_for_wallet(
+            address,
+            symbol=symbol,
+            provider_id=provider_id,
+        ).items()
+    ]
+
+def load_paid_report_summaries(limit: int = 5000) -> list:
+    try:
+        if hasattr(storage_backend, "load_paid_report_summaries"):
+            return storage_backend.load_paid_report_summaries(limit=limit)
+    except Exception as exc:
+        logger.warning(f"Could not load paid report summaries: {exc}")
+    return [
+        {
+            "entitlement_id": entitlement_id,
+            "payer_address": record.get("payer_address"),
+            "symbol": record.get("symbol"),
+            "tier": record.get("tier"),
+            "provider_id": record.get("provider_id", "funding_memory"),
+            "query_hash": record.get("query_hash"),
+            "settlement_id": record.get("settlement_id"),
+            "paid_at": record.get("paid_at"),
+            "saved_at": record.get("saved_at"),
+            "buyer_type": record.get("buyer_type", "human"),
+            "gateway_status": record.get("gateway_status"),
+            "transaction_hash": record.get("transaction_hash"),
+            "explorer_url": record.get("explorer_url"),
+            "amount_usdc": record.get("amount_usdc"),
+            "has_report": isinstance(record.get("report"), dict),
+        }
+        for entitlement_id, record in list(load_paid_reports().items())[:limit]
+    ]
+
+def load_paid_report_by_id(address: str, entitlement_id: str) -> Optional[dict]:
+    try:
+        if hasattr(storage_backend, "load_paid_report_by_id"):
+            return storage_backend.load_paid_report_by_id(address, entitlement_id)
+    except Exception as exc:
+        logger.warning(f"Could not load paid report by id: {exc}")
+    normalized = normalize_address(address)
+    record = load_paid_reports().get(entitlement_id)
+    if isinstance(record, dict) and normalize_address(record.get("payer_address")) == normalized:
+        return record
+    return None
+
 def save_paid_reports(reports: dict) -> None:
     try:
         storage_backend.save_paid_reports(reports)
@@ -240,6 +324,39 @@ def load_paid_invoices_for_wallet(address: str) -> dict:
         and normalize_address(invoice.get("payer_address")) == normalized
         and invoice.get("status") == "paid"
     }
+
+def paid_invoice_event(invoice: dict) -> dict:
+    return {
+        "invoice_id": invoice.get("invoice_id"),
+        "symbol": invoice.get("symbol"),
+        "provider_id": invoice.get("provider_id", "funding_memory"),
+        "provider_owner_wallet": invoice.get("owner_wallet"),
+        "buyer_type": invoice.get("buyer_type", "human"),
+        "tier": invoice.get("tier", "full"),
+        "resource_type": invoice.get("resource_type", PAYMENT_RESOURCE_TYPE),
+        "payer_address": invoice.get("payer_address"),
+        "seller_address": PAYMENT_WALLET_ADDRESS,
+        "amount_usdc": invoice.get("amount"),
+        "amount_raw": invoice.get("amount_raw"),
+        "settlement_id": invoice.get("settlement_id"),
+        "gateway_status": invoice.get("gateway_status"),
+        "transaction_hash": invoice.get("transaction_hash"),
+        "explorer_url": invoice.get("explorer_url"),
+        "paid_at": invoice.get("paid_at"),
+        "query_hash": invoice.get("query_hash"),
+    }
+
+def load_paid_invoice_events() -> list:
+    try:
+        if hasattr(storage_backend, "load_paid_invoice_events"):
+            return storage_backend.load_paid_invoice_events()
+    except Exception as exc:
+        logger.warning(f"Could not load paid invoice events: {exc}")
+    return [
+        paid_invoice_event(invoice)
+        for invoice in load_invoices().values()
+        if isinstance(invoice, dict) and invoice.get("status") == "paid"
+    ]
 
 def save_invoice(invoice: dict) -> None:
     try:
@@ -461,6 +578,18 @@ def fetch_gateway_balance(address: str) -> dict:
         "raw": data,
     }
 
+gateway_balance_cache: Dict[str, dict] = {}
+
+def fetch_gateway_balance_cached(address: str, ttl_seconds: int = 15) -> dict:
+    key = normalize_address(address)
+    now = time.time()
+    cached = gateway_balance_cache.get(key)
+    if cached and now - cached.get("at", 0) < ttl_seconds:
+        return cached["data"]
+    data = fetch_gateway_balance(address)
+    gateway_balance_cache[key] = {"at": now, "data": data}
+    return data
+
 def paginate_items(items: list, page: int, page_size: int) -> tuple[list, dict]:
     total = len(items)
     page_size = max(1, min(page_size, 100))
@@ -483,6 +612,190 @@ def payment_event_tier(event: dict) -> str:
         return tier
     return "legacy"
 
+def payment_event_key(event: dict) -> str:
+    return str(event.get("settlement_id") or event.get("invoice_id") or event.get("event_id") or "")
+
+def compact_payment_event(event: dict) -> dict:
+    tier = payment_event_tier(event)
+    return {
+        "event_id": event.get("event_id"),
+        "invoice_id": event.get("invoice_id"),
+        "settlement_id": event.get("settlement_id"),
+        "payer_address": event.get("payer_address"),
+        "symbol": event.get("symbol"),
+        "tier": event.get("tier"),
+        "tier_category": tier,
+        "provider_id": event.get("provider_id", "funding_memory"),
+        "provider_owner_wallet": event.get("provider_owner_wallet"),
+        "buyer_type": event.get("buyer_type", "human"),
+        "amount_usdc": event.get("amount_usdc"),
+        "gateway_status": event.get("gateway_status"),
+        "transaction_hash": event.get("transaction_hash"),
+        "explorer_url": event.get("explorer_url"),
+        "paid_at": event.get("paid_at"),
+        "query_hash": event.get("query_hash"),
+    }
+
+def attach_report_summaries(events: list, report_summaries: list) -> list:
+    by_settlement = {
+        item.get("settlement_id"): item
+        for item in report_summaries
+        if item.get("settlement_id")
+    }
+    by_query_tier = {
+        (item.get("query_hash"), payment_event_tier(item), str(item.get("symbol") or "").upper()): item
+        for item in report_summaries
+        if item.get("query_hash")
+    }
+    enriched = []
+    for event in events:
+        row = compact_payment_event(event)
+        summary = by_settlement.get(row.get("settlement_id"))
+        if not summary:
+            summary = by_query_tier.get((
+                row.get("query_hash"),
+                payment_event_tier(row),
+                str(row.get("symbol") or "").upper(),
+            ))
+        if summary:
+            row["entitlement_id"] = summary.get("entitlement_id")
+            row["has_report"] = bool(summary.get("has_report", True))
+            row["query_hash"] = row.get("query_hash") or summary.get("query_hash")
+        else:
+            row["has_report"] = False
+        enriched.append(row)
+    return enriched
+
+def summarize_payment_events(events: list) -> dict:
+    unique_events = {}
+    for event in events:
+        key = payment_event_key(event)
+        if key:
+            unique_events[key] = {**unique_events.get(key, {}), **event}
+    sorted_events = sorted(unique_events.values(), key=lambda item: item.get("paid_at") or 0, reverse=True)
+    unique_payers = {normalize_address(event.get("payer_address")) for event in sorted_events if event.get("payer_address")}
+    tier_counts = {"preview": 0, "full": 0, "legacy": 0}
+    buyer_type_counts = {"human": 0, "agent": 0}
+    revenue_by_tier = {"preview": 0.0, "full": 0.0, "legacy": 0.0}
+    revenue_by_provider = {}
+    top_symbols = {}
+    payer_stats = {}
+    for event in sorted_events:
+        tier = payment_event_tier(event)
+        event["tier_category"] = tier
+        amount = float(event.get("amount_usdc") or 0)
+        provider_id = event.get("provider_id", "funding_memory")
+        buyer_type = event.get("buyer_type", "human")
+        tier_counts[tier] = tier_counts.get(tier, 0) + 1
+        buyer_type_counts[buyer_type] = buyer_type_counts.get(buyer_type, 0) + 1
+        revenue_by_tier[tier] = revenue_by_tier.get(tier, 0.0) + amount
+        provider_stats = revenue_by_provider.setdefault(provider_id, {
+            "provider_id": provider_id,
+            "owner_wallet": event.get("provider_owner_wallet") or event.get("seller_address"),
+            "payments": 0,
+            "revenue_usdc": 0.0,
+        })
+        provider_stats["payments"] += 1
+        provider_stats["revenue_usdc"] += amount
+        if event.get("symbol"):
+            top_symbols[event["symbol"]] = top_symbols.get(event["symbol"], 0) + 1
+        payer = normalize_address(event.get("payer_address"))
+        if not payer:
+            continue
+        stats = payer_stats.setdefault(payer, {
+            "payer_address": event.get("payer_address"),
+            "payments": 0,
+            "spent_usdc": 0.0,
+            "symbols": set(),
+            "preview_count": 0,
+            "full_count": 0,
+            "last_paid_at": None,
+        })
+        stats["payments"] += 1
+        stats["spent_usdc"] += amount
+        if tier == "preview":
+            stats["preview_count"] += 1
+        elif tier == "full":
+            stats["full_count"] += 1
+        if event.get("symbol"):
+            stats["symbols"].add(event.get("symbol"))
+        stats["last_paid_at"] = max(stats["last_paid_at"] or 0, event.get("paid_at") or 0)
+    payer_breakdown = []
+    for stats in payer_stats.values():
+        stats["symbols"] = sorted(stats["symbols"])
+        payer_breakdown.append(stats)
+    current_paid_count = tier_counts.get("preview", 0) + tier_counts.get("full", 0)
+    current_revenue = revenue_by_tier.get("preview", 0.0) + revenue_by_tier.get("full", 0.0)
+    revenue = sum(float(event.get("amount_usdc") or 0) for event in sorted_events)
+    return {
+        "events": sorted_events,
+        "paid_count": len(sorted_events),
+        "current_paid_count": current_paid_count,
+        "legacy_paid_count": tier_counts.get("legacy", 0),
+        "unique_payers": len(unique_payers),
+        "revenue_usdc": revenue,
+        "current_revenue_usdc": current_revenue,
+        "legacy_revenue_usdc": revenue_by_tier.get("legacy", 0.0),
+        "tier_counts": tier_counts,
+        "buyer_type_counts": buyer_type_counts,
+        "revenue_by_tier": revenue_by_tier,
+        "revenue_by_provider": sorted(
+            revenue_by_provider.values(),
+            key=lambda item: item["revenue_usdc"],
+            reverse=True,
+        ),
+        "top_symbols": sorted(
+            [{"symbol": symbol, "payments": count} for symbol, count in top_symbols.items()],
+            key=lambda item: item["payments"],
+            reverse=True,
+        )[:10],
+        "payer_breakdown": sorted(payer_breakdown, key=lambda item: item["spent_usdc"], reverse=True),
+        "last_payment_key": payment_event_key(sorted_events[0]) if sorted_events else None,
+        "last_paid_at": sorted_events[0].get("paid_at") if sorted_events else None,
+    }
+
+def merge_payment_sources(events: list, invoice_events: Optional[list] = None) -> list:
+    unique_events = {}
+    for event in list(events or []) + list(invoice_events or []):
+        key = payment_event_key(event)
+        if not key:
+            continue
+        current = unique_events.get(key, {})
+        merged = {**current, **event}
+        for field in ("seller_address", "amount_raw", "transaction_hash", "explorer_url", "gateway_status"):
+            if current.get(field) and not event.get(field):
+                merged[field] = current[field]
+        if current.get("gateway_status") in {"completed", "confirmed"} and event.get("gateway_status") not in {"completed", "confirmed"}:
+            merged["gateway_status"] = current["gateway_status"]
+        unique_events[key] = merged
+    return sorted(unique_events.values(), key=lambda item: item.get("paid_at") or 0, reverse=True)
+
+def load_platform_payment_events(limit: int = 5000) -> list:
+    events = load_payment_event_summaries(limit=limit)
+    invoice_events = load_paid_invoice_events()
+    merged = merge_payment_sources(events, invoice_events)
+    if merged:
+        return merged
+    report_events = [
+        {
+            "event_id": item.get("entitlement_id"),
+            "settlement_id": item.get("settlement_id"),
+            "payer_address": item.get("payer_address"),
+            "symbol": item.get("symbol"),
+            "tier": item.get("tier"),
+            "provider_id": item.get("provider_id", "funding_memory"),
+            "buyer_type": item.get("buyer_type", "human"),
+            "amount_usdc": item.get("amount_usdc"),
+            "gateway_status": item.get("gateway_status") or "confirmed",
+            "transaction_hash": item.get("transaction_hash"),
+            "explorer_url": item.get("explorer_url"),
+            "paid_at": item.get("paid_at") or item.get("saved_at"),
+            "query_hash": item.get("query_hash"),
+        }
+        for item in load_paid_report_summaries(limit=limit)
+    ]
+    return merge_payment_sources(report_events)
+
 def parse_iso_utc(value: str) -> float:
     if not value:
         return 0.0
@@ -495,6 +808,39 @@ def parse_iso_utc(value: str) -> float:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.timestamp()
 
+arc_batch_tx_cache = {"at": 0.0, "items": [], "error": None}
+
+def load_arc_gateway_transactions(max_pages: int = 20) -> tuple[list, Optional[str]]:
+    now = time.time()
+    if now - arc_batch_tx_cache.get("at", 0) < ARC_BATCH_TX_CACHE_TTL_SECONDS:
+        return arc_batch_tx_cache.get("items", []), arc_batch_tx_cache.get("error")
+
+    transactions = []
+    params = {"filter": "to"}
+    error = None
+    for _ in range(max(1, max_pages)):
+        try:
+            resp = requests.get(
+                f"{ARC_EXPLORER}/api/v2/addresses/{ARC_GATEWAY_WALLET}/transactions",
+                params=params,
+                timeout=10,
+            )
+        except requests.RequestException as exc:
+            error = f"Arcscan lookup failed: {exc}"
+            break
+        if not resp.ok:
+            error = f"Arcscan returned {resp.status_code}"
+            break
+        data = resp.json()
+        transactions.extend(data.get("items", []))
+        next_params = data.get("next_page_params")
+        if not next_params:
+            break
+        params = {**next_params, "filter": "to"}
+
+    arc_batch_tx_cache.update({"at": now, "items": transactions, "error": error})
+    return transactions, error
+
 def find_arc_batch_tx(settlement: dict) -> dict:
     status_value = settlement.get("status")
     if status_value not in {"completed", "confirmed"}:
@@ -505,25 +851,13 @@ def find_arc_batch_tx(settlement: dict) -> dict:
             "message": "Circle accepted the payment authorization; on-chain batch tx is still pending.",
         }
 
-    try:
-        resp = requests.get(
-            f"{ARC_EXPLORER}/api/v2/addresses/{ARC_GATEWAY_WALLET}/transactions",
-            params={"filter": "to"},
-            timeout=10,
-        )
-    except requests.RequestException as exc:
+    transactions, error = load_arc_gateway_transactions()
+    if error:
         return {
             "batch_tx": None,
             "explorer_url": None,
             "status": status_value,
-            "message": f"Arcscan lookup failed: {exc}",
-        }
-    if not resp.ok:
-        return {
-            "batch_tx": None,
-            "explorer_url": None,
-            "status": status_value,
-            "message": f"Arcscan returned {resp.status_code}",
+            "message": error,
         }
 
     updated_at = settlement.get("updatedAt")
@@ -532,19 +866,26 @@ def find_arc_batch_tx(settlement: dict) -> dict:
 
     updated_ts = parse_iso_utc(updated_at)
 
-    for tx in resp.json().get("items", []):
+    best_tx = None
+    best_delta = None
+    for tx in transactions:
         if tx.get("method") != "submitBatch":
             continue
         tx_ts = parse_iso_utc(tx.get("timestamp", ""))
         if not tx_ts:
             continue
-        if tx_ts <= updated_ts + 5:
-            tx_hash = tx.get("hash")
-            return {
-                "batch_tx": tx_hash,
-                "explorer_url": f"{ARC_EXPLORER}/tx/{tx_hash}" if tx_hash else None,
-                "status": status_value,
-            }
+        delta = abs(tx_ts - updated_ts)
+        if delta <= 1800 and (best_delta is None or delta < best_delta):
+            best_tx = tx
+            best_delta = delta
+
+    if best_tx:
+        tx_hash = best_tx.get("hash")
+        return {
+            "batch_tx": tx_hash,
+            "explorer_url": f"{ARC_EXPLORER}/tx/{tx_hash}" if tx_hash else None,
+            "status": status_value,
+        }
 
     return {
         "batch_tx": None,
@@ -586,6 +927,15 @@ def refresh_unresolved_payment_events(max_events: int = 20) -> None:
         changed = refresh_event_batch_tx(event) or changed
     if changed:
         save_payment_ledger(payment_events)
+
+payment_event_refresh_state = {"at": 0.0}
+
+def maybe_refresh_unresolved_payment_events(max_events: int = 8) -> None:
+    now = time.time()
+    if now - payment_event_refresh_state.get("at", 0) < PAYMENT_EVENT_REFRESH_TTL_SECONDS:
+        return
+    payment_event_refresh_state["at"] = now
+    refresh_unresolved_payment_events(max_events=max_events)
 
 def refresh_invoice_batch_tx(invoice: dict) -> None:
     if not invoice.get("settlement_id") or invoice.get("transaction_hash"):
@@ -764,7 +1114,17 @@ def get_marketplace():
 
 @app.get("/api/v1/health")
 def get_health():
-    seller_balance = fetch_gateway_balance(PAYMENT_WALLET_ADDRESS)
+    return {
+        "status": "ok",
+        "engine": "ready",
+        "storage_backend": storage_backend.backend_name,
+        "payment_network": PAYMENT_NETWORK,
+        "payment_network_name": PAYMENT_NETWORK_NAME,
+    }
+
+@app.get("/api/v1/config")
+def get_client_config():
+    seller_balance = fetch_gateway_balance_cached(PAYMENT_WALLET_ADDRESS)
     return {
         "status": "ok",
         "engine": "ready",
@@ -992,125 +1352,82 @@ def get_metrics(
     payer_page: int = Query(default=1, ge=1),
     payer_page_size: int = Query(default=10, ge=1, le=100),
 ):
-    reload_persistent_state(include_reports=False)
-    refresh_unresolved_payment_events()
-    paid_invoices = [invoice for invoice in invoices_db.values() if invoice.get("status") == "paid"]
-    all_events = payment_events + [
-        {
-            "invoice_id": invoice.get("invoice_id"),
-            "symbol": invoice.get("symbol"),
-            "provider_id": invoice.get("provider_id", "funding_memory"),
-            "provider_owner_wallet": invoice.get("owner_wallet"),
-            "buyer_type": invoice.get("buyer_type", "human"),
-            "tier": invoice.get("tier", "full"),
-            "resource_type": invoice.get("resource_type", PAYMENT_RESOURCE_TYPE),
-            "payer_address": invoice.get("payer_address"),
-            "amount_usdc": invoice.get("amount"),
-            "settlement_id": invoice.get("settlement_id"),
-            "gateway_status": invoice.get("gateway_status"),
-            "paid_at": invoice.get("paid_at"),
-        }
-        for invoice in paid_invoices
-        if invoice.get("settlement_id")
-    ]
-    unique_events = {}
-    for event in all_events:
-        key = event.get("settlement_id") or event.get("invoice_id")
-        if key:
-            current = unique_events.get(key, {})
-            merged = {**current, **event}
-            for field in ("seller_address", "amount_raw", "transaction_hash", "explorer_url"):
-                if current.get(field) and not event.get(field):
-                    merged[field] = current[field]
-            if current.get("gateway_status") == "completed" and event.get("gateway_status") != "completed":
-                merged["gateway_status"] = current["gateway_status"]
-            unique_events[key] = merged
-    events = sorted(unique_events.values(), key=lambda item: item.get("paid_at") or 0, reverse=True)
-    unique_payers = {normalize_address(event.get("payer_address")) for event in events if event.get("payer_address")}
-    revenue = sum(float(event.get("amount_usdc") or 0) for event in events)
-    tier_counts = {"preview": 0, "full": 0, "legacy": 0}
-    buyer_type_counts = {"human": 0, "agent": 0}
-    revenue_by_tier = {"preview": 0.0, "full": 0.0, "legacy": 0.0}
-    revenue_by_provider = {}
-    top_symbols = {}
-    payer_stats = {}
-    for event in events:
-        tier = payment_event_tier(event)
-        event["tier_category"] = tier
-        provider_id = event.get("provider_id", "funding_memory")
-        buyer_type = event.get("buyer_type", "human")
-        tier_counts[tier] = tier_counts.get(tier, 0) + 1
-        buyer_type_counts[buyer_type] = buyer_type_counts.get(buyer_type, 0) + 1
-        revenue_by_tier[tier] = revenue_by_tier.get(tier, 0.0) + float(event.get("amount_usdc") or 0)
-        provider_stats = revenue_by_provider.setdefault(provider_id, {
-            "provider_id": provider_id,
-            "owner_wallet": event.get("provider_owner_wallet") or event.get("seller_address"),
-            "payments": 0,
-            "revenue_usdc": 0.0,
-        })
-        provider_stats["payments"] += 1
-        provider_stats["revenue_usdc"] += float(event.get("amount_usdc") or 0)
-        if event.get("symbol"):
-            top_symbols[event["symbol"]] = top_symbols.get(event["symbol"], 0) + 1
-        payer = normalize_address(event.get("payer_address"))
-        if not payer:
-            continue
-        stats = payer_stats.setdefault(payer, {
-            "payer_address": event.get("payer_address"),
-            "payments": 0,
-            "spent_usdc": 0.0,
-            "symbols": set(),
-            "preview_count": 0,
-            "full_count": 0,
-            "last_paid_at": None,
-        })
-        stats["payments"] += 1
-        stats["spent_usdc"] += float(event.get("amount_usdc") or 0)
-        if tier == "preview":
-            stats["preview_count"] += 1
-        elif tier == "full":
-            stats["full_count"] += 1
-        if event.get("symbol"):
-            stats["symbols"].add(event.get("symbol"))
-        stats["last_paid_at"] = max(stats["last_paid_at"] or 0, event.get("paid_at") or 0)
-    current_paid_count = tier_counts.get("preview", 0) + tier_counts.get("full", 0)
-    current_revenue = revenue_by_tier.get("preview", 0.0) + revenue_by_tier.get("full", 0.0)
-    payer_breakdown = []
-    for stats in payer_stats.values():
-        stats["symbols"] = sorted(stats["symbols"])
-        payer_breakdown.append(stats)
-    payer_breakdown = sorted(payer_breakdown, key=lambda item: item["spent_usdc"], reverse=True)
+    events = load_platform_payment_events()
+    summary = summarize_payment_events(events)
     recent_payments, recent_payments_page = paginate_items(events, payment_page, payment_page_size)
-    payer_breakdown_page_items, payer_breakdown_page = paginate_items(payer_breakdown, payer_page, payer_page_size)
-    seller_balance = fetch_gateway_balance(PAYMENT_WALLET_ADDRESS)
+    payer_breakdown_page_items, payer_breakdown_page = paginate_items(summary["payer_breakdown"], payer_page, payer_page_size)
+    seller_balance = fetch_gateway_balance_cached(PAYMENT_WALLET_ADDRESS)
     return {
         "seller_address": PAYMENT_WALLET_ADDRESS,
         "seller_gateway_balance": seller_balance,
         "invoice_count": len(invoices_db),
-        "paid_count": len(events),
-        "current_paid_count": current_paid_count,
-        "legacy_paid_count": tier_counts.get("legacy", 0),
-        "unique_payers": len(unique_payers),
-        "revenue_usdc": revenue,
-        "current_revenue_usdc": current_revenue,
-        "legacy_revenue_usdc": revenue_by_tier.get("legacy", 0.0),
-        "tier_counts": tier_counts,
-        "buyer_type_counts": buyer_type_counts,
-        "revenue_by_tier": revenue_by_tier,
-        "revenue_by_provider": sorted(
-            revenue_by_provider.values(),
-            key=lambda item: item["revenue_usdc"],
-            reverse=True,
-        ),
-        "top_symbols": sorted(
-            [{"symbol": symbol, "payments": count} for symbol, count in top_symbols.items()],
-            key=lambda item: item["payments"],
-            reverse=True,
-        )[:10],
+        "paid_count": summary["paid_count"],
+        "current_paid_count": summary["current_paid_count"],
+        "legacy_paid_count": summary["legacy_paid_count"],
+        "unique_payers": summary["unique_payers"],
+        "revenue_usdc": summary["revenue_usdc"],
+        "current_revenue_usdc": summary["current_revenue_usdc"],
+        "legacy_revenue_usdc": summary["legacy_revenue_usdc"],
+        "tier_counts": summary["tier_counts"],
+        "buyer_type_counts": summary["buyer_type_counts"],
+        "revenue_by_tier": summary["revenue_by_tier"],
+        "revenue_by_provider": summary["revenue_by_provider"],
+        "top_symbols": summary["top_symbols"],
+        "last_payment_key": summary["last_payment_key"],
+        "last_paid_at": summary["last_paid_at"],
         "payer_breakdown": payer_breakdown_page_items,
         "payer_breakdown_page": payer_breakdown_page,
         "recent_payments": recent_payments,
         "recent_payments_page": recent_payments_page,
+    }
+
+@app.get("/api/v1/platform/summary")
+def get_platform_summary():
+    maybe_refresh_unresolved_payment_events()
+    events = load_platform_payment_events()
+    summary = summarize_payment_events(events)
+    return {
+        "seller_address": PAYMENT_WALLET_ADDRESS,
+        "seller_gateway_balance": fetch_gateway_balance_cached(PAYMENT_WALLET_ADDRESS),
+        "invoice_count": len(invoices_db),
+        "paid_count": summary["paid_count"],
+        "current_paid_count": summary["current_paid_count"],
+        "legacy_paid_count": summary["legacy_paid_count"],
+        "unique_payers": summary["unique_payers"],
+        "revenue_usdc": summary["revenue_usdc"],
+        "current_revenue_usdc": summary["current_revenue_usdc"],
+        "legacy_revenue_usdc": summary["legacy_revenue_usdc"],
+        "tier_counts": summary["tier_counts"],
+        "buyer_type_counts": summary["buyer_type_counts"],
+        "revenue_by_tier": summary["revenue_by_tier"],
+        "top_symbols": summary["top_symbols"],
+        "last_payment_key": summary["last_payment_key"],
+        "last_paid_at": summary["last_paid_at"],
+    }
+
+@app.get("/api/v1/platform/payments")
+def get_platform_payments(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=10, ge=1, le=100),
+):
+    events = load_platform_payment_events()
+    page_items, meta = paginate_items(events, page, page_size)
+    return {
+        "recent_payments": [compact_payment_event(event) for event in page_items],
+        "recent_payments_page": meta,
+    }
+
+@app.get("/api/v1/platform/payers")
+def get_platform_payers(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=10, ge=1, le=100),
+):
+    events = load_platform_payment_events()
+    summary = summarize_payment_events(events)
+    items, meta = paginate_items(summary["payer_breakdown"], page, page_size)
+    return {
+        "payer_breakdown": items,
+        "payer_breakdown_page": meta,
     }
 
 @app.get("/api/v1/metrics/wallet/{address}")
@@ -1176,6 +1493,105 @@ def get_wallet_metrics(
         "entitlements_page": entitlements_page,
         "recent_payments": recent_payments,
         "recent_payments_page": recent_payments_page,
+    }
+
+def wallet_events_with_invoice_fallback(address: str) -> list:
+    events = load_payment_events_for_wallet(address)
+    paid_invoices = list(load_paid_invoices_for_wallet(address).values())
+    existing_keys = {payment_event_key(event) for event in events}
+    for invoice in paid_invoices:
+        key = str(invoice.get("settlement_id") or invoice.get("invoice_id") or "")
+        if key and key not in existing_keys:
+            events.append({
+                "invoice_id": invoice.get("invoice_id"),
+                "symbol": invoice.get("symbol"),
+                "provider_id": invoice.get("provider_id", "funding_memory"),
+                "provider_owner_wallet": invoice.get("owner_wallet"),
+                "buyer_type": invoice.get("buyer_type", "human"),
+                "tier": invoice.get("tier", "full"),
+                "resource_type": invoice.get("resource_type", PAYMENT_RESOURCE_TYPE),
+                "payer_address": invoice.get("payer_address"),
+                "seller_address": PAYMENT_WALLET_ADDRESS,
+                "amount_usdc": invoice.get("amount"),
+                "amount_raw": invoice.get("amount_raw"),
+                "settlement_id": invoice.get("settlement_id"),
+                "gateway_status": invoice.get("gateway_status"),
+                "transaction_hash": invoice.get("transaction_hash"),
+                "explorer_url": invoice.get("explorer_url"),
+                "paid_at": invoice.get("paid_at"),
+                "query_hash": invoice.get("query_hash"),
+            })
+            existing_keys.add(key)
+    for report in load_paid_report_summaries_for_wallet(address):
+        key = str(report.get("settlement_id") or report.get("entitlement_id") or report.get("query_hash") or "")
+        if key and key not in existing_keys:
+            events.append({
+                "event_id": report.get("entitlement_id"),
+                "settlement_id": report.get("settlement_id"),
+                "payer_address": report.get("payer_address"),
+                "symbol": report.get("symbol"),
+                "tier": report.get("tier"),
+                "provider_id": report.get("provider_id", "funding_memory"),
+                "buyer_type": report.get("buyer_type", "human"),
+                "amount_usdc": report.get("amount_usdc"),
+                "gateway_status": report.get("gateway_status") or "confirmed",
+                "transaction_hash": report.get("transaction_hash"),
+                "explorer_url": report.get("explorer_url"),
+                "paid_at": report.get("paid_at") or report.get("saved_at"),
+                "query_hash": report.get("query_hash"),
+            })
+            existing_keys.add(key)
+    return sorted(events, key=lambda item: item.get("paid_at") or 0, reverse=True)
+
+@app.get("/api/v1/wallets/{address}/summary")
+def get_wallet_summary(address: str):
+    maybe_refresh_unresolved_payment_events()
+    events = wallet_events_with_invoice_fallback(address)
+    summary = summarize_payment_events(events)
+    purchased_symbols = sorted({event.get("symbol") for event in events if event.get("symbol")})
+    provider_counts = {}
+    for event in events:
+        provider_id = event.get("provider_id", "funding_memory")
+        provider_counts[provider_id] = provider_counts.get(provider_id, 0) + 1
+    return {
+        "address": address,
+        "gateway_balance": fetch_gateway_balance_cached(address),
+        "payments": summary["paid_count"],
+        "current_payments": summary["current_paid_count"],
+        "legacy_payments": summary["legacy_paid_count"],
+        "spent_usdc": summary["revenue_usdc"],
+        "tier_counts": summary["tier_counts"],
+        "buyer_type_counts": summary["buyer_type_counts"],
+        "provider_counts": provider_counts,
+        "purchased_symbols": purchased_symbols,
+        "last_payment_key": summary["last_payment_key"],
+        "last_paid_at": summary["last_paid_at"],
+    }
+
+@app.get("/api/v1/wallets/{address}/payments")
+def get_wallet_payments(
+    address: str,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=10, ge=1, le=100),
+):
+    events = wallet_events_with_invoice_fallback(address)
+    report_summaries = load_paid_report_summaries_for_wallet(address)
+    rows = attach_report_summaries(events, report_summaries)
+    page_items, meta = paginate_items(rows, page, page_size)
+    return {
+        "address": address,
+        "recent_payments": page_items,
+        "recent_payments_page": meta,
+    }
+
+@app.get("/api/v1/wallets/{address}/reports/{entitlement_id}")
+def get_wallet_report_detail(address: str, entitlement_id: str):
+    record = load_paid_report_by_id(address, entitlement_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Paid report snapshot not found for this wallet.")
+    return {
+        "address": address,
+        "entitlement": record,
     }
 
 @app.get("/api/v1/entitlements/wallet/{address}")

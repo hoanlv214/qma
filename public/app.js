@@ -121,6 +121,8 @@ let paymentActivityPage = 1;
 let paymentActivityTotalPages = 1;
 let payerBreakdownPage = 1;
 let payerBreakdownTotalPages = 1;
+let lastPlatformPaymentKey = null;
+let platformTablesLoaded = false;
 let profilePaymentsPage = 1;
 let profilePaymentsTotalPages = 1;
 let activeProfileWallet = null;
@@ -1197,17 +1199,6 @@ function scheduleQuotedPriceRefresh() {
     }, 300);
 }
 
-function resolveGatewayDepositDefault(walletStatus = null) {
-    const fromWallet = walletStatus?.defaultDepositUsdc;
-    if (fromWallet != null && fromWallet !== '' && Number.isFinite(Number(fromWallet))) {
-        return Number(fromWallet);
-    }
-    if (gatewayDepositConfig.default_usdc != null && Number.isFinite(Number(gatewayDepositConfig.default_usdc))) {
-        return Number(gatewayDepositConfig.default_usdc);
-    }
-    return null;
-}
-
 function formatTierPrice(tier = 'full') {
     const price = tierPrice(tier);
     return price != null ? `${price.toFixed(3)} USDC` : '— USDC';
@@ -1351,11 +1342,6 @@ function updatePlainSummary(report, { preview = false } = {}) {
     setText('summary-median', medianText);
 }
 
-function legacySignalCacheKey(source = {}) {
-    const payload = normalizeSignalPayload(source);
-    return `qma_paid_signal_v2_${payload.symbol}_${signalFingerprint(payload)}`;
-}
-
 function walletCacheScope(account = connectedWallet) {
     const normalized = String(account || '').trim().toLowerCase();
     return normalized || null;
@@ -1366,11 +1352,6 @@ function signalCacheKey(source = {}, tier = 'full', providerId = currentProvider
     const wallet = walletCacheScope(account);
     if (!wallet) return null;
     return `qma_paid_signal_v5_${wallet}_${providerId}_${normalizeTier(tier)}_${payload.symbol}_${signalFingerprint(payload)}`;
-}
-
-function legacyTierSignalCacheKey(source = {}, tier = 'full') {
-    const payload = normalizeSignalPayload(source);
-    return `qma_paid_signal_v3_${normalizeTier(tier)}_${payload.symbol}_${signalFingerprint(payload)}`;
 }
 
 function signalSummary(source = {}) {
@@ -1419,29 +1400,6 @@ function getCachedReport(source, tier = 'full') {
             if (full) return JSON.parse(full);
         }
         return null;
-    } catch {
-        return null;
-    }
-}
-
-function getLegacyCachedReport(symbol) {
-    const normalizedSymbol = String(symbol || '').trim().toUpperCase();
-    if (!normalizedSymbol) return null;
-    try {
-        const cached = localStorage.getItem(`qma_paid_report_${normalizedSymbol}`);
-        if (!cached) return null;
-        const parsed = JSON.parse(cached);
-        const report = parsed.report || parsed;
-        if (!report) return null;
-        const signal = normalizeSignalPayload(report.query || {
-            symbol: report.query_symbol || normalizedSymbol
-        });
-        return {
-            saved_at: parsed.saved_at || report.paid_at || Date.now(),
-            signal: signal.symbol ? signal : normalizeSignalPayload({ symbol: normalizedSymbol }),
-            report,
-            legacy: true
-        };
     } catch {
         return null;
     }
@@ -1608,33 +1566,6 @@ function getWalletEvents(account) {
     }
 }
 
-async function syncWalletEntitlements(account) {
-    if (!account) return;
-    try {
-        const resp = await fetch(apiUrl(`/api/v1/entitlements/wallet/${account}`));
-        if (!resp.ok) return;
-        const data = await resp.json();
-        (data.entitlements || []).forEach((entry) => {
-            if (!entry.report) return;
-            const report = {
-                ...entry.report,
-                tier: entry.tier || entry.report.tier || entry.report.invoice?.tier || 'full',
-                provider_id: entry.provider_id || entry.report.provider_id || entry.report.invoice?.provider_id || 'funding_memory',
-                query: entry.query || entry.report.query,
-            };
-            const previousTier = currentInvoiceTier;
-            const previousProvider = currentProviderId;
-            currentInvoiceTier = normalizeTier(report.tier);
-            currentProviderId = report.provider_id || previousProvider;
-            saveCachedReport(report, account);
-            currentInvoiceTier = previousTier;
-            currentProviderId = previousProvider;
-        });
-    } catch (err) {
-        console.warn('Could not sync wallet entitlements', err);
-    }
-}
-
 function setConnectedWallet(account) {
     connectedWallet = account || null;
     if (connectedWallet) {
@@ -1705,7 +1636,6 @@ async function connectWallet(options = {}) {
     const account = accounts && accounts[0] ? accounts[0] : null;
     if (account) {
         setConnectedWallet(account);
-        syncWalletEntitlements(account);
         if (!options.silent) {
             await sleep(250);
         }
@@ -1951,8 +1881,9 @@ function renderProfileEvents(events) {
         return;
     }
     profileEventsBody.innerHTML = events.map((event) => {
-        const ref = event.explorer_url && event.tx_hash
-            ? `<a class="tx-link" href="${event.explorer_url}" target="_blank" rel="noreferrer">${shortAddress(event.tx_hash)}</a>`
+        const txHash = event.tx_hash || event.txHash || event.transaction_hash;
+        const ref = event.explorer_url && txHash
+            ? `<a class="tx-link" href="${event.explorer_url}" target="_blank" rel="noreferrer">${shortAddress(txHash)}</a>`
             : event.settlement_id
                 ? `<span class="mono-td" title="${escapeHtml(event.settlement_id)}">${shortAddress(event.settlement_id)}</span>`
                 : '<span style="color: var(--text-dark);">n/a</span>';
@@ -1975,17 +1906,22 @@ function renderProfilePayments(events, entitlements = []) {
     profilePaymentsBody.innerHTML = events.map((event) => {
         const entitlement = findEntitlementForPayment(event, entitlements);
         const query = entitlement?.query || entitlement?.report?.query || event.query || {};
-        const reportId = entitlement?.report ? escapeHtml(entitlementId(entitlement)) : '';
-        const action = entitlement?.report
+        const reportIdRaw = event.entitlement_id || (entitlement?.report ? entitlementId(entitlement) : '');
+        const reportId = reportIdRaw ? escapeHtml(reportIdRaw) : '';
+        const hasReport = Boolean(entitlement?.report || event.has_report || reportIdRaw);
+        const action = hasReport
             ? `<button type="button" class="refresh-btn profile-open-report-btn" data-entitlement-id="${reportId}">Open</button>`
             : '<span style="color:var(--t3); font-size:0.68rem;">No saved report</span>';
+        const isFinalStatus = ['completed', 'confirmed'].includes(String(event.gateway_status || '').toLowerCase());
+        const missingTxLabel = isFinalStatus ? 'Arcscan tx unavailable' : 'Arcscan tx pending';
+        const missingTxColor = isFinalStatus ? 'var(--text-dark)' : '#f59e0b';
         const ref = event.explorer_url && event.transaction_hash
             ? `<a class="tx-link" href="${event.explorer_url}" target="_blank" rel="noreferrer" title="Settlement: ${escapeHtml(event.settlement_id || '')}">${shortAddress(event.transaction_hash)}</a>`
             : event.settlement_id
-                ? `<span class="mono-td" title="Settlement ID: ${escapeHtml(event.settlement_id)}">${shortAddress(event.settlement_id)}</span><div style="color:#f59e0b; font-size:0.72rem; margin-top:2px;">⏳ Arcscan tx pending</div>`
+                ? `<span class="mono-td" title="Settlement ID: ${escapeHtml(event.settlement_id)}">${shortAddress(event.settlement_id)}</span><div style="color:${missingTxColor}; font-size:0.72rem; margin-top:2px;">${escapeHtml(missingTxLabel)}</div>`
                 : '<span style="color: var(--text-dark);">n/a</span>';
         return `
-                    <tr class="${entitlement?.report ? 'profile-payment-row is-clickable' : 'profile-payment-row'}" data-entitlement-id="${reportId}" title="${escapeHtml(formatDateTime(event.paid_at))}">
+                    <tr class="${hasReport ? 'profile-payment-row is-clickable' : 'profile-payment-row'}" data-entitlement-id="${reportId}" title="${escapeHtml(formatDateTime(event.paid_at))}">
                         <td class="mono-td">${escapeHtml(event.symbol || query.symbol || 'n/a')}<div class="quick-payment-sub">${escapeHtml(formatDateTime(event.paid_at))}</div></td>
                         <td>${Number(event.amount_usdc || 0).toFixed(3)} USDC<div class="quick-payment-sub">${escapeHtml(tierLabel(event.tier_category || event.tier || 'legacy'))}</div></td>
                         <td>${gatewayStatusBadge(event.gateway_status)}</td>
@@ -1994,9 +1930,25 @@ function renderProfilePayments(events, entitlements = []) {
                     </tr>
                 `;
     }).join('');
-    const openById = (id) => {
-        const target = entitlements.find(entry => entitlementId(entry) === id);
-        openPurchasedReport(target);
+    const openById = async (id) => {
+        const localTarget = entitlements.find(entry => entitlementId(entry) === id);
+        if (localTarget?.report) {
+            openPurchasedReport(localTarget);
+            return;
+        }
+        if (!id || !activeProfileWallet) {
+            showToast('This payment does not include a saved report snapshot yet.', 'warning');
+            return;
+        }
+        try {
+            const resp = await fetch(apiUrl(`/api/v1/wallets/${activeProfileWallet}/reports/${encodeURIComponent(id)}`));
+            if (!resp.ok) throw new Error(`Report endpoint returned ${resp.status}`);
+            const data = await resp.json();
+            openPurchasedReport(data.entitlement);
+        } catch (err) {
+            console.warn('Could not open paid report detail', err);
+            showToast('Could not load this paid report snapshot.', 'error');
+        }
     };
     profilePaymentsBody.querySelectorAll('.profile-payment-row.is-clickable').forEach((row) => {
         row.addEventListener('click', (event) => {
@@ -2007,8 +1959,7 @@ function renderProfilePayments(events, entitlements = []) {
     profilePaymentsBody.querySelectorAll('.profile-open-report-btn').forEach((button) => {
         button.addEventListener('click', (event) => {
             event.stopPropagation();
-            const target = entitlements.find(entry => entitlementId(entry) === button.dataset.entitlementId);
-            openPurchasedReport(target);
+            openById(button.dataset.entitlementId);
         });
     });
 }
@@ -2073,27 +2024,32 @@ function renderWalletProfileSummary(metrics, walletStatus) {
 
 async function loadProfilePaymentsPage(account, page = profilePaymentsPage) {
     const params = new URLSearchParams({
-        payment_page: String(page),
-        payment_page_size: String(PROFILE_PAYMENTS_PAGE_SIZE),
-        entitlement_page_size: '100'
+        page: String(page),
+        page_size: String(PROFILE_PAYMENTS_PAGE_SIZE)
     });
-    const resp = await fetch(apiUrl(`/api/v1/metrics/wallet/${account}?${params.toString()}`));
-    const metrics = resp.ok ? await resp.json() : null;
-    if (!metrics) {
+    const resp = await fetch(apiUrl(`/api/v1/wallets/${account}/payments?${params.toString()}`));
+    const data = resp.ok ? await resp.json() : null;
+    if (!data) {
         throw new Error('Could not load wallet profile.');
     }
     const pageMeta = fallbackPageMeta(
-        metrics?.recent_payments_page,
+        data?.recent_payments_page,
         page,
         PROFILE_PAYMENTS_PAGE_SIZE,
-        metrics?.payments,
-        (metrics?.recent_payments || []).length
+        data?.recent_payments_page?.total,
+        (data?.recent_payments || []).length
     );
     profilePaymentsPage = Number(pageMeta.page || page || 1);
     profilePaymentsTotalPages = Number(pageMeta.total_pages || 1);
-    renderProfilePayments(metrics?.recent_payments || [], metrics?.entitlements || []);
+    renderProfilePayments(data?.recent_payments || [], []);
     updatePagerControls('profile-payments', pageMeta);
-    return metrics;
+    return data;
+}
+
+async function loadWalletProfileSummary(account) {
+    const resp = await fetch(apiUrl(`/api/v1/wallets/${account}/summary`));
+    if (!resp.ok) throw new Error('Could not load wallet profile summary.');
+    return resp.json();
 }
 
 async function openWalletProfile() {
@@ -2116,10 +2072,11 @@ async function openWalletProfile() {
 
     try {
         const [metrics, walletStatus] = await Promise.all([
-            loadProfilePaymentsPage(account, 1),
+            loadWalletProfileSummary(account),
             getWalletStatus(account)
         ]);
         renderWalletProfileSummary(metrics, walletStatus);
+        await loadProfilePaymentsPage(account, 1);
     } catch (err) {
         console.warn('Wallet profile unavailable', err);
         profileGatewayBalance.textContent = 'n/a';
@@ -2821,15 +2778,59 @@ async function loadProviders() {
 
 const metricsPendingEl = document.getElementById('metrics-balance-pending');
 
-async function loadMetrics() {
+async function loadPlatformPayments(page = paymentActivityPage) {
     try {
         const params = new URLSearchParams({
-            payment_page: String(paymentActivityPage),
-            payment_page_size: String(PAYMENT_ACTIVITY_PAGE_SIZE),
-            payer_page: String(payerBreakdownPage),
-            payer_page_size: String(PAYER_BREAKDOWN_PAGE_SIZE)
+            page: String(page),
+            page_size: String(PAYMENT_ACTIVITY_PAGE_SIZE)
         });
-        const resp = await fetch(apiUrl(`/api/v1/metrics?${params.toString()}`));
+        const resp = await fetch(apiUrl(`/api/v1/platform/payments?${params.toString()}`));
+        if (!resp.ok) return;
+        const data = await resp.json();
+        renderPaymentActivity(data.recent_payments || []);
+        const paymentMeta = fallbackPageMeta(
+            data.recent_payments_page,
+            page,
+            PAYMENT_ACTIVITY_PAGE_SIZE,
+            (data.recent_payments || []).length,
+            (data.recent_payments || []).length
+        );
+        paymentActivityPage = Number(paymentMeta.page || page || 1);
+        paymentActivityTotalPages = Number(paymentMeta.total_pages || 1);
+        updatePagerControls('payment', paymentMeta);
+    } catch (err) {
+        console.warn('Platform payments unavailable', err);
+    }
+}
+
+async function loadPlatformPayers(page = payerBreakdownPage) {
+    try {
+        const params = new URLSearchParams({
+            page: String(page),
+            page_size: String(PAYER_BREAKDOWN_PAGE_SIZE)
+        });
+        const resp = await fetch(apiUrl(`/api/v1/platform/payers?${params.toString()}`));
+        if (!resp.ok) return;
+        const data = await resp.json();
+        renderPayerBreakdown(data.payer_breakdown || []);
+        const payerMeta = fallbackPageMeta(
+            data.payer_breakdown_page,
+            page,
+            PAYER_BREAKDOWN_PAGE_SIZE,
+            (data.payer_breakdown || []).length,
+            (data.payer_breakdown || []).length
+        );
+        payerBreakdownPage = Number(payerMeta.page || page || 1);
+        payerBreakdownTotalPages = Number(payerMeta.total_pages || 1);
+        updatePagerControls('payer', payerMeta);
+    } catch (err) {
+        console.warn('Platform payer breakdown unavailable', err);
+    }
+}
+
+async function loadMetrics() {
+    try {
+        const resp = await fetch(apiUrl('/api/v1/platform/summary'));
         if (!resp.ok) return;
         const data = await resp.json();
         const tierCounts = data.tier_counts || {};
@@ -2861,28 +2862,16 @@ async function loadMetrics() {
         if (sbPend) sbPend.textContent = pendingBatch != null ? `${Number(pendingBatch).toFixed(6)} USDC` : '—';
         if (sbWallet) sbWallet.textContent = data.seller_address || '—';
 
-        renderPaymentActivity(data.recent_payments || []);
-        renderPayerBreakdown(data.payer_breakdown || []);
-        const paymentMeta = fallbackPageMeta(
-            data.recent_payments_page,
-            paymentActivityPage,
-            PAYMENT_ACTIVITY_PAGE_SIZE,
-            currentPaid,
-            (data.recent_payments || []).length
-        );
-        const payerMeta = fallbackPageMeta(
-            data.payer_breakdown_page,
-            payerBreakdownPage,
-            PAYER_BREAKDOWN_PAGE_SIZE,
-            data.unique_payers,
-            (data.payer_breakdown || []).length
-        );
-        paymentActivityPage = Number(paymentMeta.page || paymentActivityPage || 1);
-        paymentActivityTotalPages = Number(paymentMeta.total_pages || 1);
-        payerBreakdownPage = Number(payerMeta.page || payerBreakdownPage || 1);
-        payerBreakdownTotalPages = Number(payerMeta.total_pages || 1);
-        updatePagerControls('payment', paymentMeta);
-        updatePagerControls('payer', payerMeta);
+        const paymentChanged = data.last_payment_key && data.last_payment_key !== lastPlatformPaymentKey;
+        const shouldRefreshTables = !platformTablesLoaded || (paymentChanged && paymentActivityPage === 1);
+        lastPlatformPaymentKey = data.last_payment_key || lastPlatformPaymentKey;
+        if (shouldRefreshTables) {
+            await Promise.all([
+                loadPlatformPayments(paymentActivityPage),
+                loadPlatformPayers(payerBreakdownPage)
+            ]);
+            platformTablesLoaded = true;
+        }
     } catch (err) {
         console.warn('Metrics unavailable', err);
     }
@@ -2890,7 +2879,7 @@ async function loadMetrics() {
 
 async function loadHealthInfo() {
     try {
-        const resp = await fetch(apiUrl('/api/v1/health'));
+        const resp = await fetch(apiUrl('/api/v1/config'));
         if (resp.ok) {
             const data = await resp.json();
             setArcGatewayBaseUrl(data.arc_gateway);
@@ -3030,7 +3019,7 @@ async function withdrawSellerGatewayFunds() {
     }
 
     try {
-        const metricsResp = await fetch(apiUrl(`/api/v1/metrics/wallet/${connectedWallet}`));
+        const metricsResp = await fetch(apiUrl(`/api/v1/wallets/${connectedWallet}/summary`));
         if (!metricsResp.ok) throw new Error("Could not fetch seller balance.");
         const metrics = await metricsResp.json();
         const availableUsdc = metrics?.gateway_balance?.available_usdc || 0;
@@ -3210,10 +3199,13 @@ function renderPaymentActivity(events) {
         return;
     }
     paymentActivityBody.innerHTML = events.map((event) => {
+        const isFinalStatus = ['completed', 'confirmed'].includes(String(event.gateway_status || '').toLowerCase());
+        const missingTxLabel = isFinalStatus ? 'Arcscan tx unavailable' : 'Arcscan tx pending';
+        const missingTxColor = isFinalStatus ? 'var(--text-dark)' : '#f59e0b';
         const ref = event.explorer_url && event.transaction_hash
             ? `<a class="tx-link" href="${event.explorer_url}" target="_blank" rel="noreferrer" title="Settlement: ${escapeHtml(event.settlement_id || '')}">${shortAddress(event.transaction_hash)}</a>`
             : event.settlement_id
-                ? `<span class="mono-td" title="Settlement ID: ${escapeHtml(event.settlement_id)}">${shortAddress(event.settlement_id)}</span><div style="color:#f59e0b; font-size:0.72rem; margin-top:2px;">⏳ Arcscan tx pending</div>`
+                ? `<span class="mono-td" title="Settlement ID: ${escapeHtml(event.settlement_id)}">${shortAddress(event.settlement_id)}</span><div style="color:${missingTxColor}; font-size:0.72rem; margin-top:2px;">${escapeHtml(missingTxLabel)}</div>`
                 : '<span style="color: var(--text-dark);">n/a</span>';
         return `
                     <tr>
@@ -3284,10 +3276,6 @@ function applySignalToState(signal) {
     }
     updateBasicSignalCard(normalized);
     scheduleQuotedPriceRefresh();
-}
-
-function applySignalToForm(signal) {
-    applySignalToState(signal);
 }
 
 function formSignalFromAnomaly(item) {
@@ -3591,7 +3579,6 @@ payButton.addEventListener('click', async () => {
         }
         if (!sameAddress(account, connectedWallet)) {
             setConnectedWallet(account);
-            syncWalletEntitlements(account);
         }
         const currentChainId = provider?.request
             ? await withTimeout(provider.request({ method: 'eth_chainId' }), 15000, 'Payment chain check')
@@ -3765,7 +3752,7 @@ payButton.addEventListener('click', async () => {
         }
         saveWalletEvent(account, {
             type: 'x402_settlement',
-            amount_usdc: paidData.amount_usdc,
+            amount_usdc: paidData.amount_usdc || currentInvoiceAmount,
             settlement_id: currentSettlementId,
             tier: currentInvoiceTier,
             symbol: activeQuery.symbol
@@ -3853,7 +3840,6 @@ payButton.addEventListener('click', async () => {
                 renderReport(reportData);
             }
             showPaymentSuccessState();
-            await syncWalletEntitlements(account);
             updateAnomalyPaidState(activeQuery);
         } else {
             alert("Payment was not accepted by QMA.");
@@ -4411,28 +4397,28 @@ if (paymentPrevBtn) {
     paymentPrevBtn.addEventListener('click', () => {
         if (paymentActivityPage <= 1) return;
         paymentActivityPage -= 1;
-        loadMetrics();
+        loadPlatformPayments(paymentActivityPage);
     });
 }
 if (paymentNextBtn) {
     paymentNextBtn.addEventListener('click', () => {
         if (paymentActivityPage >= paymentActivityTotalPages) return;
         paymentActivityPage += 1;
-        loadMetrics();
+        loadPlatformPayments(paymentActivityPage);
     });
 }
 if (payerPrevBtn) {
     payerPrevBtn.addEventListener('click', () => {
         if (payerBreakdownPage <= 1) return;
         payerBreakdownPage -= 1;
-        loadMetrics();
+        loadPlatformPayers(payerBreakdownPage);
     });
 }
 if (payerNextBtn) {
     payerNextBtn.addEventListener('click', () => {
         if (payerBreakdownPage >= payerBreakdownTotalPages) return;
         payerBreakdownPage += 1;
-        loadMetrics();
+        loadPlatformPayers(payerBreakdownPage);
     });
 }
 if (profilePaymentsPrevBtn) {
@@ -4479,9 +4465,6 @@ getInjectedProviderCandidates().forEach(({ provider }) => {
         setConnectedWallet(account);
         hasUnlockedReport = false;
         document.getElementById('viewport-container').classList.remove('unlocked');
-        if (account) {
-            await syncWalletEntitlements(account);
-        }
         loadLiveAnomalies();
     });
     provider.on('chainChanged', () => {
@@ -4521,7 +4504,10 @@ if (queryForm) {
         scheduleQuotedPriceRefresh();
     });
 }
-setInterval(loadMetrics, 15000);
+setInterval(() => {
+    if (document.hidden) return;
+    loadMetrics();
+}, 15000);
 function refreshLiveWorkspace(options = {}) {
     loadLiveAnomalies(options);
     loadAgentRecommendations({ silent: options.silent });

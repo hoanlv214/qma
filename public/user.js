@@ -1,11 +1,12 @@
 const API_BASE_URL = String(window.QMA_API_BASE_URL || '').replace(/\/$/, '');
 const PAGE_SIZE = 10;
 
-let currentWallet = new URLSearchParams(window.location.search).get('wallet') || '';
+let currentWallet = new URLSearchParams(window.location.search).get('wallet') || localStorage.getItem('qma_connected_wallet') || '';
 let currentPage = 1;
 let totalPages = 1;
 let arcGatewayBaseUrl = '';
 let expandedPaymentId = '';
+let paymentRowsById = {};
 
 const connectBtn = document.getElementById('profile-connect-btn');
 const chainBalanceEl = document.getElementById('user-chain-balance');
@@ -279,10 +280,63 @@ function renderPaymentDetail(event = {}, entitlement = {}, rowId = '') {
     `;
 }
 
+function renderLazyPaymentDetail(rowId = '', hasReport = false) {
+    return `
+        <tr class="payment-detail-row ${hasReport ? 'needs-report-load' : ''}" id="receipt-detail-${escapeHtml(rowId)}" hidden>
+            <td colspan="8">
+                <div class="receipt-detail-card">
+                    <div class="receipt-detail-empty">${hasReport ? 'Loading paid report snapshot...' : 'This payment was verified, but no saved report snapshot was returned for this receipt.'}</div>
+                </div>
+            </td>
+        </tr>
+    `;
+}
+
+async function loadPaymentDetail(rowId, entitlementId) {
+    if (!rowId || !entitlementId || !currentWallet) return;
+    const detail = document.getElementById(`receipt-detail-${rowId}`);
+    const event = paymentRowsById[rowId] || {};
+    if (!detail || !detail.classList.contains('needs-report-load')) return;
+    try {
+        const resp = await fetch(apiUrl(`/api/v1/wallets/${currentWallet}/reports/${encodeURIComponent(entitlementId)}`));
+        if (!resp.ok) throw new Error(`Report endpoint returned ${resp.status}`);
+        const data = await resp.json();
+        const wrapper = document.createElement('tbody');
+        wrapper.innerHTML = renderPaymentDetail(event, data.entitlement || {}, rowId).trim();
+        const nextRow = wrapper.firstElementChild;
+        if (!nextRow) return;
+        nextRow.hidden = false;
+        detail.replaceWith(nextRow);
+        nextRow.querySelector('.receipt-detail-close')?.addEventListener('click', (clickEvent) => {
+            clickEvent.stopPropagation();
+            togglePaymentDetail(rowId, false);
+        });
+    } catch (err) {
+        console.warn('Could not load paid report detail', err);
+        detail.innerHTML = `
+            <td colspan="8">
+                <div class="receipt-detail-card">
+                    <div class="receipt-detail-empty">Could not load this paid report snapshot.</div>
+                </div>
+            </td>
+        `;
+    }
+}
+
 function getWalletEvents(account) {
     try {
-        const key = `qma_wallet_events_${String(account || '').toLowerCase()}`;
-        const raw = localStorage.getItem(key);
+        const normalized = String(account || '').toLowerCase();
+        const key = `qma_wallet_events_${normalized}`;
+        let raw = localStorage.getItem(key);
+        if (!raw) {
+            for (let i = 0; i < localStorage.length; i += 1) {
+                const candidateKey = localStorage.key(i) || '';
+                if (candidateKey.toLowerCase() === key) {
+                    raw = localStorage.getItem(candidateKey);
+                    break;
+                }
+            }
+        }
         const events = raw ? JSON.parse(raw) : [];
         return Array.isArray(events) ? events : [];
     } catch {
@@ -290,16 +344,62 @@ function getWalletEvents(account) {
     }
 }
 
-function renderEvents(account) {
-    const events = getWalletEvents(account);
+function walletActionKey(event = {}) {
+    return [
+        event.type || 'event',
+        event.settlement_id || event.tx_hash || event.txHash || event.transaction_hash || '',
+        event.symbol || '',
+        event.amount_usdc || '',
+    ].join(':').toLowerCase();
+}
+
+function paymentEventsToWalletActions(payments = []) {
+    return payments.flatMap((payment) => {
+        const base = {
+            amount_usdc: payment.amount_usdc,
+            settlement_id: payment.settlement_id,
+            tx_hash: payment.transaction_hash,
+            explorer_url: payment.explorer_url,
+            symbol: payment.symbol,
+            at: Number(payment.paid_at || 0) > 10_000_000_000
+                ? Number(payment.paid_at)
+                : Number(payment.paid_at || 0) * 1000,
+            source: 'database',
+        };
+        return [
+            { ...base, type: 'verified_payment' },
+            { ...base, type: 'x402_settlement' },
+        ];
+    });
+}
+
+function mergeWalletActions(localEvents = [], paymentEvents = []) {
+    const merged = [];
+    const seen = new Set();
+    [...localEvents, ...paymentEventsToWalletActions(paymentEvents)].forEach((event) => {
+        const key = walletActionKey(event);
+        if (seen.has(key)) return;
+        seen.add(key);
+        merged.push(event);
+    });
+    return merged
+        .sort((a, b) => Number(b.at || 0) - Number(a.at || 0))
+        .slice(0, 50);
+}
+
+function renderEvents(account, paymentEvents = []) {
+    const events = mergeWalletActions(getWalletEvents(account), paymentEvents);
     if (!events.length) {
         eventsBody.innerHTML = '<tr class="empty-row"><td colspan="4">No local wallet actions recorded.</td></tr>';
         return;
     }
     eventsBody.innerHTML = events.map((event) => {
-        const ref = event.explorer_url && event.tx_hash
-            ? `<a class="tx-link" href="${event.explorer_url}" target="_blank" rel="noreferrer">${shortAddress(event.tx_hash)}</a>`
-            : '<span class="muted-ref">n/a</span>';
+        const txHash = event.tx_hash || event.txHash || event.transaction_hash;
+        const ref = event.explorer_url && txHash
+            ? `<a class="tx-link" href="${event.explorer_url}" target="_blank" rel="noreferrer">${shortAddress(txHash)}</a>`
+            : event.settlement_id
+                ? `<span class="mono-td" title="${escapeHtml(event.settlement_id)}">${shortAddress(event.settlement_id)}</span>`
+                : '<span class="muted-ref">n/a</span>';
         return `
             <tr title="${escapeHtml(formatDateTime(event.at))}">
                 <td><span class="action-label">${escapeHtml(event.type || 'event')}</span></td>
@@ -313,6 +413,7 @@ function renderEvents(account) {
 
 function renderPayments(events, entitlements = []) {
     entitlements = normalizeEntitlementsList(entitlements);
+    paymentRowsById = {};
     if (!events.length) {
         paymentsBody.innerHTML = '<tr class="empty-row"><td colspan="8">No verified payments yet.</td></tr>';
         return;
@@ -321,16 +422,21 @@ function renderPayments(events, entitlements = []) {
         const entitlement = findEntitlementForPayment(event, entitlements);
         const query = entitlement?.query || entitlement?.report?.query || event.query || {};
         const rowId = paymentRowId(event, index);
+        paymentRowsById[rowId] = event;
+        const entitlementIdValue = event.entitlement_id || (entitlement?.report ? entitlementId(entitlement) : '');
+        const hasReport = Boolean(entitlement?.report || event.has_report || entitlementIdValue);
         const tier = tierLabel(event.tier_category || event.tier || entitlement?.tier);
         const provider = event.provider_id || entitlement?.provider_id || entitlement?.report?.provider_id || 'funding_memory';
         const buyerType = event.buyer_type || 'human';
+        const isFinalStatus = ['completed', 'confirmed'].includes(String(event.gateway_status || '').toLowerCase());
+        const missingTxLabel = isFinalStatus ? 'Arcscan unavailable' : 'Arcscan pending';
         const ref = event.explorer_url && event.transaction_hash
             ? `<a class="tx-link" href="${event.explorer_url}" target="_blank" rel="noreferrer">${shortAddress(event.transaction_hash)}</a>`
             : event.settlement_id
-                ? `<span class="mono-td" title="${escapeHtml(event.settlement_id)}">${shortAddress(event.settlement_id)}</span><div class="badge badge-pending tx-pending-badge">Arcscan pending</div>`
+                ? `<span class="mono-td" title="${escapeHtml(event.settlement_id)}">${shortAddress(event.settlement_id)}</span><div class="badge ${isFinalStatus ? 'badge-muted' : 'badge-pending'} tx-pending-badge">${escapeHtml(missingTxLabel)}</div>`
                 : '<span class="badge badge-muted">n/a</span>';
         return `
-            <tr class="${entitlement?.report ? 'user-payment-row is-clickable' : 'user-payment-row'}" data-row-id="${escapeHtml(rowId)}" title="${escapeHtml(formatDateTime(event.paid_at))}">
+            <tr class="${hasReport ? 'user-payment-row is-clickable' : 'user-payment-row'}" data-row-id="${escapeHtml(rowId)}" data-entitlement-id="${escapeHtml(entitlementIdValue)}" title="${escapeHtml(formatDateTime(event.paid_at))}">
                 <td class="signal-cell">
                     <strong>${escapeHtml(event.symbol || query.symbol || 'n/a')}</strong>
                 </td>
@@ -350,16 +456,16 @@ function renderPayments(events, entitlements = []) {
                 <td>${gatewayStatusBadge(event.gateway_status)}</td>
                 <td>
                     <div class="reference-cell">${ref}</div>
-                    ${entitlement?.report ? '' : '<div class="row-subtitle">No saved report</div>'}
+                    ${hasReport ? '' : '<div class="row-subtitle">No saved report</div>'}
                 </td>
             </tr>
-            ${renderPaymentDetail(event, entitlement, rowId)}
+            ${entitlement?.report ? renderPaymentDetail(event, entitlement, rowId) : renderLazyPaymentDetail(rowId, hasReport)}
         `;
     }).join('');
     paymentsBody.querySelectorAll('.user-payment-row.is-clickable').forEach((row) => {
         row.addEventListener('click', (event) => {
             if (event.target.closest('a, button')) return;
-            togglePaymentDetail(row.dataset.rowId);
+            togglePaymentDetail(row.dataset.rowId, null, row.dataset.entitlementId);
         });
     });
     paymentsBody.querySelectorAll('.receipt-detail-close').forEach((button) => {
@@ -370,7 +476,7 @@ function renderPayments(events, entitlements = []) {
     });
 }
 
-function togglePaymentDetail(rowId, forceOpen = null) {
+function togglePaymentDetail(rowId, forceOpen = null, entitlementId = '') {
     if (!rowId) return;
     const detail = document.getElementById(`receipt-detail-${rowId}`);
     const row = paymentsBody.querySelector(`.user-payment-row[data-row-id="${rowId}"]`);
@@ -386,11 +492,12 @@ function togglePaymentDetail(rowId, forceOpen = null) {
     if (shouldOpen) {
         detail.hidden = false;
         row.classList.add('is-expanded');
+        loadPaymentDetail(rowId, entitlementId);
     }
 }
 
 async function loadHealth() {
-    const resp = await fetch(apiUrl('/api/v1/health'));
+    const resp = await fetch(apiUrl('/api/v1/config'));
     if (!resp.ok) return;
     const data = await resp.json();
     arcGatewayBaseUrl = data.arc_gateway || '';
@@ -446,20 +553,27 @@ async function loadProfile(account, page = 1) {
     renderEvents(account);
 
     const params = new URLSearchParams({
-        payment_page: String(page),
-        payment_page_size: String(PAGE_SIZE),
-        entitlement_page_size: '100'
+        page: String(page),
+        page_size: String(PAGE_SIZE)
     });
-    const [metricsResp, walletStatus] = await Promise.all([
-        fetch(apiUrl(`/api/v1/metrics/wallet/${account}?${params.toString()}`)),
+    const [summaryResp, paymentsResp, walletStatus] = await Promise.all([
+        fetch(apiUrl(`/api/v1/wallets/${account}/summary`)),
+        fetch(apiUrl(`/api/v1/wallets/${account}/payments?${params.toString()}`)),
         loadWalletStatus(account)
     ]);
-    if (!metricsResp.ok) {
+    if (!summaryResp.ok || !paymentsResp.ok) {
         paymentsBody.innerHTML = '<tr class="empty-row"><td colspan="8">Could not load wallet history.</td></tr>';
         return;
     }
-    const metrics = await metricsResp.json();
-    renderProfileSummary(metrics, walletStatus);
+    const summary = await summaryResp.json();
+    const payments = await paymentsResp.json();
+    renderEvents(account, payments.recent_payments || []);
+    renderProfileSummary({
+        ...summary,
+        recent_payments: payments.recent_payments || [],
+        recent_payments_page: payments.recent_payments_page,
+        entitlements: [],
+    }, walletStatus);
 }
 
 function renderProfileSummary(metrics, walletStatus) {
