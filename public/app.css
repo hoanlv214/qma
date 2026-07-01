@@ -1393,6 +1393,45 @@
     cursor: not-allowed;
 }
 
+.funding-network-details {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+    margin-top: 10px;
+    border: 1px dashed rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.12);
+    padding: 10px;
+}
+
+.funding-network-details > span {
+    grid-column: 1 / -1;
+    color: var(--t3);
+    font-family: var(--mono);
+    font-size: 0.56rem;
+    font-weight: 800;
+    letter-spacing: 0.65px;
+    text-transform: uppercase;
+}
+
+.funding-network-details div {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+}
+
+.funding-network-details strong {
+    color: var(--t2);
+    font-size: 0.66rem;
+}
+
+.funding-network-details code {
+    color: var(--t1);
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    overflow-wrap: anywhere;
+}
+
 .funding-route-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1453,7 +1492,8 @@
     }
 
     .funding-status-grid,
-    .funding-route-grid {
+    .funding-route-grid,
+    .funding-network-details {
         grid-template-columns: 1fr;
     }
 

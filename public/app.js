@@ -160,21 +160,40 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function walletErrorCode(err) {
+    return err?.code ?? err?.data?.code ?? err?.error?.code;
+}
+
+function isUnknownChainError(err) {
+    const msg = String(err?.message || err || '').toLowerCase();
+    const code = walletErrorCode(err);
+    return code === 4902
+        || msg.includes('unrecognized chain')
+        || msg.includes('unknown chain')
+        || msg.includes('not available in this wallet')
+        || msg.includes('not added to this wallet');
+}
+
 function describeWalletError(err) {
     const msg = String(err?.message || err || '');
     const lower = msg.toLowerCase();
-    if (err?.code === -32002 || lower.includes('already pending')) {
+    const code = walletErrorCode(err);
+    if (code === -32002 || lower.includes('already pending')) {
         return 'MetaMask already has a pending request. Open MetaMask, finish or reject it, then retry.';
     }
-    if (err?.code === 4001 || lower.includes('user rejected') || lower.includes('rejected')) {
+    if (code === 4001 || lower.includes('user rejected') || lower.includes('rejected')) {
         return 'Wallet request was rejected.';
+    }
+    if (isUnknownChainError(err)) {
+        return 'Arc Testnet is not available in this wallet yet. Approve the add-network request if it appears. If Rabby does not show one, add Arc Testnet manually using the network details in Funding Assistant, then retry.';
     }
     return msg || 'Wallet request failed.';
 }
 
 function normalizeWalletError(err) {
     const wrapped = new Error(describeWalletError(err));
-    if (err?.code !== undefined) wrapped.code = err.code;
+    const code = walletErrorCode(err);
+    if (code !== undefined) wrapped.code = code;
     return wrapped;
 }
 
@@ -210,6 +229,14 @@ async function walletRequest(args, label, timeoutMs = WALLET_REQUEST_TIMEOUT_MS)
         throw normalizeWalletError(err);
     } finally {
         walletRequestInFlight = null;
+    }
+}
+
+async function directWalletRequest(provider, args, label, timeoutMs = WALLET_REQUEST_TIMEOUT_MS) {
+    try {
+        return await withTimeout(provider.request(args), timeoutMs, label);
+    } catch (err) {
+        throw normalizeWalletError(err);
     }
 }
 
@@ -339,36 +366,40 @@ function detectInjectedProviders() {
     const providerList = Array.isArray(eth.providers) ? eth.providers : [eth];
 
     for (const p of providerList) {
-        if (p.isMetaMask && !p.isOKExWallet)  found.push({ id: 'metamask', label: 'MetaMask', icon: '🦊' });
-        if (p.isOKExWallet || p.isOKX)        found.push({ id: 'okx',      label: 'OKX Wallet', icon: '⬡' });
-        if (p.isCoinbaseWallet)                found.push({ id: 'coinbase', label: 'Coinbase Wallet', icon: '🔵' });
         if (p.isRabby)                         found.push({ id: 'rabby',    label: 'Rabby', icon: '🐰' });
-        if (p.isPhantom && p.ethereum)         found.push({ id: 'phantom',  label: 'Phantom', icon: '👻' });
-        if (p.isTrust)                         found.push({ id: 'trust',    label: 'Trust Wallet', icon: '🛡️' });
+        else if (p.isOKExWallet || p.isOKX)    found.push({ id: 'okx',      label: 'OKX Wallet', icon: '⬡' });
+        else if (p.isCoinbaseWallet)           found.push({ id: 'coinbase', label: 'Coinbase Wallet', icon: '🔵' });
+        else if (p.isMetaMask)                 found.push({ id: 'metamask', label: 'MetaMask', icon: '🦊' });
+        else if (p.isPhantom && p.ethereum)    found.push({ id: 'phantom',  label: 'Phantom', icon: '👻' });
+        else if (p.isTrust)                    found.push({ id: 'trust',    label: 'Trust Wallet', icon: '🛡️' });
     }
     // Deduplicate by id
     return [...new Map(found.map(x => [x.id, x])).values()];
+}
+
+function getInjectedProviderLabel(provider, fallbackLabel = 'Injected Wallet') {
+    if (provider?.isRabby) return 'Rabby';
+    if (provider?.isOKExWallet || provider?.isOKX) return 'OKX Wallet';
+    if (provider?.isCoinbaseWallet) return 'Coinbase Wallet';
+    if (provider?.isMetaMask) return 'MetaMask';
+    if (provider?.isTrust) return 'Trust Wallet';
+    return fallbackLabel;
 }
 
 function getInjectedProviderCandidates() {
     const providers = [];
     const push = (provider, fallbackLabel = 'Injected Wallet') => {
         if (!provider?.request || providers.some((entry) => entry.provider === provider)) return;
-        let label = fallbackLabel;
-        if (provider.isOKExWallet || provider.isOKX) label = 'OKX Wallet';
-        else if (provider.isMetaMask && !provider.isOKExWallet) label = 'MetaMask';
-        else if (provider.isCoinbaseWallet) label = 'Coinbase Wallet';
-        else if (provider.isRabby) label = 'Rabby';
-        else if (provider.isTrust) label = 'Trust Wallet';
-        providers.push({ provider, label });
+        providers.push({ provider, label: getInjectedProviderLabel(provider, fallbackLabel) });
     };
 
     const eth = window.ethereum;
+    push(window.ethereum);
+    push(window.rabby, 'Rabby');
+    push(window.okxwallet, 'OKX Wallet');
     if (Array.isArray(eth?.providers)) {
         eth.providers.forEach((provider) => push(provider));
     }
-    push(window.okxwallet, 'OKX Wallet');
-    push(window.ethereum);
     return providers;
 }
 
@@ -1046,30 +1077,50 @@ const ARC_TESTNET = {
 async function ensureArcTestnet() {
     const provider = await getWalletProvider();
     if (!provider?.request) throw new Error('No wallet provider detected.');
-    const current = await withTimeout(
-        provider.request({ method: 'eth_chainId' }),
-        15000,
-        'Arc network check'
-    );
-    if (normalizeChainId(current) === ARC_TESTNET_HEX) return;
+    const switchRequest = {
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: ARC_TESTNET_HEX }]
+    };
+
     try {
-        await walletRequest(
-            {
-                method: 'wallet_switchEthereumChain',
-                params: [{ chainId: ARC_TESTNET_HEX }]
-            },
-            'Arc network switch'
-        );
+        const current = await directWalletRequest(provider, { method: 'eth_chainId' }, 'Arc network check', 8000);
+        if (normalizeChainId(current) === ARC_TESTNET_HEX) return;
     } catch (err) {
-        if (err && err.code === 4902) {
-            await walletRequest(
+        console.warn('Could not read current chain before Arc switch; trying switch/add anyway.', err);
+    }
+
+    try {
+        await directWalletRequest(provider, switchRequest, 'Arc network switch');
+    } catch (err) {
+        if (isUnknownChainError(err)) {
+            await directWalletRequest(
+                provider,
                 {
                     method: 'wallet_addEthereumChain',
                     params: [ARC_TESTNET]
                 },
                 'Add Arc Testnet'
             );
-            return;
+            // Rabby can resolve addEthereumChain before its internal chain registry is ready.
+            // Give the extension a short moment, then retry the switch once.
+            await sleep(700);
+            try {
+                await directWalletRequest(provider, switchRequest, 'Arc network switch');
+                return;
+            } catch (retryErr) {
+                if (isUnknownChainError(retryErr)) {
+                    await sleep(700);
+                    try {
+                        const current = await directWalletRequest(provider, { method: 'eth_chainId' }, 'Arc network recheck', 8000);
+                        if (normalizeChainId(current) === ARC_TESTNET_HEX) return;
+                    } catch (checkErr) {
+                        console.warn('Could not recheck Arc chain after add-network attempt.', checkErr);
+                    }
+                    await directWalletRequest(provider, switchRequest, 'Arc network switch retry');
+                    return;
+                }
+                throw retryErr;
+            }
         }
         throw err;
     }
@@ -2308,9 +2359,9 @@ function renderFundingReadiness(state = {}) {
     if (fundProviderStatus) fundProviderStatus.textContent = state.providerLabel || 'n/a';
     if (fundChainStatus) fundChainStatus.textContent = state.chainLabel || 'n/a';
     if (fundArcStatus) {
-        fundArcStatus.textContent = state.chainMismatch
-            ? 'Provider mismatch'
-            : (state.isArc ? 'Arc Testnet' : (state.account ? 'Wrong network' : 'Unknown'));
+        fundArcStatus.textContent = state.isArc
+            ? 'Arc Testnet'
+            : (state.account ? 'Wrong network' : 'Unknown');
     }
     if (fundWalletUsdc) fundWalletUsdc.textContent = formatFundingAmount(walletBalance);
     if (fundGatewayBalance) fundGatewayBalance.textContent = formatFundingAmount(gatewayBalance);
@@ -2323,17 +2374,13 @@ function renderFundingReadiness(state = {}) {
         return;
     }
 
-    if (state.chainMismatch) {
-        setFundingPill('Provider mismatch', 'warn');
-        if (fundNextStep) fundNextStep.textContent = 'Wallet provider chain is inconsistent. Close the wallet network panel, refresh QMA, then reconnect the intended wallet.';
-        setFundingPrimaryAction({ action: 'refresh', label: 'Refresh readiness' });
-        return;
-    }
-
+    // Wrong-chain check: covers Ethereum mainnet, BNB, any non-Arc network.
+    // Uses the fresh eth_chainId RPC result; sentinel '__chain_error__' also falls here
+    // so a provider failure surfaces as "Wrong chain / retry" instead of silently passing.
     if (state.chainId && normalizeChainId(state.chainId) !== ARC_TESTNET_HEX) {
         setFundingPill('Wrong chain', 'warn');
-        if (fundNextStep) fundNextStep.textContent = 'Switch to Arc Testnet before creating or paying an invoice.';
-        setFundingPrimaryAction({ action: 'switch', label: 'Switch to Arc Testnet' });
+        if (fundNextStep) fundNextStep.textContent = 'Add or switch to Arc Testnet. Your wallet will show the network details for approval.';
+        setFundingPrimaryAction({ action: 'switch', label: 'Add / Switch Arc Testnet' });
         return;
     }
 
@@ -2381,7 +2428,6 @@ async function refreshFundingReadiness() {
         chainId: null,
         chainLabel: 'n/a',
         providerLabel: 'n/a',
-        chainMismatch: false,
         isArc: false,
         walletBalance: null,
         gatewayBalance: null,
@@ -2393,35 +2439,48 @@ async function refreshFundingReadiness() {
         return;
     }
 
+    // Step 1: chain detection — separate try/catch so a provider error sets chainId
+    // to a known-bad value rather than silently leaving it null and skipping wrong-chain check.
+    let provider = null;
     try {
-        const provider = await getWalletProvider();
+        provider = await getWalletProvider();
         state.providerLabel = getWalletProviderLabel(provider);
         if (provider?.request) {
-            state.chainId = await withTimeout(
+            const rawChainId = await withTimeout(
                 provider.request({ method: 'eth_chainId' }),
                 15000,
                 'Funding chain check'
             );
-            const providerChainHex = normalizeChainId(provider.chainId || provider.networkVersion);
-            const requestChainHex = normalizeChainId(state.chainId);
-            state.chainMismatch = Boolean(providerChainHex && providerChainHex !== requestChainHex);
-            state.isArc = !state.chainMismatch && requestChainHex === ARC_TESTNET_HEX;
-            state.chainLabel = state.chainMismatch
-                ? `${formatChainLabel(state.chainId)} / provider ${formatChainLabel(providerChainHex)}`
-                : formatChainLabel(state.chainId);
+            state.chainId = rawChainId;
+            const chainHex = normalizeChainId(rawChainId);
+            state.isArc = chainHex === ARC_TESTNET_HEX;
+            state.chainLabel = formatChainLabel(rawChainId);
         } else {
             state.chainLabel = 'No wallet provider';
         }
-
-        const [walletStatus, gatewayBalance] = await Promise.all([
-            getWalletStatus(account),
-            checkGatewayBalance(account)
-        ]);
-        state.walletBalance = parseFundingAmount(getOnChainUsdcBalance(walletStatus));
-        state.gatewayBalance = gatewayBalance;
     } catch (err) {
-        console.warn('Funding readiness check failed', err);
+        console.warn('Funding chain check failed', err);
+        // Mark as chain error so renderFundingReadiness shows the right pill
+        // instead of falling through to balance checks with stale/null chainId.
+        state.chainId = '__chain_error__';
+        state.chainLabel = 'Chain detection failed';
         state.error = err;
+    }
+
+    // Step 2: balance checks — only run when on the right chain, avoid unnecessary
+    // RPC calls and confusing balance numbers when the wallet is on the wrong network.
+    if (!state.error && state.isArc) {
+        try {
+            const [walletStatus, gatewayBalance] = await Promise.all([
+                getWalletStatus(account),
+                checkGatewayBalance(account)
+            ]);
+            state.walletBalance = parseFundingAmount(getOnChainUsdcBalance(walletStatus));
+            state.gatewayBalance = gatewayBalance;
+        } catch (err) {
+            console.warn('Funding balance check failed', err);
+            state.error = err;
+        }
     }
 
     renderFundingReadiness(state);
