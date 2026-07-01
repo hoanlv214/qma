@@ -22,8 +22,32 @@ services:
         value: https://gateway-api-testnet.circle.com
       - key: QMA_ARC_EXPLORER
         value: https://testnet.arcscan.app
+      - key: QMA_ARC_GATEWAY_WALLET
+        value: 0x0077777d7EBA4688BDeF3E311b846F25870A19B9
+      - key: QMA_ARC_GATEWAY_URL
+        value: https://qma-arc-gateway.onrender.com
+      - key: QMA_ARC_SELLER_ADDRESS
+        sync: false
+      - key: QMA_FUNDING_MEMORY_OWNER_WALLET
+        sync: false
+      - key: QMA_OI_MEMORY_OWNER_WALLET
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_SCHEMA
+        value: public
       - key: QMA_ACCESS_TOKEN_SECRET
         generateValue: true
+      - key: QMA_ADMIN_TOKEN
+        sync: false
+      - key: QMA_REQUIRE_COMPLETED_SETTLEMENT
+        value: "false"
+      - key: QMA_ARC_DEFAULT_DEPOSIT_USDC
+        value: "1.00"
+      - key: QMA_ARC_DEFAULT_APPROVE_USDC
+        value: "10.00"
 
   - type: web
     name: qma-arc-gateway
@@ -35,7 +59,19 @@ services:
     envVars:
       - key: QMA_ARC_SELLER_ADDRESS
         sync: false
-      - key: GATEWAY_API
+      - key: QMA_CIRCLE_GATEWAY_API
         value: https://gateway-api-testnet.circle.com
+      - key: QMA_ARC_EXPLORER
+        value: https://testnet.arcscan.app
       - key: ARC_EXPLORER
         value: https://testnet.arcscan.app
+      - key: ARC_TESTNET_RPC
+        value: https://rpc.testnet.arc.network
+      - key: QMA_PRICE_PREVIEW_USDC
+        value: "0.001"
+      - key: QMA_PRICE_FULL_USDC
+        value: "0.005"
+      - key: QMA_ARC_DEFAULT_DEPOSIT_USDC
+        value: "1.00"
+      - key: QMA_ARC_APPROVE_USDC
+        value: "10.00"
