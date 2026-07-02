@@ -29,7 +29,7 @@
                 <div class="logo-text">QMA</div>
             </a>
             <div class="landing-nav-links">
-                <a href="/marketplace">
+                <a class="landing-nav-link" href="/marketplace">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                         stroke-linejoin="round">
                         <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path>
@@ -38,7 +38,7 @@
                     </svg>
                     Marketplace
                 </a>
-                <a href="/docs" data-api-path="/docs" target="_blank" rel="noopener noreferrer">
+                <a class="landing-nav-link" href="/docs" data-api-path="/docs" target="_blank" rel="noopener noreferrer">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                         stroke-linejoin="round">
                         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
@@ -49,14 +49,14 @@
                     </svg>
                     Docs
                 </a>
-                <a href="https://github.com/hoanlv214/qma" target="_blank" rel="noopener noreferrer">
+                <a class="landing-nav-link" href="https://github.com/hoanlv214/qma" target="_blank" rel="noopener noreferrer">
                     <svg viewBox="0 0 24 24" fill="currentColor">
                         <path
-                            d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.11.82-.26.82-.577v-2.234c-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22v3.293c0 .319.22.694.825.576C20.565 21.795 24 17.3 24 12c0-6.63-5.37-12-12-12z" />
+                             d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.11.82-.26.82-.577v-2.234c-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22v3.293c0 .319.22.694.825.576C20.565 21.795 24 17.3 24 12c0-6.63-5.37-12-12-12z" />
                     </svg>
                     GitHub
                 </a>
-                <a href="/app" class="btn-green nav-cta">
+                <a class="landing-nav-link btn-green nav-cta" href="/app">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                         stroke-linejoin="round">
                         <line x1="7" y1="17" x2="17" y2="7"></line>
@@ -69,15 +69,15 @@
 
         <section class="landing-hero">
             <div class="landing-kicker">Evidence-Based Market Research</div>
-            <h1>See what happened the last time the market looked like this</h1>
-            <p>
+            <h1 class="landing-hero-title">See what happened the last time the market looked like this</h1>
+            <p class="landing-hero-desc">
                 QMA retrieves similar historical market situations and generates evidence-backed reports instead of
                 trying to predict prices. Compare today's live signals with similar past events, and unlock detailed
                 memory reports instantly using friction-free, pay-per-query payments.
             </p>
             <div class="landing-agent-note">
-                <span>Agent-native</span>
-                <p>QMA's ranking engine autonomously scores live funding anomalies and surfaces the signals most worth querying.</p>
+                <span class="landing-agent-note-label">Agent-native</span>
+                <p class="landing-agent-note-text">QMA's ranking engine autonomously scores live funding anomalies and surfaces the signals most worth querying.</p>
             </div>
             <div class="landing-actions">
                 <a class="btn-green landing-primary" href="/app" target="_blank" rel="noopener noreferrer">
@@ -128,28 +128,28 @@
                 <div class="traction-marquee" aria-live="polite">
                     <div class="traction-track" id="traction-track-a">
                         <div class="traction-item">
-                            <strong data-traction="unique_payers">-</strong>
-                            <span>active wallets</span>
+                            <strong class="traction-value" data-traction="unique_payers">-</strong>
+                            <span class="traction-label">active wallets</span>
                         </div>
                         <div class="traction-item">
-                            <strong data-traction="paid_count">-</strong>
-                            <span>reports unlocked</span>
+                            <strong class="traction-value" data-traction="paid_count">-</strong>
+                            <span class="traction-label">reports unlocked</span>
                         </div>
                         <div class="traction-item">
-                            <strong data-traction="agent_unlocks">-</strong>
-                            <span>API integrations</span>
+                            <strong class="traction-value" data-traction="agent_unlocks">-</strong>
+                            <span class="traction-label">API integrations</span>
                         </div>
                         <div class="traction-item">
-                            <strong data-traction="revenue_usdc">-</strong>
-                            <span>USDC volume</span>
+                            <strong class="traction-value" data-traction="revenue_usdc">-</strong>
+                            <span class="traction-label">USDC volume</span>
                         </div>
                         <div class="traction-item">
-                            <strong data-traction="preview_count">-</strong>
-                            <span>previews generated</span>
+                            <strong class="traction-value" data-traction="preview_count">-</strong>
+                            <span class="traction-label">previews generated</span>
                         </div>
                         <div class="traction-item">
-                            <strong data-traction="full_count">-</strong>
-                            <span>full reports delivered</span>
+                            <strong class="traction-value" data-traction="full_count">-</strong>
+                            <span class="traction-label">full reports delivered</span>
                         </div>
                     </div>
                 </div>
@@ -165,7 +165,7 @@
                     </svg>
                 </div>
                 <h2>Market Memory Analysis</h2>
-                <p>Instantly compare today's live signals against years of historical data to locate precise past
+                <p class="landing-feature-desc">Instantly compare today's live signals against years of historical data to locate precise past
                     situations that match the current setup.</p>
             </article>
             <article>
@@ -176,7 +176,7 @@
                     </svg>
                 </div>
                 <h2>Evidence-Backed Reports</h2>
-                <p>Get detailed distribution outcomes, win rates, and similar event histories. Evaluate facts and
+                <p class="landing-feature-desc">Get detailed distribution outcomes, win rates, and similar event histories. Evaluate facts and
                     statistical probabilities, not predictions.</p>
             </article>
             <article>
@@ -188,7 +188,7 @@
                     </svg>
                 </div>
                 <h2>Persistent Unlocks</h2>
-                <p>No monthly plans or hidden commitments. Reports are bound securely to your wallet credentials,
+                <p class="landing-feature-desc">No monthly plans or hidden commitments. Reports are bound securely to your wallet credentials,
                     allowing you to access them any time.</p>
             </article>
         </div>
@@ -197,20 +197,20 @@
             <div>
                 <div class="section-eyebrow landing-section-label">Open intelligence marketplace</div>
                 <h2>A Marketplace for Market Intelligence</h2>
-                <p>
+                <p class="landing-proof-desc">
                     QMA operates as a decentralized platform for historical market context. Independent intelligence
                     providers package private datasets - from funding rate histories and order flow dynamics to whale
                     metrics and social indicators - as paid APIs that users and autonomous agents can query instantly.
                 </p>
             </div>
             <div class="landing-proof-card">
-                <div><span>Active Providers</span><strong>Funding Memory, OI Memory</strong></div>
-                <div><span>Coming Soon</span><strong>Whale Memory, Social Memory</strong></div>
-                <div><span>Approach</span><strong>Compare today's market with past setups</strong></div>
-                <div><span>Pricing</span><strong>Pay only for the report you want</strong></div>
-                <div><span>Access</span><strong>Connect wallet to view unlocked reports</strong></div>
-                <div><span>Settlement</span><strong>Instant USDC on Arc Testnet</strong></div>
-                <div class="proof-tech"><span>Tech</span><strong>Arc Testnet USDC / Circle Gateway / x402-style API</strong></div>
+                <div class="landing-proof-item"><span class="landing-proof-label">Active Providers</span><strong class="landing-proof-value">Funding Memory, OI Memory</strong></div>
+                <div class="landing-proof-item"><span class="landing-proof-label">Coming Soon</span><strong class="landing-proof-value">Whale Memory, Social Memory</strong></div>
+                <div class="landing-proof-item"><span class="landing-proof-label">Approach</span><strong class="landing-proof-value">Compare today's market with past setups</strong></div>
+                <div class="landing-proof-item"><span class="landing-proof-label">Pricing</span><strong class="landing-proof-value">Pay only for the report you want</strong></div>
+                <div class="landing-proof-item"><span class="landing-proof-label">Access</span><strong class="landing-proof-value">Connect wallet to view unlocked reports</strong></div>
+                <div class="landing-proof-item"><span class="landing-proof-label">Settlement</span><strong class="landing-proof-value">Instant USDC on Arc Testnet</strong></div>
+                <div class="landing-proof-item proof-tech"><span class="landing-proof-label">Tech</span><strong class="landing-proof-value">Arc Testnet USDC / Circle Gateway / x402-style API</strong></div>
             </div>
         </section>
 
@@ -219,19 +219,19 @@
             <div class="landing-flow-steps">
                 <div class="flow-step">
                     <div class="flow-step-num">Step 1</div>
-                    <span>Pick a Signal</span>
-                    <p>Select a live market anomaly or input custom parameters representing a current market situation.
+                    <span class="flow-step-title">Pick a Signal</span>
+                    <p class="flow-step-desc">Select a live market anomaly or input custom parameters representing a current market situation.
                     </p>
                 </div>
                 <div class="flow-step">
                     <div class="flow-step-num">Step 2</div>
-                    <span>Pay for This Report</span>
-                    <p>Pay a small USDC amount for exactly the report you want - no subscription, settled instantly on Arc.</p>
+                    <span class="flow-step-title">Pay for This Report</span>
+                    <p class="flow-step-desc">Pay a small USDC amount for exactly the report you want - no subscription, settled instantly on Arc.</p>
                 </div>
                 <div class="flow-step">
                     <div class="flow-step-num">Step 3</div>
-                    <span>Read the Historical Comparison</span>
-                    <p>View the historical analog report showing past outcomes and statistical context, linked
+                    <span class="flow-step-title">Read the Historical Comparison</span>
+                    <p class="flow-step-desc">View the historical analog report showing past outcomes and statistical context, linked
                         permanently to your wallet.</p>
                 </div>
             </div>
@@ -240,17 +240,17 @@
         <section class="landing-audience">
             <div class="section-eyebrow landing-section-label">Who it's for</div>
             <div class="landing-audience-grid">
-                <article>
-                    <strong>Traders</strong>
-                    <p>Want historical context before making decisions - not price predictions.</p>
+                <article class="landing-audience-card--traders">
+                    <strong class="landing-audience-title">Traders</strong>
+                    <p class="landing-audience-desc">Want historical context before making decisions - not price predictions.</p>
                 </article>
-                <article>
-                    <strong>Researchers</strong>
-                    <p>Need evidence and statistical distributions, not speculation.</p>
+                <article class="landing-audience-card--researchers">
+                    <strong class="landing-audience-title">Researchers</strong>
+                    <p class="landing-audience-desc">Need evidence and statistical distributions, not speculation.</p>
                 </article>
-                <article>
-                    <strong>AI Agents</strong>
-                    <p>Query via API, pay per call in USDC. <span data-traction="agent_unlocks">-</span> autonomous agent unlocks logged on Arc testnet.</p>
+                <article class="landing-audience-card--agents">
+                    <strong class="landing-audience-title">AI Agents</strong>
+                    <p class="landing-audience-desc">Query via API, pay per call in USDC. <span data-traction="agent_unlocks">-</span> autonomous agent unlocks logged on Arc testnet.</p>
                 </article>
             </div>
         </section>
@@ -283,7 +283,7 @@
                 <h2>Expose Private Data as Paid APIs</h2>
             </div>
             <div>
-                <p>
+                <p class="landing-builders-desc">
                     QMA provides a complete, reusable toolkit for creators who want to monetize proprietary data.
                     Package your intelligence into a query-based API, define preview and full report pricing, and let
                     QMA handle the wallet-based entitlement and instant micropayment tracking.
@@ -298,7 +298,7 @@
 
         <section class="landing-source" id="source-code">
             <div class="section-eyebrow landing-section-label">Open Source Ecosystem</div>
-            <p>
+            <p class="landing-source-desc">
                 QMA is open-source. Build your own provider, customize the analog matching engine, or integrate the
                 payment middleware. The repository includes everything you need to run your own local marketplace and
                 crawl custom historical datasets.
@@ -319,20 +319,20 @@
                     <p class="footer-brand-desc">Historical market intelligence. Evidence-backed reports from past
                         analog events — not predictions.</p>
                     <div class="landing-socials footer-socials" aria-label="QMA footer social links">
-                        <a href="http://x.com/hoanlv21" target="_blank" rel="noopener noreferrer" title="X (Twitter)">
+                        <a class="social-link" href="http://x.com/hoanlv21" target="_blank" rel="noopener noreferrer" title="X (Twitter)">
                             <svg viewBox="0 0 24 24" fill="currentColor">
                                 <path
                                     d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
                             </svg>
                         </a>
-                        <a href="https://github.com/hoanlv214/qma" target="_blank" rel="noopener noreferrer"
+                        <a class="social-link" href="https://github.com/hoanlv214/qma" target="_blank" rel="noopener noreferrer"
                             title="GitHub">
                             <svg viewBox="0 0 24 24" fill="currentColor">
                                 <path
                                     d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.11.82-.26.82-.577v-2.234c-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22v3.293c0 .319.22.694.825.576C20.565 21.795 24 17.3 24 12c0-6.63-5.37-12-12-12z" />
                             </svg>
                         </a>
-                        <a href="https://discordapp.com/users/711257217483014206" target="_blank"
+                        <a class="social-link" href="https://discordapp.com/users/711257217483014206" target="_blank"
                             rel="noopener noreferrer" title="Discord">
                             <svg viewBox="0 0 127.14 96.36" fill="currentColor">
                                 <path
@@ -341,14 +341,14 @@
                         </a>
                     </div>
                 </div>
-                <div>
+                <div class="landing-footer-col">
                     <h3>Product</h3>
                     <a href="/app">Agent Picks</a>
                     <a href="/app">Preview Reports</a>
                     <a href="/app">Full Reports</a>
                     <a href="/user">Wallet History</a>
                 </div>
-                <div>
+                <div class="landing-footer-col">
                     <h3>Platform</h3>
                     <a href="#source-code">Paid Intelligence Kit</a>
                     <a href="/api/v1/providers" data-api-path="/api/v1/providers" target="_blank"
@@ -357,7 +357,7 @@
                     <a href="https://testnet.arcscan.app/" target="_blank" rel="noopener noreferrer">Arcscan
                         Explorer</a>
                 </div>
-                <div>
+                <div class="landing-footer-col">
                     <h3>Developers</h3>
                     <a href="https://github.com/hoanlv214/qma" target="_blank" rel="noopener noreferrer">GitHub
                         Repository</a>

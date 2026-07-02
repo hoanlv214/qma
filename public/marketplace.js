@@ -88,29 +88,29 @@ function renderProviders(providers) {
         return `
             <article class="marketplace-provider-card">
                 <div class="marketplace-provider-top">
-                    <div>
+                    <div class="marketplace-provider-main">
                         <span class="provider-status ${escapeHtml(status)}">${escapeHtml(status)}</span>
-                        <h2>${escapeHtml(provider.provider_name || provider.provider_id)}</h2>
+                        <h2 class="marketplace-provider-title">${escapeHtml(provider.provider_name || provider.provider_id)}</h2>
                         <p class="provider-id-line">${escapeHtml(provider.provider_id)}</p>
                     </div>
                     <a class="landing-secondary" href="${escapeHtml(selectHref)}">Select</a>
                 </div>
                 <p class="marketplace-provider-desc">${escapeHtml(provider.description || '')}</p>
                 <div class="marketplace-stats-grid">
-                    <div><span>Preview</span><strong>${money(preview)}</strong></div>
-                    <div><span>Full</span><strong>${money(full)}</strong></div>
-                    <div><span>Sales</span><strong>${Number(stats.payments || 0)}</strong></div>
-                    <div><span>Revenue</span><strong>${money(stats.revenue_usdc)}</strong></div>
-                    <div><span>Creator Earned</span><strong>${money(stats.creator_earned_usdc)}</strong></div>
-                    <div><span>Creator Share</span><strong>${creatorShare.toFixed(0)}%</strong></div>
+                    <div class="marketplace-stat-tile"><span class="marketplace-stat-label">Preview</span><strong class="marketplace-stat-value">${money(preview)}</strong></div>
+                    <div class="marketplace-stat-tile"><span class="marketplace-stat-label">Full</span><strong class="marketplace-stat-value">${money(full)}</strong></div>
+                    <div class="marketplace-stat-tile"><span class="marketplace-stat-label">Sales</span><strong class="marketplace-stat-value">${Number(stats.payments || 0)}</strong></div>
+                    <div class="marketplace-stat-tile"><span class="marketplace-stat-label">Revenue</span><strong class="marketplace-stat-value">${money(stats.revenue_usdc)}</strong></div>
+                    <div class="marketplace-stat-tile"><span class="marketplace-stat-label">Creator Earned</span><strong class="marketplace-stat-value">${money(stats.creator_earned_usdc)}</strong></div>
+                    <div class="marketplace-stat-tile"><span class="marketplace-stat-label">Creator Share</span><strong class="marketplace-stat-value">${creatorShare.toFixed(0)}%</strong></div>
                 </div>
                 <div class="provider-owner marketplace-owner" title="${escapeHtml(provider.owner_wallet || '')}">
                     Owner wallet ${shortAddress(provider.owner_wallet)}
                 </div>
                 <div class="marketplace-symbols">
                     ${(stats.top_symbols || []).length
-                        ? stats.top_symbols.map(item => `<span>${escapeHtml(item.symbol)} x${Number(item.payments || 0)}</span>`).join('')
-                        : '<span>No sales yet</span>'}
+                        ? stats.top_symbols.map(item => `<span class="marketplace-symbol-badge">${escapeHtml(item.symbol)} x${Number(item.payments || 0)}</span>`).join('')
+                        : '<span class="marketplace-symbol-badge">No sales yet</span>'}
                 </div>
             </article>
         `;
@@ -225,7 +225,7 @@ function renderCreatorApplications(applications = []) {
             <article class="creator-application-card">
                 <div class="creator-application-card-top">
                     <div>
-                        <h3>${escapeHtml(application.provider_name || application.provider_id)}</h3>
+                        <h3 class="creator-application-card-title">${escapeHtml(application.provider_name || application.provider_id)}</h3>
                         <div class="creator-application-meta">${escapeHtml(application.provider_id)} · ${escapeHtml(application.data_source || 'data source n/a')}</div>
                     </div>
                     <span class="provider-status ${escapeHtml(status)}">${escapeHtml(status)}</span>

@@ -2834,8 +2834,8 @@ async function loadProviders() {
                     </div>
                     <div class="provider-desc">${escapeHtml(provider.description || '')}</div>
                     <div class="provider-meta">
-                        <span>Preview ${preview != null ? Number(preview).toFixed(3) : '—'}</span>
-                        <span>Full ${full != null ? Number(full).toFixed(3) : '—'}</span>
+                        <span class="provider-meta-item">Preview ${preview != null ? Number(preview).toFixed(3) : '—'}</span>
+                        <span class="provider-meta-item">Full ${full != null ? Number(full).toFixed(3) : '—'}</span>
                     </div>
                     <div class="provider-owner" title="${escapeHtml(provider.owner_wallet || '')}">Owner ${shortAddress(provider.owner_wallet)}${provider.enabled === false ? ' · Disabled' : ''}</div>
                 </button>

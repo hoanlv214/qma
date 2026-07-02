@@ -186,8 +186,8 @@ function paymentRowId(event = {}, index = 0) {
 function renderDefinitionRows(items) {
     return items.map(([label, value, className = '']) => `
         <div class="receipt-kv ${className}">
-            <span>${escapeHtml(label)}</span>
-            <strong title="${escapeHtml(value)}">${escapeHtml(value)}</strong>
+            <span class="receipt-kv-label">${escapeHtml(label)}</span>
+            <strong class="receipt-kv-value" title="${escapeHtml(value)}">${escapeHtml(value)}</strong>
         </div>
     `).join('');
 }
@@ -438,7 +438,7 @@ function renderPayments(events, entitlements = []) {
         return `
             <tr class="${hasReport ? 'user-payment-row is-clickable' : 'user-payment-row'}" data-row-id="${escapeHtml(rowId)}" data-entitlement-id="${escapeHtml(entitlementIdValue)}" title="${escapeHtml(formatDateTime(event.paid_at))}">
                 <td class="signal-cell">
-                    <strong>${escapeHtml(event.symbol || query.symbol || 'n/a')}</strong>
+                    <strong class="signal-symbol">${escapeHtml(event.symbol || query.symbol || 'n/a')}</strong>
                 </td>
                 <td class="time-cell">${escapeHtml(formatDateTime(event.paid_at))}</td>
                 <td>

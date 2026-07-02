@@ -74,7 +74,7 @@
                         <line x1="12" y1="20" x2="12" y2="4"></line>
                         <line x1="6" y1="20" x2="6" y2="14"></line>
                     </svg>
-                    <span>Status & Metrics</span>
+                    <span class="dropdown-btn-text">Status & Metrics</span>
                     <svg class="dropdown-btn-arrow" width="9" height="9" viewBox="0 0 24 24" fill="none"
                         stroke="currentColor" stroke-width="2.5">
                         <polyline points="6 9 12 15 18 9"></polyline>
@@ -289,15 +289,15 @@
                 </div>
                 <form class="query-form-grid" id="query-form">
                     <div class="query-fields-grid advanced-control">
-                        <div class="form-group">
-                            <label class="form-label">Symbol</label>
-                            <input type="text" class="form-input" id="q-symbol" value="HYPE" required>
-                        </div>
                         <div class="form-group provider-select-group">
                             <label class="form-label">Provider</label>
                             <select class="form-input provider-select" id="q-provider">
                                 <option value="funding_memory">funding_memory</option>
                             </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Symbol</label>
+                            <input type="text" class="form-input" id="q-symbol" value="HYPE" required>
                         </div>
                         <div class="form-group">
                             <label class="form-label">Funding Rate</label>
@@ -357,7 +357,7 @@
                                         <span class="invoice-label">Signal</span>
                                         <span class="invoice-val" id="invoice-signal-display">n/a</span>
                                     </div>
-                                    <div class="invoice-row">
+                                    <div class="invoice-row invoice-row--amount">
                                         <span class="invoice-label">Amount</span>
                                         <span class="invoice-val" id="invoice-amount-display">— USDC</span>
                                     </div>
@@ -380,7 +380,8 @@
                                                     <div class="pf-label">Wallet Connected</div>
                                                     <span class="pf-badge" id="pf-wallet-badge">Waiting</span>
                                                 </div>
-                                                <div class="pf-val" id="pf-buyer-wallet-bal">Connect wallet to continue.</div>
+                                                <div class="pf-val" id="pf-buyer-wallet-bal">Connect wallet to continue.
+                                                </div>
                                             </div>
                                         </div>
                                         <div id="pf-buyer-gateway" class="pf-row" data-payment-step="gateway">
@@ -390,7 +391,8 @@
                                                     <div class="pf-label">Deposit USDC</div>
                                                     <span class="pf-badge" id="pf-gateway-badge">Waiting</span>
                                                 </div>
-                                                <div class="pf-val" id="pf-gateway-step-text">Gateway balance is checked when you pay.</div>
+                                                <div class="pf-val" id="pf-gateway-step-text">Gateway balance is checked
+                                                    when you pay.</div>
                                             </div>
                                         </div>
                                         <div id="pf-settlement" class="pf-row" data-payment-step="settlement">
@@ -410,16 +412,18 @@
                                                     <div class="pf-label">Report Unlocked</div>
                                                     <span class="pf-badge" id="pf-unlock-badge">Waiting</span>
                                                 </div>
-                                                <div class="pf-val" id="pf-unlock-status">Report opens after QMA verifies the settlement.</div>
+                                                <div class="pf-val" id="pf-unlock-status">Report opens after QMA
+                                                    verifies the settlement.</div>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
                                 <div class="testnet-help">
                                     <div class="testnet-help-copy">
-                                        <strong>Need Arc USDC?</strong>
+                                        <strong class="testnet-help-title">Need Arc USDC?</strong>
                                     </div>
-                                    <button type="button" id="paywall-funding-assistant-btn">Open Funding Assistant</button>
+                                    <button type="button" class="testnet-help-action" id="paywall-funding-assistant-btn">Open Funding
+                                        Assistant</button>
                                 </div>
                                 <p class="paywall-snapshot-note">This exact paid snapshot is saved to Wallet History.
                                     If the live signal changes later, reopen this snapshot or unlock the new one.</p>
@@ -437,13 +441,15 @@
                                     <div class="paywall-detail-row">
                                         <span class="paywall-detail-label">Gateway Contract</span>
                                         <span class="paywall-detail-value pf-addr" id="pf-gateway-contract">—</span>
-                                        <button class="paywall-copy-btn" type="button" data-copy-for="pf-gateway-contract"
+                                        <button class="paywall-copy-btn" type="button"
+                                            data-copy-for="pf-gateway-contract"
                                             title="Copy Gateway Contract">Copy</button>
                                     </div>
                                     <div class="paywall-detail-row">
                                         <span class="paywall-detail-label">Seller Treasury</span>
                                         <span class="paywall-detail-value pf-addr" id="pf-seller-wallet-addr">—</span>
-                                        <button class="paywall-copy-btn" type="button" data-copy-for="pf-seller-wallet-addr"
+                                        <button class="paywall-copy-btn" type="button"
+                                            data-copy-for="pf-seller-wallet-addr"
                                             title="Copy Seller Treasury">Copy</button>
                                     </div>
                                     <div class="paywall-detail-row">
@@ -455,13 +461,15 @@
                                     <div class="paywall-detail-row">
                                         <span class="paywall-detail-label">Gateway Balance</span>
                                         <span class="paywall-detail-value" id="pf-buyer-gateway-bal">—</span>
-                                        <button class="paywall-copy-btn" type="button" data-copy-for="pf-buyer-gateway-bal"
+                                        <button class="paywall-copy-btn" type="button"
+                                            data-copy-for="pf-buyer-gateway-bal"
                                             title="Copy Gateway Balance">Copy</button>
                                     </div>
                                     <div class="paywall-detail-row">
                                         <span class="paywall-detail-label">Available Balance</span>
                                         <span class="paywall-detail-value" id="pf-seller-available">—</span>
-                                        <button class="paywall-copy-btn" type="button" data-copy-for="pf-seller-available"
+                                        <button class="paywall-copy-btn" type="button"
+                                            data-copy-for="pf-seller-available"
                                             title="Copy Available Balance">Copy</button>
                                     </div>
                                     <div class="paywall-detail-row">
@@ -478,8 +486,8 @@
                                     </div>
                                     <div class="paywall-detail-row" id="pf-arcscan-tx" style="display:none;">
                                         <span class="paywall-detail-label">Arcscan Tx</span>
-                                        <a class="paywall-detail-value tx-link" id="pf-arcscan-link" href="#" target="_blank"
-                                            rel="noreferrer">—</a>
+                                        <a class="paywall-detail-value tx-link" id="pf-arcscan-link" href="#"
+                                            target="_blank" rel="noreferrer">—</a>
                                         <button class="paywall-copy-btn" type="button" data-copy-for="pf-arcscan-link"
                                             title="Copy Arcscan Transaction">Copy</button>
                                     </div>
@@ -512,24 +520,24 @@
                             similar historical events performed.</p>
                         <div class="summary-card-grid">
                             <div class="summary-card">
-                                <span>Confidence</span>
-                                <strong id="summary-confidence">—</strong>
-                                <small>How familiar this setup looks in history</small>
+                                <span class="summary-card-label">Confidence</span>
+                                <strong class="summary-card-value" id="summary-confidence">—</strong>
+                                <small class="summary-card-desc">How familiar this setup looks in history</small>
                             </div>
                             <div class="summary-card">
-                                <span>Similar events</span>
-                                <strong id="summary-similar-count">—</strong>
-                                <small>Historical matches in QMA's dataset</small>
+                                <span class="summary-card-label">Similar events</span>
+                                <strong class="summary-card-value" id="summary-similar-count">—</strong>
+                                <small class="summary-card-desc">Historical matches in QMA's dataset</small>
                             </div>
                             <div class="summary-card">
-                                <span>Win rate</span>
-                                <strong id="summary-win-rate">—</strong>
-                                <small>How often similar cases finished positive</small>
+                                <span class="summary-card-label">Win rate</span>
+                                <strong class="summary-card-value" id="summary-win-rate">—</strong>
+                                <small class="summary-card-desc">How often similar cases finished positive</small>
                             </div>
                             <div class="summary-card">
-                                <span>Typical outcome</span>
-                                <strong id="summary-median">—</strong>
-                                <small>Median peak result in past analogs</small>
+                                <span class="summary-card-label">Typical outcome</span>
+                                <strong class="summary-card-value" id="summary-median">—</strong>
+                                <small class="summary-card-desc">Median peak result in past analogs</small>
                             </div>
                         </div>
                         <p class="plain-summary-disclaimer">Past performance does not guarantee future results. This is
@@ -752,7 +760,7 @@
                         </div>
 
                         <div class="split-tables">
-                            <div>
+                            <div class="split-table-col split-table-col--settlements">
                                 <div class="subsection-title">Recent Settlements</div>
                                 <div style="overflow-x:auto;">
                                     <table class="activity-table">
@@ -778,7 +786,7 @@
                                     <button type="button" class="refresh-btn" id="payment-next-btn">Next</button>
                                 </div>
                             </div>
-                            <div>
+                            <div class="split-table-col split-table-col--wallets">
                                 <div class="subsection-title">Wallet Usage</div>
                                 <div style="overflow-x:auto;">
                                     <table class="activity-table">
@@ -926,36 +934,38 @@
             <div class="modal-header">
                 <div>
                     <div class="modal-title" id="agent-run-title">Browser Judge Mode</div>
-                    <div class="modal-subtitle">QMA ranks live opportunities, chooses an affordable report, and creates an agent invoice.</div>
+                    <div class="modal-subtitle">QMA ranks live opportunities, chooses an affordable report, and creates
+                        an agent invoice.</div>
                 </div>
                 <button class="icon-button" id="agent-run-close" type="button" title="Close">x</button>
             </div>
             <div class="agent-run-body">
                 <div class="agent-mode-grid">
                     <div class="agent-mode-card active">
-                        <span>Browser Judge Mode</span>
-                        <strong>Human-safe payment</strong>
+                        <span class="agent-mode-label">Browser Judge Mode</span>
+                        <strong class="agent-mode-title">Human-safe payment</strong>
                         <small>Agent decides. Judge wallet confirms x402.</small>
                     </div>
                     <div class="agent-mode-card">
-                        <span>CLI Live Agent</span>
-                        <strong>Autonomous payment</strong>
+                        <span class="agent-mode-label">CLI Live Agent</span>
+                        <strong class="agent-mode-title">Autonomous payment</strong>
                         <small>Server/CLI signs with AGENT_PRIVATE_KEY.</small>
                     </div>
                 </div>
                 <div class="agent-run-policy">
                     <label>
-                        <span>Budget</span>
+                        <span class="agent-policy-label">Budget</span>
                         <input id="agent-run-budget" type="number" min="0.001" step="0.001" value="0.010">
                     </label>
                     <label>
-                        <span>Max/report</span>
+                        <span class="agent-policy-label">Max/report</span>
                         <input id="agent-run-max-price" type="number" min="0.001" step="0.001" value="0.005">
                     </label>
                 </div>
                 <button type="button" class="agent-run-btn" id="agent-run-btn">Run Agent Decision</button>
                 <div class="agent-run-trace" id="agent-run-trace">
-                    <div class="agent-run-line muted">Ready. The agent will rank live signals, choose an affordable report, and create an agent invoice.</div>
+                    <div class="agent-run-line muted">Ready. The agent will rank live signals, choose an affordable
+                        report, and create an agent invoice.</div>
                 </div>
                 <div class="agent-run-help">
                     Browser Judge Mode intentionally keeps private keys inside the wallet. Full autonomous mode runs
@@ -976,7 +986,8 @@
             <div class="modal-header">
                 <div>
                     <div class="modal-title" id="fund-arc-title">Fund Arc Wallet</div>
-                    <div class="modal-subtitle">Read-only funding readiness before QMA spends Gateway balance through x402.</div>
+                    <div class="modal-subtitle">Read-only funding readiness before QMA spends Gateway balance through
+                        x402.</div>
                 </div>
                 <button class="icon-button" id="fund-arc-close" type="button" title="Close">x</button>
             </div>
@@ -985,57 +996,54 @@
                     <div class="funding-section-top">
                         <div>
                             <div class="funding-section-title">Wallet Status</div>
-                            <p>QMA checks readiness before payment without bridging or depositing from this modal.</p>
+                            <p class="funding-section-desc">QMA checks readiness before payment without bridging or depositing from this modal.</p>
                         </div>
                         <span class="funding-status-pill" id="fund-readiness-status">Checking</span>
                     </div>
                     <div class="funding-status-grid">
                         <div class="funding-status-item">
-                            <span>Connected wallet</span>
-                            <strong id="fund-wallet-status">Not connected</strong>
+                            <span class="funding-item-label">Connected wallet</span>
+                            <strong class="funding-item-value" id="fund-wallet-status">Not connected</strong>
                         </div>
                         <div class="funding-status-item">
-                            <span>Wallet provider</span>
-                            <strong id="fund-provider-status">n/a</strong>
+                            <span class="funding-item-label">Wallet provider</span>
+                            <strong class="funding-item-value" id="fund-provider-status">n/a</strong>
                         </div>
                         <div class="funding-status-item">
-                            <span>Current chain</span>
-                            <strong id="fund-chain-status">n/a</strong>
+                            <span class="funding-item-label">Arc USDC balance</span>
+                            <strong class="funding-item-value" id="fund-wallet-usdc">n/a</strong>
                         </div>
                         <div class="funding-status-item">
-                            <span>Arc network</span>
-                            <strong id="fund-arc-status">Unknown</strong>
+                            <span class="funding-item-label">Gateway balance</span>
+                            <strong class="funding-item-value" id="fund-gateway-balance">n/a</strong>
                         </div>
                         <div class="funding-status-item">
-                            <span>Arc USDC balance</span>
-                            <strong id="fund-wallet-usdc">n/a</strong>
-                        </div>
-                        <div class="funding-status-item">
-                            <span>Gateway balance</span>
-                            <strong id="fund-gateway-balance">n/a</strong>
-                        </div>
-                        <div class="funding-status-item">
-                            <span>Required amount</span>
-                            <strong id="fund-required-amount">n/a</strong>
+                            <span class="funding-item-label">Required amount</span>
+                            <strong class="funding-item-value" id="fund-required-amount">n/a</strong>
                         </div>
                     </div>
-                    <div class="funding-next-step">
-                        <span>Next Step</span>
-                        <strong id="fund-next-step">Connect wallet first</strong>
-                        <button type="button" id="fund-primary-action">Connect wallet first</button>
+                </section>
+
+                <section class="funding-section">
+                    <div class="funding-section-top">
+                        <div class="funding-next-step">
+                            <span class="funding-item-label">Next Step</span>
+                            <strong class="funding-item-value" id="fund-next-step">Connect wallet first</strong>
+                            <button type="button" class="funding-action-btn" id="fund-primary-action">Connect wallet first</button>
+                        </div>
                     </div>
                     <div class="funding-network-details">
-                        <span>Arc Testnet network details</span>
-                        <div>
-                            <strong>Chain ID</strong>
+                        <span class="funding-network-title">Arc Testnet network details</span>
+                        <div class="funding-network-row">
+                            <strong class="funding-network-label">Chain ID</strong>
                             <code>5042002 / 0x4cef52</code>
                         </div>
-                        <div>
-                            <strong>RPC URL</strong>
+                        <div class="funding-network-row">
+                            <strong class="funding-network-label">RPC URL</strong>
                             <code>https://rpc.testnet.arc.network</code>
                         </div>
-                        <div>
-                            <strong>Currency</strong>
+                        <div class="funding-network-row">
+                            <strong class="funding-network-label">Currency</strong>
                             <code>USDC</code>
                         </div>
                         <div>
@@ -1050,20 +1058,22 @@
                     <div class="funding-route-grid">
                         <a class="funding-route-card" href="https://faucet.circle.com/" target="_blank"
                             rel="noopener noreferrer">
-                            <span>Option A</span>
-                            <strong>Circle Faucet</strong>
+                            <span class="funding-item-label">Option A</span>
+                            <strong class="funding-item-value">Circle Faucet</strong>
                             <small>Get Arc Testnet USDC for demos, judge testing, and Arc network fees.</small>
                         </a>
                         <a class="funding-route-card" href="https://developers.circle.com/" target="_blank"
                             rel="noopener noreferrer">
-                            <span>Option B</span>
-                            <strong>CCTP / Arc App Kit</strong>
-                            <small>Move existing USDC from another supported chain into Arc. QMA does not execute the bridge in-browser.</small>
+                            <span class="funding-item-label">Option B</span>
+                            <strong class="funding-item-value">CCTP / Arc App Kit</strong>
+                            <small>Move existing USDC from another supported chain into Arc. QMA does not execute the
+                                bridge in-browser.</small>
                         </a>
                         <div class="funding-route-card">
-                            <span>Option C</span>
-                            <strong>Gateway Deposit</strong>
-                            <small>Gateway balance is what QMA spends during x402 checkout. Deposit prompts stay inside payment flow.</small>
+                            <span class="funding-item-label">Option C</span>
+                            <strong class="funding-item-value">Gateway Deposit</strong>
+                            <small>Gateway balance is what QMA spends during x402 checkout. Deposit prompts stay inside
+                                payment flow.</small>
                         </div>
                     </div>
                 </section>
@@ -1071,12 +1081,12 @@
                 <section class="funding-section">
                     <div class="funding-section-title">Autonomous Agent Flow</div>
                     <div class="funding-lifecycle">
-                        <span>External USDC</span>
-                        <span>CCTP / App Kit</span>
-                        <span>Arc Wallet</span>
-                        <span>Gateway Deposit</span>
-                        <span>Agent buys reports</span>
-                        <span>Wallet-bound entitlement</span>
+                        <span class="funding-lifecycle-step">External USDC</span>
+                        <span class="funding-lifecycle-step">CCTP / App Kit</span>
+                        <span class="funding-lifecycle-step">Arc Wallet</span>
+                        <span class="funding-lifecycle-step">Gateway Deposit</span>
+                        <span class="funding-lifecycle-step">Agent buys reports</span>
+                        <span class="funding-lifecycle-step">Wallet-bound entitlement</span>
                     </div>
                 </section>
             </div>

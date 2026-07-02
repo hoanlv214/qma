@@ -1,4 +1,4 @@
-﻿/* ===== USER PROFILE PAGE ===== */
+/* ===== USER PROFILE PAGE ===== */
 .profile-body {
     min-height: 100vh;
     height: auto;
@@ -91,7 +91,7 @@
     margin-bottom: 12px;
 }
 
-.profile-hero h1 {
+.profile-hero-title {
     font-family: var(--sans);
     font-size: clamp(1.95rem, 4.8vw, 2.4rem);
     font-weight: 750;
@@ -100,7 +100,7 @@
     margin-bottom: 10px;
 }
 
-.profile-hero p {
+.profile-hero-desc {
     color: var(--t2);
     font-size: var(--text-md);
     line-height: 1.6;
@@ -335,7 +335,7 @@
     background: rgba(124, 111, 255, 0.035);
 }
 
-.profile-body .signal-cell strong,
+.profile-body .signal-cell .signal-symbol,
 .profile-body .payment-amount,
 .profile-body .provider-name {
     color: var(--t1);
@@ -461,7 +461,7 @@
     padding-top: 0;
 }
 
-.receipt-kv span {
+.receipt-kv-label {
     color: var(--t3);
     font-family: var(--mono);
     font-size: 0.62rem;
@@ -469,7 +469,7 @@
     letter-spacing: 0.55px;
 }
 
-.receipt-kv strong {
+.receipt-kv-value {
     color: var(--t2);
     font-family: var(--sans);
     font-size: 0.8rem;
@@ -477,7 +477,7 @@
     overflow-wrap: anywhere;
 }
 
-.receipt-kv.mono-value strong {
+.receipt-kv.mono-value .receipt-kv-value {
     font-family: var(--mono);
     font-size: 0.72rem;
 }

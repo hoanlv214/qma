@@ -1,4 +1,4 @@
-﻿@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
 
 :root {
     /* Core background layers */
@@ -351,7 +351,7 @@ header {
     word-break: break-all;
 }
 
-.wallet-menu button {
+.wallet-menu .wallet-menu-item {
     width: 100%;
     border: 0;
     background: transparent;
@@ -366,7 +366,7 @@ header {
     transition: background 0.12s;
 }
 
-.wallet-menu button:hover {
+.wallet-menu .wallet-menu-item:hover {
     background: var(--accent-dim);
     color: var(--accent);
 }

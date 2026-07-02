@@ -411,7 +411,7 @@
     margin-bottom: 6px;
 }
 
-.provider-meta span {
+.provider-meta-item {
     color: var(--accent);
     background: var(--accent-dim);
     border: 1px solid rgba(124, 111, 255, 0.18);
@@ -433,7 +433,7 @@
     gap: 7px;
 }
 
-.data-source-grid div {
+.data-source-tile {
     border: 1px solid var(--bdr);
     border-radius: var(--radius-sm);
     background: rgba(255, 255, 255, 0.025);
@@ -441,7 +441,7 @@
     min-width: 0;
 }
 
-.data-source-grid span {
+.data-source-label {
     display: block;
     color: var(--t3);
     font-family: var(--mono);
@@ -451,7 +451,7 @@
     text-transform: uppercase;
 }
 
-.data-source-grid strong {
+.data-source-value {
     display: block;
     color: var(--t1);
     font-family: var(--mono);
@@ -738,11 +738,11 @@
 }
 
 /* Amount row — highlight */
-.invoice-row:nth-child(2) {
+.invoice-row--amount {
     background: rgba(124, 111, 255, 0.05);
 }
 
-.invoice-row:nth-child(2) .invoice-val {
+.invoice-row--amount .invoice-val {
     color: var(--green);
     font-size: 0.88rem;
     font-weight: 700;
@@ -785,14 +785,13 @@
     flex: 1;
 }
 
-.testnet-help strong {
+.testnet-help-title {
     color: var(--t1);
     font-family: var(--mono);
     font-size: 0.74rem;
 }
 
-.testnet-help a,
-.testnet-help button {
+.testnet-help-action {
     flex: 0 0 auto;
     padding: 6px 11px;
     border: 1px solid rgba(124, 111, 255, 0.35);
@@ -805,14 +804,10 @@
     text-decoration: none;
     white-space: nowrap;
     transition: all 0.18s ease;
-}
-
-.testnet-help button {
     cursor: pointer;
 }
 
-.testnet-help a:hover,
-.testnet-help button:hover {
+.testnet-help-action:hover {
     border-color: rgba(34, 211, 160, 0.45);
     background: rgba(34, 211, 160, 0.1);
     color: var(--green);
@@ -824,8 +819,7 @@
         flex-direction: column;
     } */
 
-    .testnet-help a,
-    .testnet-help button {
+    .testnet-help-action {
         text-align: center;
     }
 }
@@ -837,7 +831,7 @@
 }
 
 /* When inside the two-col paywall layout, the right side gets its own padding */
-.paywall-layout>div:last-child {
+.paywall-side {
     padding: 24px 24px 24px 20px;
     display: flex;
     flex-direction: column;
@@ -1230,8 +1224,7 @@
     margin-top: 8px;
 }
 
-.testnet-help a,
-.testnet-help button {
+.testnet-help-action {
     border: 0;
     background: transparent;
     padding: 0;
@@ -1278,7 +1271,7 @@
     font-weight: 800;
 }
 
-.funding-section p {
+.funding-section-desc {
     margin: 4px 0 0;
     color: var(--t3);
     font-size: 0.72rem;
@@ -1326,9 +1319,7 @@
     padding: 10px;
 }
 
-.funding-status-item span,
-.funding-next-step span,
-.funding-route-card span {
+.funding-item-label {
     color: var(--t3);
     font-family: var(--mono);
     font-size: 0.56rem;
@@ -1337,7 +1328,7 @@
     text-transform: uppercase;
 }
 
-.funding-status-item strong {
+.funding-status-item .funding-item-value {
     min-width: 0;
     overflow-wrap: anywhere;
     color: var(--t1);
@@ -1357,18 +1348,18 @@
     padding: 10px;
 }
 
-.funding-next-step span,
-.funding-next-step strong {
+.funding-next-step .funding-item-label,
+.funding-next-step .funding-item-value {
     grid-column: 1;
 }
 
-.funding-next-step strong {
+.funding-next-step .funding-item-value {
     color: var(--t1);
     font-size: 0.78rem;
     line-height: 1.45;
 }
 
-.funding-next-step button {
+.funding-action-btn {
     grid-column: 2;
     grid-row: 1 / span 2;
     align-self: center;
@@ -1383,12 +1374,12 @@
     padding: 8px 10px;
 }
 
-.funding-next-step button:hover {
+.funding-action-btn:hover {
     border-color: rgba(34, 211, 160, 0.42);
     color: var(--green);
 }
 
-.funding-next-step button:disabled {
+.funding-action-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
 }
@@ -1404,7 +1395,7 @@
     padding: 10px;
 }
 
-.funding-network-details > span {
+.funding-network-title {
     grid-column: 1 / -1;
     color: var(--t3);
     font-family: var(--mono);
@@ -1414,13 +1405,13 @@
     text-transform: uppercase;
 }
 
-.funding-network-details div {
+.funding-network-row {
     display: grid;
     gap: 3px;
     min-width: 0;
 }
 
-.funding-network-details strong {
+.funding-network-label {
     color: var(--t2);
     font-size: 0.66rem;
 }
@@ -1455,7 +1446,7 @@
     border-color: rgba(124, 111, 255, 0.28);
 }
 
-.funding-route-card strong {
+.funding-route-card .funding-item-value {
     color: var(--t1);
     font-size: 0.76rem;
 }
@@ -1473,7 +1464,7 @@
     margin-top: 10px;
 }
 
-.funding-lifecycle span {
+.funding-lifecycle-step {
     border: 1px solid rgba(34, 211, 160, 0.18);
     border-radius: 999px;
     background: rgba(34, 211, 160, 0.06);
@@ -1485,6 +1476,7 @@
 }
 
 @media (max-width: 720px) {
+
     .funding-section-top,
     .funding-next-step {
         grid-template-columns: 1fr;
@@ -1497,7 +1489,7 @@
         grid-template-columns: 1fr;
     }
 
-    .funding-next-step button {
+    .funding-action-btn {
         grid-column: 1;
         grid-row: auto;
         width: 100%;
@@ -1529,7 +1521,7 @@
     background: rgba(34, 211, 160, 0.08);
 }
 
-.agent-mode-card span {
+.agent-mode-label {
     color: var(--t3);
     font-family: var(--mono);
     font-size: 0.58rem;
@@ -1538,7 +1530,7 @@
     text-transform: uppercase;
 }
 
-.agent-mode-card strong {
+.agent-mode-title {
     color: var(--t1);
     font-size: 0.75rem;
 }
@@ -1560,7 +1552,7 @@
     gap: 4px;
 }
 
-.agent-run-policy span {
+.agent-policy-label {
     color: var(--t3);
     font-family: var(--mono);
     font-size: 0.56rem;
@@ -1745,6 +1737,10 @@
     gap: 16px;
     opacity: 0.07;
     transition: opacity 0.5s ease-out;
+}
+
+.report-container > * {
+    min-width: 0;
 }
 
 .unlocked .report-container {
@@ -2032,6 +2028,7 @@
     border-radius: var(--radius-sm);
     padding: 12px 14px;
     border: 1px solid;
+    min-width: 0;
 }
 
 .balance-tile.green {
@@ -2163,6 +2160,7 @@
         grid-template-columns: repeat(2, 1fr);
     }
 
+    .body .seller-balance-grid,
     .seller-balance-grid {
         grid-template-columns: 1fr;
     }
@@ -2210,6 +2208,7 @@
         grid-template-columns: 1fr;
     }
 }
+
 /* ===== APP PAGE OVERRIDES ===== */
 /* ========================================================
    QMA Premium Responsive & Decluttered Design Stylesheet
@@ -2849,13 +2848,13 @@ body.advanced-view .advanced-dropdown-wrapper.advanced-only {
     padding: 12px;
 }
 
-.summary-card span,
-.summary-card small {
+.summary-card-label,
+.summary-card-desc {
     display: block;
     color: var(--t3);
 }
 
-.summary-card span {
+.summary-card-label {
     font-family: var(--mono);
     font-size: var(--text-2xs);
     font-weight: 800;
@@ -2863,7 +2862,7 @@ body.advanced-view .advanced-dropdown-wrapper.advanced-only {
     text-transform: uppercase;
 }
 
-.summary-card strong {
+.summary-card-value {
     display: block;
     color: var(--green);
     font-family: var(--mono);
@@ -2871,7 +2870,7 @@ body.advanced-view .advanced-dropdown-wrapper.advanced-only {
     margin: 8px 0 4px;
 }
 
-.summary-card small {
+.summary-card-desc {
     font-size: var(--text-xs);
     line-height: 1.35;
 }
@@ -3010,7 +3009,7 @@ body.basic-view .platform-stats-section {
     gap: 18px;
 }
 
-.body .split-tables>div {
+.split-table-col {
     min-width: 0;
     padding: 12px;
     border: 1px solid rgba(255, 255, 255, 0.07);
@@ -3018,11 +3017,11 @@ body.basic-view .platform-stats-section {
     background: rgba(6, 8, 16, 0.32);
 }
 
-.body .split-tables>div:first-child .activity-table {
+.split-table-col--settlements .activity-table {
     min-width: 860px;
 }
 
-.body .split-tables>div:nth-child(2) .activity-table {
+.split-table-col--wallets .activity-table {
     min-width: 680px;
 }
 
@@ -3073,7 +3072,7 @@ body.basic-view .platform-stats-section {
         padding: 22px 18px;
     }
 
-    .paywall-layout>div:last-child {
+    .paywall-side {
         padding: 16px 18px 20px;
     }
 
@@ -3144,7 +3143,7 @@ body.basic-view .platform-stats-section {
         /* Hide clock on phones to save space */
     }
 
-    .stats-dropdown-btn span {
+    .stats-dropdown-btn .dropdown-btn-text {
         display: none;
         /* Hide text on phone, keep icon only */
     }
@@ -3244,6 +3243,7 @@ body.basic-view .platform-stats-section {
         gap: 12px;
     }
 
+    .body .seller-balance-grid,
     .seller-balance-grid {
         grid-template-columns: 1fr;
         gap: 10px;
@@ -3254,7 +3254,7 @@ body.basic-view .platform-stats-section {
         gap: 20px;
     }
 
-    .body .split-tables>div {
+    .split-table-col {
         padding: 10px;
     }
 }
@@ -3299,7 +3299,7 @@ body.basic-view .platform-stats-section {
         flex-shrink: 0;
         z-index: 100;
     }
-    
+
     .main-panel {
         margin-left: 300px;
         width: calc(100% - 300px);
@@ -3546,6 +3546,7 @@ body.basic-view .platform-stats-section {
     min-width: 54px;
     text-align: center;
 }
+
 .how-qma-works {
     margin: 12px 0 10px;
     border: 1px solid rgba(124, 111, 255, 0.18);
@@ -3650,7 +3651,8 @@ body.basic-view .platform-stats-section {
 }
 
 .how-qma-chevron {
-    font-size: 0;  /* hide the inline text, use ::after only */
+    font-size: 0;
+    /* hide the inline text, use ::after only */
 }
 
 @media (max-width: 600px) {
@@ -3684,4 +3686,3 @@ body.basic-view .platform-stats-section {
 .paywall-trust-links a {
     font-size: 0.64rem;
 }
-
