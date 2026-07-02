@@ -120,10 +120,19 @@ create index if not exists qma_creator_applications_wallet_idx
 create index if not exists qma_creator_applications_status_idx
   on public.qma_creator_applications (status, created_at desc);
 
+create table if not exists public.qma_provider_controls (
+  provider_id text primary key,
+  enabled boolean not null default true,
+  updated_at double precision,
+  control jsonb not null default '{}'::jsonb,
+  inserted_at timestamptz not null default now()
+);
+
 alter table public.qma_payment_events enable row level security;
 alter table public.qma_paid_reports enable row level security;
 alter table public.qma_invoices enable row level security;
 alter table public.qma_creator_applications enable row level security;
+alter table public.qma_provider_controls enable row level security;
 ```
 
 There are no public RLS policies on purpose. The FastAPI backend uses the service role key, which bypasses RLS. Browser clients should not query these tables directly yet.

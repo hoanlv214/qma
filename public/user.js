@@ -604,7 +604,7 @@ function renderProfileSummary(metrics, walletStatus) {
 
 async function connectWallet() {
     if (!window.ethereum?.request) {
-        alert('MetaMask is required to connect a wallet.');
+        alert('EVM is required to connect a wallet.');
         return;
     }
     const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });

@@ -2,15 +2,8 @@ import os
 from abc import ABC, abstractmethod
 from typing import Dict, Optional
 
-try:
-    import paid_intelligence_kit as paid_kit
-except ImportError:
-    from qma import paid_intelligence_kit as paid_kit
-
-try:
-    from qma_engine import QMAEngine
-except ImportError:
-    from qma.qma_engine import QMAEngine
+import paid_intelligence_kit as paid_kit
+from qma_engine import QMAEngine
 
 
 class IntelligenceProvider(ABC):
@@ -87,6 +80,7 @@ class IntelligenceProvider(ABC):
             "resource_types": ["qma_signal_report"],
             "input_schema": self.get_input_schema(),
             "output_schema": self.get_output_schema(),
+            "plugin_type": "builtin",
         }
 
 
@@ -225,19 +219,43 @@ class OpenInterestMemoryProvider(IntelligenceProvider):
         report = self.engine.analyze_signal(query)
         volume = float(query.get("volume24h") or 0)
         market_cap = max(float(query.get("marketCap") or 0), 1.0)
+        turnover_pct = round((volume / market_cap) * 100, 2)
+        amount_proxy = query.get("amount")
+        if turnover_pct >= 8:
+            turnover_regime = "very high turnover / crowded attention"
+        elif turnover_pct >= 3:
+            turnover_regime = "elevated turnover"
+        elif turnover_pct >= 1:
+            turnover_regime = "moderate turnover"
+        else:
+            turnover_regime = "thin turnover"
         report["provider_note"] = (
-            "Experimental OI Memory provider. The current demo uses live turnover/open-interest "
-            "proxy fields on top of the QMA historical analog engine."
+            "Experimental OI Memory provider. This built-in demo scores turnover/open-interest "
+            "proxy context separately from the funding provider. Replace the proxy engine with "
+            "a real OI dataset when that feed is available."
         )
+        report["analysis_focus"] = "turnover_open_interest_proxy"
         report["turnover_context"] = {
-            "volume_to_market_cap_pct": round((volume / market_cap) * 100, 2),
-            "amount_proxy": query.get("amount"),
+            "volume_to_market_cap_pct": turnover_pct,
+            "turnover_regime": turnover_regime,
+            "amount_proxy": amount_proxy,
+            "oi_proxy_score": round(min(100.0, turnover_pct * 8), 1),
+            "funding_rate_used_as_secondary_context": query.get("fundingRate"),
+        }
+        report["provider_diagnostics"] = {
+            "primary_signal": "volume24h / marketCap",
+            "secondary_signal": "fundingRate",
+            "dataset_status": "proxy_until_real_oi_feed_is_connected",
         }
         return report
 
     def preview(self, query: dict) -> dict:
-        preview = build_preview_from_full(self.full_report(query))
+        full = self.full_report(query)
+        preview = build_preview_from_full(full)
+        turnover = full.get("turnover_context", {})
         preview["provider_note"] = "Experimental OI Memory preview using turnover/open-interest proxy context."
+        preview["analysis_focus"] = "turnover_open_interest_proxy"
+        preview["turnover_context"] = turnover
         return preview
 
 

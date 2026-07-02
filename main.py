@@ -69,6 +69,7 @@ PAYMENT_LEDGER_PATH = os.path.join(os.path.dirname(__file__), "payment_ledger.js
 PAID_REPORTS_PATH = os.path.join(os.path.dirname(__file__), "paid_reports.json")
 INVOICES_PATH = os.path.join(os.path.dirname(__file__), "invoices.json")
 CREATOR_APPLICATIONS_PATH = os.path.join(os.path.dirname(__file__), "creator_applications.json")
+PROVIDER_CONTROLS_PATH = os.path.join(os.path.dirname(__file__), "provider_controls.json")
 PAYMENT_AMOUNT_USDC = float(os.getenv("QMA_PAYMENT_AMOUNT_USDC", os.getenv("QMA_PRICE_FULL_USDC", "0.005")))
 PAYMENT_RESOURCE_TYPE = os.getenv("QMA_PAYMENT_RESOURCE_TYPE", "qma_signal_report")
 PAYMENT_NETWORK = os.getenv("QMA_PAYMENT_NETWORK", "eip155:5042002")
@@ -82,6 +83,7 @@ INVOICE_TTL_SECONDS = int(os.getenv("QMA_INVOICE_TTL_SECONDS", "900"))
 ACCESS_TOKEN_TTL_SECONDS = int(os.getenv("QMA_ACCESS_TOKEN_TTL_SECONDS", "300"))
 ACCESS_TOKEN_SECRET = os.getenv("QMA_ACCESS_TOKEN_SECRET") or os.getenv("QMA_SESSION_SECRET") or "qma-local-demo-secret-change-me"
 ADMIN_TOKEN = os.getenv("QMA_ADMIN_TOKEN", "")
+ADMIN_WALLET_ADDRESS = os.getenv("QMA_ADMIN_WALLET", PAYMENT_WALLET_ADDRESS)
 RATE_LIMIT_ENABLED = os.getenv("QMA_RATE_LIMIT_ENABLED", "true").lower() not in ("false", "0", "no")
 RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("QMA_RATE_LIMIT_WINDOW_SECONDS", "60"))
 # Strict mode: if True, /analyze is blocked until Circle batch is "completed"/"confirmed".
@@ -97,7 +99,9 @@ storage_backend = create_storage_backend(
     reports_path=PAID_REPORTS_PATH,
     invoices_path=INVOICES_PATH,
     creators_path=CREATOR_APPLICATIONS_PATH,
+    provider_controls_path=PROVIDER_CONTROLS_PATH,
 )
+provider_runtime_controls: Dict[str, dict] = {}
 
 rate_limit_buckets = defaultdict(deque)
 
@@ -379,9 +383,27 @@ def save_creator_application(application: dict) -> bool:
         logger.warning(f"Could not save creator application: {exc}")
         return False
 
+def load_provider_controls() -> dict:
+    try:
+        if hasattr(storage_backend, "load_provider_controls"):
+            return storage_backend.load_provider_controls()
+    except Exception as exc:
+        logger.warning(f"Could not load provider controls: {exc}")
+    return {}
+
+def save_provider_control(provider_id: str, control: dict) -> bool:
+    try:
+        if hasattr(storage_backend, "save_provider_control"):
+            storage_backend.save_provider_control(provider_id, control)
+        return True
+    except Exception as exc:
+        logger.warning(f"Could not save provider control: {exc}")
+        return False
+
 # format: {invoice_id: {"status": "pending"|"paid", "created_at": float, "symbol": str}}
 invoices_db: Dict[str, dict] = load_invoices()
 creator_applications: Dict[str, dict] = load_creator_applications()
+provider_runtime_controls.update(load_provider_controls())
 
 def reload_persistent_state(include_reports: bool = True, include_invoices: bool = False) -> None:
     global payment_events, paid_reports, invoices_db
@@ -447,6 +469,10 @@ class CreatorApplicationRequest(BaseModel):
 class CreatorReviewRequest(BaseModel):
     status: str = Field(..., pattern="^(approved|rejected|needs_changes|pending)$")
     admin_note: Optional[str] = Field(default=None, max_length=600)
+
+class ProviderToggleRequest(BaseModel):
+    enabled: bool
+    admin_note: Optional[str] = Field(default=None, max_length=300)
 
 def model_to_dict(model: BaseModel) -> dict:
     if hasattr(model, "model_dump"):
@@ -1144,7 +1170,11 @@ def get_client_config():
             "default_usdc": GATEWAY_DEFAULT_DEPOSIT_USDC,
             "default_approve_usdc": GATEWAY_DEFAULT_APPROVE_USDC,
         },
-        "providers": provider_registry.list(),
+        "providers": [
+            provider_metadata(provider_registry.require(provider["provider_id"]))
+            for provider in provider_registry.list()
+            if provider_control(provider["provider_id"])["enabled"]
+        ],
         "require_completed_settlement": REQUIRE_COMPLETED_SETTLEMENT,
     }
 
@@ -1159,16 +1189,46 @@ def get_engine_profile():
         "clusters": engine.cluster_meta,
     }
 
-def get_provider_or_404(provider_id: str):
+def configured_disabled_providers() -> set[str]:
+    raw = os.getenv("QMA_DISABLED_PROVIDERS", "")
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+def provider_control(provider_id: str) -> dict:
+    provider_id = (provider_id or "").strip()
+    env_disabled = provider_id in configured_disabled_providers()
+    runtime = provider_runtime_controls.get(provider_id, {})
+    enabled = bool(runtime.get("enabled")) if "enabled" in runtime else not env_disabled
+    return {
+        "enabled": enabled,
+        "disabled_by_env": env_disabled,
+        "admin_note": runtime.get("admin_note"),
+        "updated_at": runtime.get("updated_at"),
+    }
+
+def provider_metadata(provider) -> dict:
+    metadata = provider.metadata()
+    metadata["enabled"] = provider_control(provider.provider_id)["enabled"]
+    metadata["control"] = provider_control(provider.provider_id)
+    return metadata
+
+def get_provider_or_404(provider_id: str, *, allow_disabled: bool = False):
     try:
-        return provider_registry.require(provider_id)
+        provider = provider_registry.require(provider_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Unknown intelligence provider: {provider_id}")
+    if not allow_disabled and not provider_control(provider.provider_id)["enabled"]:
+        raise HTTPException(status_code=403, detail=f"Provider is disabled: {provider.provider_id}")
+    return provider
 
 def require_admin_token(x_qma_admin_token: Optional[str] = None):
-    if ADMIN_TOKEN and not hmac.compare_digest(str(x_qma_admin_token or ""), ADMIN_TOKEN):
+    if not ADMIN_TOKEN:
+        raise HTTPException(status_code=503, detail="Admin token is not configured.")
+    if not hmac.compare_digest(str(x_qma_admin_token or ""), ADMIN_TOKEN):
         raise HTTPException(status_code=403, detail="Admin token required.")
     return True
+
+def has_admin_token(x_qma_admin_token: Optional[str] = None) -> bool:
+    return bool(ADMIN_TOKEN) and hmac.compare_digest(str(x_qma_admin_token or ""), ADMIN_TOKEN)
 
 def payment_events_for_provider(provider_id: str) -> list:
     reload_persistent_state(include_reports=False)
@@ -1207,7 +1267,7 @@ def payment_events_for_provider(provider_id: str) -> list:
     return sorted(unique.values(), key=lambda item: item.get("paid_at") or 0, reverse=True)
 
 def build_provider_stats(provider_id: str) -> dict:
-    provider = get_provider_or_404(provider_id)
+    provider = get_provider_or_404(provider_id, allow_disabled=True)
     events = payment_events_for_provider(provider_id)
     revenue = sum(float(event.get("amount_usdc") or 0) for event in events)
     share_bps = int(getattr(provider, "revenue_share_bps", 8000))
@@ -1242,33 +1302,95 @@ def build_provider_stats(provider_id: str) -> dict:
     }
 
 @app.get("/api/v1/providers")
-def list_providers():
-    """Lists paid intelligence providers available to human users and external agents."""
+def list_providers(
+    include_disabled: bool = Query(default=False),
+    x_qma_admin_token: Optional[str] = Header(default=None),
+):
+    """Lists paid intelligence providers available to buyers/agents.
+
+    Disabled manual plugins are hidden by default. Admin UIs can pass
+    include_disabled=true to inspect runtime controls without making those
+    providers purchasable.
+    """
+    if include_disabled:
+        require_admin_token(x_qma_admin_token)
+    providers = []
+    for provider in provider_registry.list():
+        metadata = provider_metadata(provider_registry.require(provider["provider_id"]))
+        if metadata.get("enabled") is False and not include_disabled:
+            continue
+        providers.append({
+            **metadata,
+            "stats": build_provider_stats(provider["provider_id"]),
+        })
     return {
         "status": "success",
-        "providers": [
-            {
-                **provider,
-                "stats": build_provider_stats(provider["provider_id"]),
-            }
-            for provider in provider_registry.list()
-        ],
+        "providers": providers,
     }
 
 @app.get("/api/v1/providers/{provider_id}")
-def get_provider(provider_id: str):
+def get_provider(
+    provider_id: str,
+    include_disabled: bool = Query(default=False),
+    x_qma_admin_token: Optional[str] = Header(default=None),
+):
     """Returns provider metadata, pricing, schemas, owner wallet, and supported report types."""
+    if include_disabled:
+        require_admin_token(x_qma_admin_token)
     return {
         "status": "success",
-        "provider": get_provider_or_404(provider_id).metadata(),
+        "provider": provider_metadata(get_provider_or_404(provider_id, allow_disabled=include_disabled)),
     }
 
 @app.get("/api/v1/providers/{provider_id}/stats")
-def get_provider_stats(provider_id: str):
+def get_provider_stats(
+    provider_id: str,
+    include_disabled: bool = Query(default=False),
+    x_qma_admin_token: Optional[str] = Header(default=None),
+):
     """Returns creator-facing sales, revenue split, and recent payment stats for one provider."""
+    if include_disabled:
+        require_admin_token(x_qma_admin_token)
+    get_provider_or_404(provider_id, allow_disabled=include_disabled)
     return {
         "status": "success",
         "stats": build_provider_stats(provider_id),
+    }
+
+@app.get("/api/v1/admin/public-config")
+def get_admin_public_config():
+    """Public hints for showing admin/seller controls in the browser. Real writes still require QMA_ADMIN_TOKEN."""
+    return {
+        "status": "success",
+        "seller_wallet": normalize_address(PAYMENT_WALLET_ADDRESS),
+        "admin_wallet": normalize_address(ADMIN_WALLET_ADDRESS),
+        "admin_token_required": True,
+        "admin_token_configured": bool(ADMIN_TOKEN),
+    }
+
+@app.post("/api/v1/providers/{provider_id}/toggle")
+def toggle_provider_plugin(
+    provider_id: str,
+    req: ProviderToggleRequest,
+    x_qma_admin_token: Optional[str] = Header(default=None),
+):
+    """Admin-only runtime on/off switch for built-in provider plugins."""
+    require_admin_token(x_qma_admin_token)
+    provider = get_provider_or_404(provider_id, allow_disabled=True)
+    control = {
+        "enabled": req.enabled,
+        "admin_note": req.admin_note,
+        "updated_at": time.time(),
+    }
+    if not save_provider_control(provider.provider_id, control):
+        raise HTTPException(
+            status_code=503,
+            detail="Provider control storage is not configured. Run the Supabase migration for qma_provider_controls, or use JSON storage locally.",
+        )
+    provider_runtime_controls[provider.provider_id] = control
+    return {
+        "status": "success",
+        "provider": provider_metadata(provider),
     }
 
 @app.post("/api/v1/creators/apply")
@@ -1283,6 +1405,8 @@ def apply_creator_provider(req: CreatorApplicationRequest):
         "creator_wallet": normalize_address(payload.get("creator_wallet")),
         "revenue_wallet": normalize_address(payload.get("revenue_wallet") or payload.get("creator_wallet")),
         "status": "pending",
+        "runtime_status": "application_only",
+        "provider_enabled": False,
         "created_at": now,
         "updated_at": now,
         "reviewed_at": None,
@@ -1305,12 +1429,12 @@ def list_creator_applications(
 ):
     """Lists creator applications. Wallet can read its own; admin can read all."""
     reload_persistent_state(include_reports=False)
-    is_admin = bool(ADMIN_TOKEN and hmac.compare_digest(str(x_qma_admin_token or ""), ADMIN_TOKEN))
+    is_admin = has_admin_token(x_qma_admin_token)
     if not wallet and not is_admin:
         raise HTTPException(status_code=403, detail="Pass wallet=0x... or admin token.")
     normalized_wallet = normalize_address(wallet)
     records = list(load_creator_applications().values())
-    if wallet and not is_admin:
+    if wallet:
         records = [item for item in records if normalize_address(item.get("creator_wallet")) == normalized_wallet]
     if status_filter:
         records = [item for item in records if item.get("status") == status_filter]
@@ -1334,6 +1458,8 @@ def review_creator_application(
     if not application:
         raise HTTPException(status_code=404, detail="Creator application not found.")
     application["status"] = req.status
+    application["runtime_status"] = "approved_needs_plugin" if req.status == "approved" else "application_only"
+    application["provider_enabled"] = False
     application["admin_note"] = req.admin_note
     application["reviewed_at"] = time.time()
     application["updated_at"] = application["reviewed_at"]
@@ -1637,49 +1763,70 @@ def get_agent_recommendations(limit: int = Query(default=8, ge=1, le=25)):
     live = get_live_anomalies()
     anomalies = live.get("anomalies", [])
     picks = []
+    enabled_providers = [
+        provider_registry.require(item["provider_id"])
+        for item in provider_registry.list()
+        if provider_control(item["provider_id"])["enabled"]
+    ]
     for item in anomalies:
         funding_pct = abs(float(item.get("fundingRate") or 0) * 100)
         volume = float(item.get("volume24h") or 0)
         market_cap = max(float(item.get("marketCap") or 0), 1)
         circ = float(item.get("circRatio") or 0)
         ath = abs(float(item.get("fromATH") or 0))
-        volume_score = min(25.0, (volume / market_cap) * 100)
-        funding_score = min(45.0, funding_pct * 18)
-        structure_score = min(20.0, max(0.0, 1.0 - abs(circ - 0.65)) * 20)
-        discount_score = min(10.0, ath / 10)
-        score = round(min(100.0, funding_score + volume_score + structure_score + discount_score), 1)
-        reasons = []
-        if funding_pct >= 0.5:
-            reasons.append("extreme negative funding")
-        elif funding_pct >= 0.25:
-            reasons.append("notable funding anomaly")
-        if volume / market_cap >= 0.02:
-            reasons.append("meaningful turnover")
-        if 0.2 <= circ <= 1.0:
-            reasons.append("usable circulating supply profile")
-        if ath >= 50:
-            reasons.append("deep drawdown context")
-        suggested_tier = "full" if score >= 65 else "preview"
         query_payload = canonical_query_payload(item)
-        provider = get_provider_or_404("funding_memory")
-        quote = provider.quote_price(query_payload, suggested_tier)
-        picks.append({
-            "provider_id": "funding_memory",
-            "provider_name": provider.provider_name,
-            "symbol": item.get("symbol"),
-            "score": score,
-            "suggested_tier": suggested_tier,
-            "suggested_price_usdc": quote["amount_usdc"],
-            "complexity_score": quote["complexity_score"],
-            "estimated_value": "High" if score >= 70 else "Medium" if score >= 45 else "Exploratory",
-            "reasons": reasons[:4] or ["fresh live anomaly"],
-            "query": canonical_query_payload(item),
-            "live": item,
-        })
+        for provider in enabled_providers:
+            turnover_pct = (volume / market_cap) * 100
+            structure_score = min(20.0, max(0.0, 1.0 - abs(circ - 0.65)) * 20)
+            discount_score = min(10.0, ath / 10)
+            reasons = []
+            if provider.provider_id == "oi_memory":
+                turnover_score = min(55.0, turnover_pct * 8)
+                funding_score = min(15.0, funding_pct * 6)
+                score = round(min(100.0, turnover_score + funding_score + structure_score + discount_score), 1)
+                if turnover_pct >= 8:
+                    reasons.append("very high turnover / OI proxy")
+                elif turnover_pct >= 3:
+                    reasons.append("elevated turnover / OI proxy")
+                elif turnover_pct >= 1:
+                    reasons.append("usable turnover context")
+                if funding_pct >= 0.25:
+                    reasons.append("funding used as secondary context")
+            else:
+                volume_score = min(25.0, turnover_pct)
+                funding_score = min(45.0, funding_pct * 18)
+                score = round(min(100.0, funding_score + volume_score + structure_score + discount_score), 1)
+                if funding_pct >= 0.5:
+                    reasons.append("extreme negative funding")
+                elif funding_pct >= 0.25:
+                    reasons.append("notable funding anomaly")
+                if turnover_pct >= 2:
+                    reasons.append("meaningful turnover")
+            if 0.2 <= circ <= 1.0:
+                reasons.append("usable circulating supply profile")
+            if ath >= 50:
+                reasons.append("deep drawdown context")
+            suggested_tier = "full" if score >= 65 else "preview"
+            quote = provider.quote_price(query_payload, suggested_tier)
+            picks.append({
+                "provider_id": provider.provider_id,
+                "provider_name": provider.provider_name,
+                "provider_category": provider.category,
+                "symbol": item.get("symbol"),
+                "score": score,
+                "suggested_tier": suggested_tier,
+                "suggested_price_usdc": quote["amount_usdc"],
+                "complexity_score": quote["complexity_score"],
+                "estimated_value": "High" if score >= 70 else "Medium" if score >= 45 else "Exploratory",
+                "reasons": reasons[:4] or ["fresh live anomaly"],
+                "query": query_payload,
+                "live": item,
+            })
     picks = sorted(picks, key=lambda item: item["score"], reverse=True)[:limit]
     return {
         "status": "success",
         "mode": "suggest_then_pay",
+        "provider_strategy": "single_provider_invoice",
         "pricing": paid_kit.pricing_config(),
         "last_updated": live.get("last_updated"),
         "recommendations": picks,

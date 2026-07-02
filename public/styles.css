@@ -12,7 +12,7 @@
     --bdr-md: rgba(255, 255, 255, 0.10);
     --bdr-hi: rgba(124, 111, 255, 0.35);
 
-    /* Accent â€” violet/indigo, not sky blue */
+    /* Accent  violet/indigo, not sky blue */
     --accent: #7C6FFF;
     --accent-dim: rgba(124, 111, 255, 0.12);
     --accent-glow: rgba(124, 111, 255, 0.25);
@@ -36,7 +36,7 @@
     --mono: 'JetBrains Mono', 'Fira Code', monospace;
     --sans: 'Inter', sans-serif;
 
-    /* â”€â”€ Typography scale â”€â”€ */
+    /* Typography scale */
     --text-2xs: 0.62rem;
     /* labels, badges, eyebrows         */
     --text-xs: 0.68rem;
@@ -52,7 +52,7 @@
     --text-xl: 1.12rem;
     /* prominent card values             */
 
-    /* â”€â”€ Border-radius scale â”€â”€ */
+    /* Border-radius scale */
     --radius-xs: 4px;
     /* badges, pills, small indicators   */
     --radius-sm: 6px;
@@ -66,7 +66,7 @@
     --radius-pill: 999px;
     /* fully-rounded chips, kickers      */
 
-    /* â”€â”€ Spacing scale (4 px base unit) â”€â”€ */
+    /* Spacing scale (4 px base unit) */
     --space-1: 4px;
     --space-2: 8px;
     --space-3: 12px;

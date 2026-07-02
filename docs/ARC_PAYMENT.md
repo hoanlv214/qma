@@ -52,12 +52,12 @@ The seller address must be the wallet that should receive USDC through Circle Ga
 1. Open `http://127.0.0.1:8000`.
 2. Submit a QMA query as either Preview or Full Report to create a tier-bound invoice.
 3. Click `Pay on Arc Testnet`.
-4. MetaMask switches/adds Arc Testnet and asks you to sign `TransferWithAuthorization`.
+4. Wallet switches/adds Arc Testnet and asks you to sign `TransferWithAuthorization`.
 5. The Arc Gateway sidecar settles the signed authorization through Circle Gateway.
 6. QMA verifies the returned settlement UUID through Circle's transfer API.
 7. The report unlocks once Circle accepts the settlement.
 
-If your Circle Gateway balance on Arc is lower than the report price, the UI now asks MetaMask to send two real transactions first:
+If your Circle Gateway balance on Arc is lower than the report price, the UI now asks wallet to send two real transactions first:
 
 1. `approve(USDC, GatewayWallet, amount)`
 2. `GatewayWallet.deposit(USDC, amount)`

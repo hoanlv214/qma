@@ -414,7 +414,7 @@ There are three different balances/addresses that must not be confused:
 
 Payment steps:
 
-1. User connects MetaMask on Arc Testnet.
+1. User connects EVM wallet on Arc Testnet.
 2. User submits a query; QMA creates an invoice.
 3. UI checks buyer Circle Gateway balance.
 4. If Gateway balance is too low:
@@ -634,7 +634,7 @@ Returns on-chain Arc USDC balance and USDC allowance to the Circle Gateway contr
 GET /api/deposit-calldata/{address}?amount=1.00&approveAmount=10.00
 ```
 
-Builds MetaMask transaction calldata for:
+Builds EVM transaction calldata for:
 
 - USDC `approve(GatewayWallet, approveAmount)`
 - GatewayWallet `deposit(USDC, amount)`
@@ -738,7 +738,7 @@ QMA reports are retrieval evidence, not trade guarantees. The current sample is 
 
 ### "Payment verification failed: self_transfer"
 
-The connected wallet is the seller wallet. Switch MetaMask to a buyer wallet or change `QMA_ARC_SELLER_ADDRESS` to a separate treasury wallet.
+The connected wallet is the seller wallet. Switch network to a buyer wallet or change `QMA_ARC_SELLER_ADDRESS` to a separate treasury wallet.
 
 ### Wallet USDC does not change after signing
 

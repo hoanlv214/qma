@@ -78,11 +78,20 @@ class JsonStorage:
 
     backend_name = "json"
 
-    def __init__(self, *, ledger_path: str, reports_path: str, invoices_path: str, creators_path: str):
+    def __init__(
+        self,
+        *,
+        ledger_path: str,
+        reports_path: str,
+        invoices_path: str,
+        creators_path: str,
+        provider_controls_path: str,
+    ):
         self.ledger_path = ledger_path
         self.reports_path = reports_path
         self.invoices_path = invoices_path
         self.creators_path = creators_path
+        self.provider_controls_path = provider_controls_path
 
     def _load_json(self, path: str, fallback):
         if not os.path.exists(path):
@@ -252,6 +261,16 @@ class JsonStorage:
         if application_id:
             applications[application_id] = application
             self._save_json(self.creators_path, applications)
+
+    def load_provider_controls(self) -> dict:
+        data = self._load_json(self.provider_controls_path, {})
+        return data if isinstance(data, dict) else {}
+
+    def save_provider_control(self, provider_id: str, control: dict) -> None:
+        controls = self.load_provider_controls()
+        if provider_id:
+            controls[provider_id] = control
+            self._save_json(self.provider_controls_path, controls)
 
 
 class SupabaseStorage:
@@ -585,8 +604,42 @@ class SupabaseStorage:
             "application": application,
         }], "application_id")
 
+    def load_provider_controls(self) -> dict:
+        try:
+            rows = self._request(
+                "GET",
+                "qma_provider_controls",
+                params={"select": "provider_id,control", "limit": "1000"},
+            ) or []
+        except RuntimeError:
+            return {}
+        controls = {}
+        for row in rows:
+            provider_id = row.get("provider_id")
+            control = row.get("control")
+            if provider_id and isinstance(control, dict):
+                controls[provider_id] = control
+        return controls
 
-def create_storage_backend(*, ledger_path: str, reports_path: str, invoices_path: str, creators_path: str):
+    def save_provider_control(self, provider_id: str, control: dict) -> None:
+        if not provider_id:
+            return
+        self._upsert("qma_provider_controls", [{
+            "provider_id": provider_id,
+            "enabled": control.get("enabled"),
+            "updated_at": control.get("updated_at"),
+            "control": control,
+        }], "provider_id")
+
+
+def create_storage_backend(
+    *,
+    ledger_path: str,
+    reports_path: str,
+    invoices_path: str,
+    creators_path: str,
+    provider_controls_path: str,
+):
     supabase_url = os.getenv("SUPABASE_URL") or os.getenv("QMA_SUPABASE_URL")
     service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("QMA_SUPABASE_SERVICE_ROLE_KEY")
     schema = os.getenv("SUPABASE_SCHEMA", "public")
@@ -597,4 +650,5 @@ def create_storage_backend(*, ledger_path: str, reports_path: str, invoices_path
         reports_path=reports_path,
         invoices_path=invoices_path,
         creators_path=creators_path,
+        provider_controls_path=provider_controls_path,
     )

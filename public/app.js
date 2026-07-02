@@ -142,6 +142,17 @@ function apiUrl(path) {
     return `${API_BASE_URL}${path}`;
 }
 
+function apiErrorMessage(data, fallback = 'Request failed') {
+    const detail = data?.detail ?? data?.error ?? data?.message;
+    if (Array.isArray(detail)) {
+        return detail.map((item) => item?.msg || item?.message || JSON.stringify(item)).join('; ');
+    }
+    if (detail && typeof detail === 'object') {
+        return detail.msg || detail.message || JSON.stringify(detail);
+    }
+    return detail || fallback;
+}
+
 function setArcGatewayBaseUrl(value) {
     arcGatewayBaseUrl = String(value || '').replace(/\/$/, '');
 }
@@ -179,7 +190,7 @@ function describeWalletError(err) {
     const lower = msg.toLowerCase();
     const code = walletErrorCode(err);
     if (code === -32002 || lower.includes('already pending')) {
-        return 'MetaMask already has a pending request. Open MetaMask, finish or reject it, then retry.';
+        return 'Wallet already has a pending request. Open wallet, finish or reject it, then retry.';
     }
     if (code === 4001 || lower.includes('user rejected') || lower.includes('rejected')) {
         return 'Wallet request was rejected.';
@@ -201,7 +212,7 @@ function withTimeout(promise, ms, label) {
     let timer = null;
     const timeout = new Promise((_, reject) => {
         timer = setTimeout(() => {
-            reject(new Error(`${label} timed out. Open MetaMask and finish any pending request, then retry.`));
+            reject(new Error(`${label} timed out. Open wallet and finish any pending request, then retry.`));
         }, ms);
     });
     return Promise.race([promise, timeout]).finally(() => {
@@ -997,6 +1008,12 @@ function formatDateTime(timestamp) {
     return new Date(ms).toLocaleString();
 }
 
+function formatTimeOnly(timestamp) {
+    if (!timestamp) return 'n/a';
+    const ms = timestamp > 10_000_000_000 ? timestamp : timestamp * 1000;
+    return new Date(ms).toLocaleTimeString();
+}
+
 function getOnChainUsdcBalance(walletStatus) {
     return walletStatus?.usdc?.formatted ?? walletStatus?.usdcBalance?.formatted ?? null;
 }
@@ -1438,15 +1455,15 @@ function entitlementBadgeForSignal(signal) {
     };
 }
 
-function getCachedReport(source, tier = 'full') {
+function getCachedReport(source, tier = 'full', providerId = currentProviderId || 'funding_memory') {
     try {
         if (!walletCacheScope()) return null;
         const normalizedTier = normalizeTier(tier);
-        const exactKey = signalCacheKey(source, normalizedTier);
+        const exactKey = signalCacheKey(source, normalizedTier, providerId);
         const exact = exactKey ? localStorage.getItem(exactKey) : null;
         if (exact) return JSON.parse(exact);
         if (normalizedTier === 'preview') {
-            const fullKey = signalCacheKey(source, 'full');
+            const fullKey = signalCacheKey(source, 'full', providerId);
             const full = fullKey ? localStorage.getItem(fullKey) : null;
             if (full) return JSON.parse(full);
         }
@@ -1486,10 +1503,11 @@ function getCachedReportsForSymbol(symbol) {
     return reports.sort((a, b) => Number(b.saved_at || 0) - Number(a.saved_at || 0));
 }
 
-function getLatestCachedReportForSymbolTier(symbol, tier = 'preview') {
+function getLatestCachedReportForSymbolTier(symbol, tier = 'preview', providerId = null) {
     const normalizedTier = normalizeTier(tier);
     return getCachedReportsForSymbol(symbol).find((entry) => (
         normalizeTier(entry.tier || entry.report?.tier || entry.report?.invoice?.tier || 'full') === normalizedTier
+        && (!providerId || (entry.provider_id || entry.report?.provider_id || entry.report?.invoice?.provider_id) === providerId)
     )) || null;
 }
 
@@ -2237,8 +2255,7 @@ async function loadLiveAnomalies(options = {}) {
                 const firstCard = anomaliesContainer.querySelector('.anomaly-card');
                 if (firstCard) firstCard.classList.add('active');
             }
-            const updatedAt = data.last_updated ? new Date(data.last_updated) : new Date();
-            setLiveRefreshState(`Updated ${updatedAt.toLocaleTimeString()}`);
+            setLiveRefreshState(`Updated ${formatTimeOnly(data.last_updated || Date.now())}`);
         } else {
             anomaliesContainer.innerHTML = '<div style="text-align: center; color: var(--text-dark); margin-top: 40px;">No funding anomalies found (funding <= -0.25%).</div>';
             setLiveRefreshState('No signals');
@@ -2540,9 +2557,10 @@ function agentPolicyPick(recommendations = [], budget = 0.01, maxPrice = 0.005, 
         .map((pick) => {
             let tier = normalizeTier(pick.suggested_tier || 'preview');
             const signal = normalizeSignalPayload(pick.query || { symbol: pick.symbol });
-            const fullEntry = getCachedReport(signal, 'full');
-            const exactPreviewEntry = fullEntry ? null : getCachedReport(signal, 'preview');
-            const symbolPreviewEntry = exactPreviewEntry || getLatestCachedReportForSymbolTier(signal.symbol, 'preview');
+            const providerId = pick.provider_id || currentProviderId || 'funding_memory';
+            const fullEntry = getCachedReport(signal, 'full', providerId);
+            const exactPreviewEntry = fullEntry ? null : getCachedReport(signal, 'preview', providerId);
+            const symbolPreviewEntry = exactPreviewEntry || getLatestCachedReportForSymbolTier(signal.symbol, 'preview', providerId);
             const shouldUpgrade = tier === 'preview' && symbolPreviewEntry?.report && !fullEntry?.report;
             if (shouldUpgrade) {
                 tier = 'full';
@@ -2698,7 +2716,7 @@ async function loadAgentRecommendations(options = {}) {
                 </div>
                 <div class="agent-pick-meta">
                     <span class="agent-tier-pill">${escapeHtml(tierLabel(pick.suggested_tier))} ${Number(pick.suggested_price_usdc || tierPrice(pick.suggested_tier)).toFixed(3)}</span>
-                    <span class="agent-pick-value" style="color:var(--t3); font-size:0.64rem;">${escapeHtml(pick.estimated_value || 'Exploratory')}</span>
+                    <span class="agent-pick-value" style="color:var(--t3); font-size:0.64rem;">${escapeHtml(pick.provider_id || 'provider')}</span>
                 </div>
                 <div class="agent-pick-reasons">${escapeHtml((pick.reasons || []).join(' | '))}</div>
                 <div class="card-meta-row agent-pick-meta-row">
@@ -2720,7 +2738,7 @@ async function loadAgentRecommendations(options = {}) {
                     providerSelect.value = currentProviderId;
                 }
                 currentInvoiceTier = normalizeTier(pick.suggested_tier);
-                currentInvoiceAmount = tierPrice(currentInvoiceTier);
+                currentInvoiceAmount = Number(pick.suggested_price_usdc || tierPrice(currentInvoiceTier));
 
                 if (isBasicView()) {
                     const cachedEntry = getCachedReport(signal, currentInvoiceTier);
@@ -2748,7 +2766,7 @@ async function loadAgentRecommendations(options = {}) {
                     showToast(`No submit button found for ${tierLabel(currentInvoiceTier)}.`, 'error');
                     return;
                 }
-                showToast(`Agent selected ${pick.symbol}: ${pick.reasons?.[0] || 'ranked opportunity'}. Creating ${tierLabel(currentInvoiceTier)} invoice.`, 'info');
+                showToast(`Agent selected ${pick.symbol} via ${currentProviderId}: ${pick.reasons?.[0] || 'ranked opportunity'}. Creating ${tierLabel(currentInvoiceTier)} invoice.`, 'info');
                 queryForm.requestSubmit(submitBtn);
             });
         });
@@ -2783,10 +2801,19 @@ async function loadProviders() {
         }
         if (providerSelect) {
             providerSelect.innerHTML = providers.map((provider) => {
-                const status = provider.status && provider.status !== 'approved' ? ` (${provider.status})` : '';
-                return `<option value="${escapeHtml(provider.provider_id)}">${escapeHtml(provider.provider_id)}${escapeHtml(status)}</option>`;
+                const status = provider.enabled === false
+                    ? ' (disabled)'
+                    : provider.status && provider.status !== 'approved'
+                        ? ` (${provider.status})`
+                        : '';
+                return `<option value="${escapeHtml(provider.provider_id)}" ${provider.enabled === false ? 'disabled' : ''}>${escapeHtml(provider.provider_id)}${escapeHtml(status)}</option>`;
             }).join('');
-            providerSelect.value = providerCatalog[currentProviderId] ? currentProviderId : providers[0].provider_id;
+            const enabledProviders = providers.filter(provider => provider.enabled !== false);
+            const currentProviderAvailable = providerCatalog[currentProviderId]?.enabled !== false
+                && Boolean(providerCatalog[currentProviderId]);
+            providerSelect.value = currentProviderAvailable
+                ? currentProviderId
+                : enabledProviders[0]?.provider_id || providers[0].provider_id;
             currentProviderId = providerSelect.value || currentProviderId;
             providerSelect.addEventListener('change', () => {
                 currentProviderId = providerSelect.value || 'funding_memory';
@@ -2810,13 +2837,17 @@ async function loadProviders() {
                         <span>Preview ${preview != null ? Number(preview).toFixed(3) : '—'}</span>
                         <span>Full ${full != null ? Number(full).toFixed(3) : '—'}</span>
                     </div>
-                    <div class="provider-owner" title="${escapeHtml(provider.owner_wallet || '')}">Owner ${shortAddress(provider.owner_wallet)}</div>
+                    <div class="provider-owner" title="${escapeHtml(provider.owner_wallet || '')}">Owner ${shortAddress(provider.owner_wallet)}${provider.enabled === false ? ' · Disabled' : ''}</div>
                 </button>
             `;
         }).join('');
         providerMarketplaceContainer.querySelectorAll('.provider-card').forEach((card) => {
             card.addEventListener('click', () => {
                 currentProviderId = card.dataset.providerId || 'funding_memory';
+                if (providerCatalog[currentProviderId]?.enabled === false) {
+                    showToast(`${currentProviderId} is currently disabled by admin.`, 'warning');
+                    return;
+                }
                 if (providerSelect) providerSelect.value = currentProviderId;
                 providerMarketplaceContainer.querySelectorAll('.provider-card').forEach((el) => el.classList.remove('active'));
                 card.classList.add('active');
@@ -3516,6 +3547,9 @@ queryForm.addEventListener('submit', async (e) => {
             })
         });
         const invoiceData = await invoiceResp.json();
+        if (!invoiceResp.ok) {
+            throw new Error(apiErrorMessage(invoiceData, `Invoice endpoint returned ${invoiceResp.status}`));
+        }
 
         currentInvoiceId = invoiceData.invoice_id;
         currentInvoiceSecret = invoiceData.invoice_secret;
@@ -3584,7 +3618,7 @@ queryForm.addEventListener('submit', async (e) => {
         if (invoiceBuyerType === 'agent') {
             appendAgentRunTrace(`Invoice creation failed: ${err.message || err}`, 'error');
         }
-        alert("Failed to initiate micro-payment invoice. Backend may be offline.");
+        alert(`Failed to initiate micro-payment invoice: ${err.message || err}`);
     }
 });
 
@@ -3629,7 +3663,7 @@ payButton.addEventListener('click', async () => {
         if (!account) {
             payButton.innerHTML = `
                         <div class="spinner" style="width: 16px; height: 16px;"></div>
-                        <span>Open MetaMask to connect...</span>
+                        <span>Open EVM wallet to connect...</span>
                     `;
             account = await connectWallet({ notify: false });
         }
@@ -3652,7 +3686,7 @@ payButton.addEventListener('click', async () => {
         await ensureArcTestnet();
         await sleep(250);
         if (sameAddress(account, currentSellerAddress)) {
-            throw new Error(`Connected wallet is the seller wallet (${currentSellerAddress}). Circle rejects self-transfer payments. Switch MetaMask to a buyer wallet such as acc1, or set QMA_ARC_SELLER_ADDRESS to a separate treasury wallet.`);
+            throw new Error(`Connected wallet is the seller wallet (${currentSellerAddress}). Circle rejects self-transfer payments. Switch network to a buyer wallet such as acc1, or set QMA_ARC_SELLER_ADDRESS to a separate treasury wallet.`);
         }
 
         payButton.innerHTML = `
@@ -3917,7 +3951,7 @@ payButton.addEventListener('click', async () => {
             if (err.message?.includes('Payment requires Circle Gateway balance')) {
                 cancelMessage = "Gateway balance is insufficient. Open Funding Assistant to check Arc USDC, use Faucet or CCTP/App Kit funding if needed, then retry payment. QMA will prompt Gateway Deposit during checkout.";
             } else if (err.message?.includes('User rejected')) {
-                cancelMessage = "MetaMask signature rejected — no funds sent";
+                cancelMessage = "Wallet signature rejected — no funds sent";
             }
 
             let latestWalletBal = null;

@@ -53,20 +53,37 @@
                     and a path to withdrawable provider balances.
                 </p>
             </div>
-            <div class="marketplace-summary">
-                <div><span>Payment rail</span><strong>Circle Gateway / x402</strong></div>
-                <div><span>Network</span><strong>Arc Testnet USDC</strong></div>
-                <div><span>Default split</span><strong>80% creator / 20% platform</strong></div>
-                <div><span>Review mode</span><strong>Admin approved providers</strong></div>
+            <div class="marketplace-hero-right">
+                <div class="marketplace-summary">
+                    <div><span>Payment rail</span><strong>Circle Gateway / x402</strong></div>
+                    <div><span>Network</span><strong>Arc Testnet USDC</strong></div>
+                    <div><span>Default split</span><strong>80% creator / 20% platform</strong></div>
+                    <div><span>Review mode</span><strong>Admin approved providers</strong></div>
+                </div>
+
+                <div class="marketplace-creator-row">
+                    <div class="marketplace-section creator-cta-card">
+                        <div class="marketplace-section-head">
+                            <div>
+                                <span class="sidebar-title">Want to sell market data?</span>
+                                <p>Apply as a creator/provider, or check the review status for submissions from your connected wallet.</p>
+                            </div>
+                            <div class="creator-action-buttons">
+                                <button type="button" class="submit-btn compact-submit" id="open-creator-application-btn">Apply as Provider</button>
+                                <button type="button" class="landing-secondary" id="open-creator-applications-btn">Check Applications</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </section>
 
         <section class="marketplace-layout">
-            <div class="marketplace-section">
+            <div class="marketplace-section marketplace-provider-section">
                 <div class="marketplace-section-head">
                     <div>
                         <span class="sidebar-title">Live Providers</span>
-                        <p>Approved and experimental creators available to QMA invoices.</p>
+                        <p>Enabled manual plugins available to QMA buyers and agents.</p>
                     </div>
                     <a class="landing-secondary" href="/app">Buy Reports</a>
                 </div>
@@ -74,50 +91,61 @@
                     <div class="agent-empty">Loading providers...</div>
                 </div>
             </div>
+        </section>
 
-            <aside class="marketplace-section creator-apply-card">
+        <div class="marketplace-modal-backdrop" id="creator-application-modal" hidden>
+            <aside class="marketplace-section creator-apply-card marketplace-modal-panel" role="dialog" aria-modal="true" aria-labelledby="creator-application-title">
                 <div class="marketplace-section-head">
                     <div>
-                        <span class="sidebar-title">Apply as Creator</span>
+                        <span class="sidebar-title" id="creator-application-title">Apply as Creator</span>
                         <p>Submit a dataset/API provider. Admin reviews source, schema, sample output, and wallet.</p>
                     </div>
+                    <button type="button" class="modal-close-button" id="creator-application-close" aria-label="Close creator application form">x</button>
                 </div>
                 <form id="creator-application-form" class="creator-form">
                     <label>
                         Creator wallet
-                        <input class="form-input" id="creator-wallet" name="creator_wallet" required
+                        <input class="form-input" id="creator-wallet" name="creator_wallet" required minlength="8"
                             placeholder="0x...">
+                        <small class="field-error" data-error-for="creator_wallet"></small>
                     </label>
                     <label>
                         Provider ID
-                        <input class="form-input" name="provider_id" required placeholder="whale_memory">
+                        <input class="form-input" name="provider_id" required minlength="3" maxlength="64" pattern="^[a-zA-Z0-9_-]+$" placeholder="whale_memory">
+                        <small class="field-error" data-error-for="provider_id"></small>
                     </label>
                     <label>
                         Provider name
-                        <input class="form-input" name="provider_name" required placeholder="Whale Memory Provider">
+                        <input class="form-input" name="provider_name" required minlength="3" maxlength="120" placeholder="Whale Memory Provider">
+                        <small class="field-error" data-error-for="provider_name"></small>
                     </label>
                     <label>
                         Contact
-                        <input class="form-input" name="contact" required placeholder="Discord, Telegram, or email">
+                        <input class="form-input" name="contact" required minlength="3" maxlength="160" placeholder="Discord, Telegram, or email">
+                        <small class="field-error" data-error-for="contact"></small>
                     </label>
                     <label>
                         Data source
-                        <input class="form-input" name="data_source" required
+                        <input class="form-input" name="data_source" required minlength="3" maxlength="240"
                             placeholder="Exchange API, on-chain indexer, private dataset...">
+                        <small class="field-error" data-error-for="data_source"></small>
                     </label>
                     <label>
                         API base URL
-                        <input class="form-input" name="api_base_url" placeholder="https://provider.example.com">
+                        <input class="form-input" name="api_base_url" maxlength="240" placeholder="https://provider.example.com">
+                        <small class="field-error" data-error-for="api_base_url"></small>
                     </label>
                     <label>
                         Description
-                        <textarea class="form-input" name="description" required rows="4"
+                        <textarea class="form-input" name="description" required minlength="20" maxlength="800" rows="4"
                             placeholder="What signal/data does this provider sell?"></textarea>
+                        <small class="field-error" data-error-for="description">Minimum 20 characters. Example: Whale transfer alerts with backtested signal context.</small>
                     </label>
                     <label>
                         Sample schema or response
-                        <textarea class="form-input" name="sample_schema" rows="4"
+                        <textarea class="form-input" name="sample_schema" rows="4" maxlength="1200"
                             placeholder='{"symbol":"HYPE","confidence":0.72}'></textarea>
+                        <small class="field-error" data-error-for="sample_schema"></small>
                     </label>
                     <label>
                         Creator share
@@ -131,6 +159,66 @@
                     <div class="creator-form-status" id="creator-form-status"></div>
                 </form>
             </aside>
+        </div>
+
+        <div class="marketplace-modal-backdrop" id="creator-applications-modal" hidden>
+            <aside class="marketplace-section creator-applications-card marketplace-modal-panel creator-applications-modal-panel" role="dialog" aria-modal="true" aria-labelledby="creator-applications-title">
+                <div class="marketplace-section-head">
+                    <div>
+                        <span class="sidebar-title" id="creator-applications-title">My Applications</span>
+                        <p>Track creator/provider submissions for your connected wallet.</p>
+                    </div>
+                    <div class="creator-action-buttons">
+                        <button type="button" class="landing-secondary" id="creator-applications-refresh-btn">Refresh</button>
+                        <button type="button" class="modal-close-button" id="creator-applications-close" aria-label="Close creator applications">x</button>
+                    </div>
+                </div>
+                <div class="creator-applications-list" id="creator-applications-list">
+                    <div class="agent-empty">Connect wallet to view your creator applications.</div>
+                </div>
+            </aside>
+        </div>
+
+        <section class="marketplace-section marketplace-admin-gate" id="marketplace-admin-gate">
+            <div class="marketplace-section-head">
+                <div>
+                    <span class="sidebar-title">Seller Admin</span>
+                    <p id="admin-gate-message">Connect the seller wallet to review creator applications and manage provider plugins.</p>
+                </div>
+                <button type="button" class="landing-secondary" id="admin-gate-connect-btn">Connect Seller Wallet</button>
+            </div>
+        </section>
+
+        <section class="marketplace-section marketplace-admin-section" id="marketplace-admin-section" hidden>
+            <div class="marketplace-section-head">
+                <div>
+                    <span class="sidebar-title">Seller Admin Review</span>
+                    <p>Approve creator applications and switch built-in provider plugins on or off. Runtime writes require the admin token.</p>
+                </div>
+                <button type="button" class="landing-secondary" id="admin-refresh-btn">Refresh</button>
+            </div>
+            <div class="admin-auth-row">
+                <label>
+                    Admin token
+                    <input class="form-input" id="admin-token-input" type="password" placeholder="QMA_ADMIN_TOKEN">
+                </label>
+                <button type="button" class="submit-btn admin-load-btn" id="admin-load-btn">Load Admin Data</button>
+            </div>
+            <div class="creator-form-status" id="admin-status"></div>
+            <div class="admin-grid">
+                <div>
+                    <div class="admin-subhead">Provider Plugins</div>
+                    <div class="admin-provider-list" id="admin-provider-list">
+                        <div class="agent-empty">Connect seller wallet to manage plugins.</div>
+                    </div>
+                </div>
+                <div>
+                    <div class="admin-subhead">Creator Applications</div>
+                    <div class="admin-application-list" id="admin-application-list">
+                        <div class="agent-empty">Connect seller wallet to review applications.</div>
+                    </div>
+                </div>
+            </div>
         </section>
     </main>
 

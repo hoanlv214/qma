@@ -653,7 +653,7 @@
     border-top: 1px solid var(--bdr);
 }
 
-/* .landing-footer-brand removed â€” logo+socials now in footer-col-brand inside .landing-footer-cols--4 */
+/* .landing-footer-brand removed  logo+socials now in footer-col-brand inside .landing-footer-cols--4 */
 
 .footer-socials {
     display: flex;
@@ -977,7 +977,7 @@
 /* ===== LANDING PAGE OVERRIDES ===== */
 /* QMA landing-only polish. Shared tokens/components live in styles.css. */
 
-/* â”€â”€ Partners strip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Partners strip*/
 .landing-partners-strip {
     position: relative;
     display: grid;
@@ -1082,7 +1082,7 @@
     max-height: 32px;
 }
 
-/* â”€â”€ Traction section â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Traction section*/
 .landing-traction-section {
     margin: -10px 0 36px;
 }
@@ -1122,15 +1122,12 @@
     padding: 34px 0 30px;
 }
 
-/* â”€â”€ Responsive â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Responsive */
 
-/* Tablet â‰¤760px: strip goes single col, logos go 2-col */
+/* Tablet 760px: strip goes single col, logos go 2-col */
 /* Agent-native proof */
 .landing-body .landing-agent-note {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
     align-items: start;
-    gap: var(--space-3);
     max-width: 820px;
     border-radius: var(--radius-lg);
 }
@@ -1358,7 +1355,7 @@
     }
 }
 
-/* Mobile â‰¤600px */
+/* Mobile 600px */
 @media (max-width: 600px) {
 
     /* NAV: keep primary CTA visible on narrow landing screens. */
