@@ -29,6 +29,10 @@
   ],
   "routes": [
     {
+      "src": "/api/(.*)",
+      "dest": "https://qma-api.onrender.com/api/$1"
+    },
+    {
       "src": "/",
       "dest": "/index.html"
     },
@@ -38,6 +42,10 @@
     },
     {
       "src": "/user",
+      "dest": "/user.html"
+    },
+    {
+      "src": "/profile",
       "dest": "/user.html"
     },
     {
