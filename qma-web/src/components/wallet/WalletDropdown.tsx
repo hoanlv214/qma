@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { connectWallet, shortAddress } from "../../services/wallet";
+import { clearAllWalletProfileSessions, requestWalletProfileSession } from "../../services/walletProfileSession";
 
 export function WalletDropdown({ onFundArc }: { onFundArc: () => void }) {
   const [address, setAddress] = useState(() => localStorage.getItem("qma_connected_wallet") || "");
@@ -9,6 +10,7 @@ export function WalletDropdown({ onFundArc }: { onFundArc: () => void }) {
     const next = await connectWallet();
     setAddress(next);
     localStorage.setItem("qma_connected_wallet", next);
+    await requestWalletProfileSession(next).catch(() => undefined);
   };
 
   return (
@@ -21,7 +23,7 @@ export function WalletDropdown({ onFundArc }: { onFundArc: () => void }) {
           <div className="wallet-menu-address">{address}</div>
           <button type="button" onClick={onFundArc}>Fund Arc Wallet</button>
           <button type="button" onClick={() => window.location.assign(`/profile?wallet=${encodeURIComponent(address)}`)}>Profile</button>
-          <button type="button" onClick={() => { localStorage.removeItem("qma_connected_wallet"); setAddress(""); setOpen(false); }}>
+          <button type="button" onClick={() => { localStorage.removeItem("qma_connected_wallet"); clearAllWalletProfileSessions(); setAddress(""); setOpen(false); }}>
             Disconnect
           </button>
         </div>

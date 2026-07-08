@@ -12,7 +12,7 @@ declare global {
   }
 }
 
-export const ARC_TESTNET_CHAIN_ID = "0x4cf6fa";
+export const ARC_TESTNET_CHAIN_ID = "0x4cef52";
 
 export function getInjectedWallet() {
   return window.ethereum || window.rabby || window.okxwallet || null;
@@ -38,5 +38,5 @@ export async function ensureArcTestnet() {
 
 export function shortAddress(value?: string) {
   if (!value) return "n/a";
-  return value.length > 12 ? `${value.slice(0, 6)}...${value.slice(-4)}` : value;
+  return value.length > 12 ? `${value.slice(0, 5)}...${value.slice(-4)}` : value;
 }

@@ -104,6 +104,7 @@ SETTLEMENT_CURRENCY = "USDC"
 SUPPORTED_SETTLEMENT_ASSETS = ["USDC"]
 INVOICE_TTL_SECONDS = int(os.getenv("QMA_INVOICE_TTL_SECONDS", "900"))
 ACCESS_TOKEN_TTL_SECONDS = int(os.getenv("QMA_ACCESS_TOKEN_TTL_SECONDS", "300"))
+WALLET_PROFILE_TOKEN_TTL_SECONDS = int(os.getenv("QMA_WALLET_PROFILE_TOKEN_TTL_SECONDS", "3600"))
 ACCESS_TOKEN_SECRET = os.getenv("QMA_ACCESS_TOKEN_SECRET") or os.getenv("QMA_SESSION_SECRET") or "qma-local-demo-secret-change-me"
 SPLIT_LEG_URL_SECRET = os.getenv("QMA_SPLIT_LEG_URL_SECRET") or f"split-url:{ACCESS_TOKEN_SECRET}"
 SPLIT_RECEIPT_SECRET = os.getenv("QMA_SPLIT_RECEIPT_SECRET") or f"split-receipt:{ACCESS_TOKEN_SECRET}"
@@ -773,6 +774,11 @@ class CreatorClaimRequest(BaseModel):
     issued_at: int = Field(..., gt=0)
     signature: str = Field(..., min_length=20, max_length=300)
 
+class WalletProfileSessionRequest(BaseModel):
+    nonce: str = Field(..., min_length=8, max_length=120)
+    issued_at: int = Field(..., gt=0)
+    signature: str = Field(..., min_length=20, max_length=300)
+
 def model_to_dict(model: BaseModel) -> dict:
     if hasattr(model, "model_dump"):
         return model.model_dump()
@@ -797,6 +803,67 @@ def verify_access_token(token: str) -> dict:
         return paid_kit.verify_access_token(token, secret=ACCESS_TOKEN_SECRET)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+
+def wallet_profile_message(address: str, nonce: str, issued_at: int) -> str:
+    normalized = paid_kit.normalize_address(address)
+    return (
+        "QMA Wallet Profile Access\n"
+        f"Wallet: {normalized}\n"
+        f"Nonce: {nonce}\n"
+        f"Issued At: {issued_at}\n"
+        "Purpose: unlock-paid-report-snapshots"
+    )
+
+def verify_wallet_profile_token(address: str, token: str) -> dict:
+    payload = verify_access_token(token or "")
+    expected = paid_kit.normalize_address(address)
+    actual = paid_kit.normalize_address(payload.get("wallet"))
+    if payload.get("scope") != "wallet_profile" or actual != expected:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Wallet profile token does not match this wallet.")
+    return payload
+
+def wallet_profile_token_payload(address: str, payload: WalletProfileSessionRequest) -> dict:
+    if Account is None or encode_defunct is None:
+        raise HTTPException(status_code=503, detail="eth_account is not installed; wallet profile signatures cannot be verified.")
+    issued_at = int(payload.issued_at)
+    now = int(time.time())
+    if abs(now - issued_at) > 300:
+        raise HTTPException(status_code=400, detail="Wallet profile signature is expired. Retry profile unlock.")
+    message = wallet_profile_message(address, payload.nonce, issued_at)
+    try:
+        recovered = Account.recover_message(encode_defunct(text=message), signature=payload.signature)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid wallet profile signature: {exc}")
+    expected = paid_kit.normalize_address(address)
+    if paid_kit.normalize_address(recovered) != expected:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Wallet profile signature does not match requested wallet.")
+    return {
+        "scope": "wallet_profile",
+        "wallet": expected,
+        "nonce": payload.nonce,
+        "purpose": "unlock-paid-report-snapshots",
+    }
+
+def public_payment_row(row: dict) -> dict:
+    blocked = {"entitlement_id", "has_report"}
+    return {key: value for key, value in row.items() if key not in blocked}
+
+def public_entitlement_row(record: dict) -> dict:
+    return {
+        "entitlement_id": record.get("entitlement_id"),
+        "payer_address": record.get("payer_address"),
+        "symbol": record.get("symbol"),
+        "tier": record.get("tier"),
+        "provider_id": record.get("provider_id"),
+        "query_hash": record.get("query_hash"),
+        "settlement_id": record.get("settlement_id"),
+        "paid_at": record.get("paid_at"),
+        "saved_at": record.get("saved_at"),
+        "gateway_status": record.get("gateway_status") or record.get("report", {}).get("invoice", {}).get("gateway_status"),
+        "transaction_hash": record.get("transaction_hash") or record.get("report", {}).get("invoice", {}).get("transaction_hash"),
+        "explorer_url": record.get("explorer_url") or record.get("report", {}).get("invoice", {}).get("explorer_url"),
+        "has_report": isinstance(record.get("report"), dict),
+    }
 
 def payment_requirement(
     invoice_id: Optional[str] = None,
@@ -2447,6 +2514,8 @@ def get_wallet_metrics(
     payment_page_size: int = Query(default=10, ge=1, le=100),
     entitlement_page: int = Query(default=1, ge=1),
     entitlement_page_size: int = Query(default=50, ge=1, le=100),
+    qma_wallet_token: Optional[str] = Header(default=None, alias="X-QMA-Wallet-Token"),
+    wallet_token: Optional[str] = Query(default=None),
 ):
     events = load_payment_events_for_wallet(address)
     paid_invoices = list(load_paid_invoices_for_wallet(address).values())
@@ -2490,10 +2559,16 @@ def get_wallet_metrics(
         provider_counts[provider_id] = provider_counts.get(provider_id, 0) + 1
     wallet_reports = load_paid_reports_for_wallet(address)
     entitlements = paid_kit.list_wallet_entitlements(wallet_reports, address)
+    token = qma_wallet_token or wallet_token
+    if token:
+        verify_wallet_profile_token(address, token)
+    else:
+        entitlements = [public_entitlement_row(record) for record in entitlements]
     recent_payments, recent_payments_page = paginate_items(events, payment_page, payment_page_size)
     entitlement_items, entitlements_page = paginate_items(entitlements, entitlement_page, entitlement_page_size)
     return {
         "address": address,
+        "access": "private" if token else "public",
         "gateway_balance": fetch_gateway_balance(address),
         "payments": len(events),
         "current_payments": tier_counts.get("preview", 0) + tier_counts.get("full", 0),
@@ -2603,19 +2678,47 @@ def get_wallet_payments(
     address: str,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=10, ge=1, le=100),
+    qma_wallet_token: Optional[str] = Header(default=None, alias="X-QMA-Wallet-Token"),
+    wallet_token: Optional[str] = Query(default=None),
 ):
     events = wallet_events_with_invoice_fallback(address)
-    report_summaries = load_paid_report_summaries_for_wallet(address)
-    rows = attach_report_summaries(events, report_summaries)
+    token = qma_wallet_token or wallet_token
+    if token:
+        verify_wallet_profile_token(address, token)
+        report_summaries = load_paid_report_summaries_for_wallet(address)
+        rows = attach_report_summaries(events, report_summaries)
+    else:
+        rows = [public_payment_row(compact_payment_event(event)) for event in events]
     page_items, meta = paginate_items(rows, page, page_size)
     return {
         "address": address,
+        "access": "private" if token else "public",
         "recent_payments": page_items,
         "recent_payments_page": meta,
     }
 
+@app.post("/api/v1/wallets/{address}/session")
+def create_wallet_profile_session(address: str, payload: WalletProfileSessionRequest):
+    token_payload = wallet_profile_token_payload(address, payload)
+    return {
+        "address": paid_kit.normalize_address(address),
+        "wallet_token": paid_kit.sign_access_token(
+            token_payload,
+            secret=ACCESS_TOKEN_SECRET,
+            ttl_seconds=WALLET_PROFILE_TOKEN_TTL_SECONDS,
+        ),
+        "expires_in": WALLET_PROFILE_TOKEN_TTL_SECONDS,
+        "message": wallet_profile_message(address, payload.nonce, payload.issued_at),
+    }
+
 @app.get("/api/v1/wallets/{address}/reports/{entitlement_id}")
-def get_wallet_report_detail(address: str, entitlement_id: str):
+def get_wallet_report_detail(
+    address: str,
+    entitlement_id: str,
+    qma_wallet_token: Optional[str] = Header(default=None, alias="X-QMA-Wallet-Token"),
+    wallet_token: Optional[str] = Query(default=None),
+):
+    verify_wallet_profile_token(address, qma_wallet_token or wallet_token or "")
     record = load_paid_report_by_id(address, entitlement_id)
     if not record:
         raise HTTPException(status_code=404, detail="Paid report snapshot not found for this wallet.")
@@ -2629,14 +2732,22 @@ def get_wallet_entitlements(
     address: str,
     symbol: Optional[str] = Query(default=None),
     provider_id: Optional[str] = Query(default=None),
+    qma_wallet_token: Optional[str] = Header(default=None, alias="X-QMA-Wallet-Token"),
+    wallet_token: Optional[str] = Query(default=None),
 ):
     wallet_reports = load_paid_reports_for_wallet(address, symbol=symbol, provider_id=provider_id)
     records = paid_kit.list_wallet_entitlements(wallet_reports, address, symbol=symbol, provider_id=provider_id)
+    token = qma_wallet_token or wallet_token
+    if token:
+        verify_wallet_profile_token(address, token)
+    else:
+        records = [public_entitlement_row(record) for record in records]
     return {
         "address": address,
         "symbol": symbol,
         "provider_id": provider_id,
         "count": len(records),
+        "access": "private" if token else "public",
         "entitlements": records[:100],
     }
 

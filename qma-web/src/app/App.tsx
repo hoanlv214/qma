@@ -1,54 +1,54 @@
-import { useMemo, useState } from "react";
-import { AgentBuyerDemo } from "../components/agent/AgentBuyerDemo";
+import { useMemo, useState, useEffect } from "react";
+import { LandingPage } from "../components/landing/LandingPage";
+import { AppPage } from "../components/reports/AppPage";
 import { MarketplaceReview } from "../components/marketplace/MarketplaceReview";
-import { PaywallPanel } from "../components/paywall/PaywallPanel";
 import { ProfileOrdersPage } from "../components/profile/ProfileOrdersPage";
-import { ReportWorkspace } from "../components/reports/ReportWorkspace";
-import { FundArcWalletModal } from "../components/wallet/FundArcWalletModal";
-import { WalletDropdown } from "../components/wallet/WalletDropdown";
 import { routeFromPath, type QmaRoute } from "./routes";
 
 export function App() {
   const initialRoute = useMemo(() => routeFromPath(window.location.pathname), []);
   const [route, setRoute] = useState<QmaRoute>(initialRoute);
-  const [fundingOpen, setFundingOpen] = useState(false);
 
   const navigate = (next: QmaRoute) => {
     setRoute(next);
-    window.history.pushState({}, "", next === "app" ? "/app" : `/${next}`);
+    window.history.pushState(
+      {},
+      "",
+      next === "landing" ? "/" : next === "app" ? "/app" : `/${next}`
+    );
   };
 
+  // Sync window popstate (back/forward buttons)
+  useEffect(() => {
+    const handlePopState = () => {
+      setRoute(routeFromPath(window.location.pathname));
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  // Update body class depending on the current route
+  useEffect(() => {
+    // Clear all possible body classes first
+    document.body.classList.remove("landing-body", "body", "marketplace-body", "profile-body");
+
+    if (route === "landing") {
+      document.body.classList.add("landing-body");
+    } else if (route === "app") {
+      document.body.classList.add("body");
+    } else if (route === "marketplace") {
+      document.body.classList.add("marketplace-body");
+    } else if (route === "profile") {
+      document.body.classList.add("profile-body");
+    }
+  }, [route]);
+
   return (
-    <div className="qma-shell">
-      <header className="qma-topbar">
-        <button className="qma-brand" type="button" onClick={() => navigate("app")}>
-          QMA
-        </button>
-        <nav className="qma-nav" aria-label="QMA sections">
-          <button type="button" className={route === "app" ? "active" : ""} onClick={() => navigate("app")}>
-            Signals
-          </button>
-          <button type="button" className={route === "profile" ? "active" : ""} onClick={() => navigate("profile")}>
-            Profile
-          </button>
-          <button type="button" className={route === "marketplace" ? "active" : ""} onClick={() => navigate("marketplace")}>
-            Marketplace
-          </button>
-        </nav>
-        <WalletDropdown onFundArc={() => setFundingOpen(true)} />
-      </header>
-
-      {route === "app" ? (
-        <main className="qma-workspace">
-          <AgentBuyerDemo />
-          <ReportWorkspace />
-          <PaywallPanel />
-        </main>
-      ) : null}
-      {route === "profile" ? <ProfileOrdersPage /> : null}
-      {route === "marketplace" ? <MarketplaceReview /> : null}
-
-      <FundArcWalletModal open={fundingOpen} onClose={() => setFundingOpen(false)} />
-    </div>
+    <>
+      {route === "landing" && <LandingPage onNavigate={navigate} />}
+      {route === "app" && <AppPage onNavigate={navigate} />}
+      {route === "marketplace" && <MarketplaceReview onNavigate={navigate} />}
+      {route === "profile" && <ProfileOrdersPage />}
+    </>
   );
 }

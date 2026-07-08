@@ -1,4 +1,5 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { clearAllWalletProfileSessions } from "../services/walletProfileSession";
 
 interface WalletState {
   address: string;
@@ -22,6 +23,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       disconnect() {
         setAddressState("");
         localStorage.removeItem("qma_connected_wallet");
+        clearAllWalletProfileSessions();
       },
     }),
     [address],
