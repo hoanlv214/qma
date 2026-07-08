@@ -63,47 +63,23 @@ Build Command: pip install -r requirements.txt
 Start Command: uvicorn main:app --host 0.0.0.0 --port $PORT
 ```
 
-Required env vars:
+Required env vars are intentionally small. Start from `.env.example`; add values from
+`.env.advanced.example` only when you need to override defaults.
 
 ```env
+QMA_ARC_SELLER_ADDRESS=0xYourSellerTreasuryWallet
+QMA_ADMIN_WALLET=0xYourSellerTreasuryWallet
+QMA_ADMIN_TOKEN=replace-with-admin-review-token
+QMA_ACCESS_TOKEN_SECRET=replace-with-long-random-secret
+
+QMA_FUNDING_MEMORY_OWNER_WALLET=0xFundingProviderOwnerWallet
+QMA_OI_MEMORY_OWNER_WALLET=0xOiProviderOwnerWallet
+
+QMA_ARC_GATEWAY_URL=https://qma-arc-gateway.onrender.com
+
 SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 SUPABASE_SCHEMA=public
-
-QMA_ARC_SELLER_ADDRESS=0xYourSellerTreasuryWallet
-QMA_FUNDING_MEMORY_OWNER_WALLET=0xYourSellerTreasuryWallet
-QMA_OI_MEMORY_OWNER_WALLET=0xYourSellerTreasuryWallet
-
-QMA_ARC_GATEWAY_URL=https://qma-arc-gateway.onrender.com
-QMA_CIRCLE_GATEWAY_API=https://gateway-api-testnet.circle.com
-QMA_ARC_EXPLORER=https://testnet.arcscan.app
-QMA_ARC_GATEWAY_WALLET=0x0077777d7EBA4688BDeF3E311b846F25870A19B9
-
-QMA_PRICE_PREVIEW_USDC=0.001
-QMA_PRICE_FULL_USDC=0.005
-QMA_PAYMENT_AMOUNT_USDC=0.005
-QMA_PAYMENT_RESOURCE_TYPE=qma_signal_report
-QMA_PAYMENT_NETWORK=eip155:5042002
-QMA_PAYMENT_NETWORK_NAME=Arc Testnet
-
-QMA_ACCESS_TOKEN_SECRET=replace-with-long-random-secret
-QMA_ADMIN_TOKEN=replace-with-admin-review-token
-QMA_ADMIN_WALLET=0xYourSellerTreasuryWallet
-QMA_DISABLED_PROVIDERS=
-
-QMA_ARC_DEFAULT_DEPOSIT_USDC=1.00
-QMA_ARC_DEFAULT_APPROVE_USDC=10.00
-QMA_REQUIRE_COMPLETED_SETTLEMENT=false
-
-QMA_RATE_LIMIT_ENABLED=true
-QMA_RATE_LIMIT_WINDOW_SECONDS=60
-QMA_RATE_LIMIT_PAYMENT_VERIFY_PER_MIN=8
-QMA_RATE_LIMIT_INVOICE_PER_MIN=20
-QMA_RATE_LIMIT_REPORT_PER_MIN=30
-QMA_RATE_LIMIT_PUBLIC_MARKET_PER_MIN=120
-QMA_RATE_LIMIT_CREATOR_APPLY_PER_MIN=6
-QMA_RATE_LIMIT_API_DEFAULT_PER_MIN=240
-QMA_MEXC_FETCH_CONTRACT_DETAILS=false
 ```
 
 Optional dataset env vars if using private/full data:
@@ -114,6 +90,32 @@ QMA_BACKTEST_OUTCOME_PATH=/private_data/trading_analysis.csv
 ```
 
 If omitted, the backend uses bundled sample data.
+
+Environment files:
+
+- `.env.example`: minimal role, secret, storage, and dataset keys.
+- `.env.local.example`: local developer defaults, demo pricing, and CLI agent settings.
+- `.env.advanced.example`: public Arc/Circle overrides, rate limits, market-data tuning, and other optional knobs.
+
+Do not add public Arc Testnet constants to Render unless you need to override the source defaults.
+
+Gasless withdraw relay is optional. To enable it, set these only after funding a dedicated hot
+relayer wallet:
+
+```env
+# qma-api
+QMA_WITHDRAW_MODE=platform_relayed
+QMA_WITHDRAW_RELAYER_ADDRESS=0xHotRelayerWallet
+QMA_MIN_PROVIDER_WITHDRAW_USDC=5
+QMA_PROVIDER_WITHDRAW_DAILY_LIMIT=1
+
+# qma-arc-gateway
+QMA_WITHDRAW_RELAYER_PRIVATE_KEY=0xserver-only-hot-wallet-private-key
+QMA_WITHDRAW_RELAYER_ADDRESS=0xHotRelayerWallet
+ARC_TESTNET_RPC=https://rpc.testnet.arc.network
+```
+
+Keep the relayer wallet separate from the admin wallet and platform settlement treasury.
 
 ## Render: Arc Gateway Sidecar
 

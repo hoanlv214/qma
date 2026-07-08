@@ -16,13 +16,20 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # Import QMA Engine
 from qma_engine import QMAEngine
 import paid_intelligence_kit as paid_kit
+from market_data import create_market_data_adapter
 from providers import create_default_registry
 from storage import create_storage_backend
+try:
+    from eth_account import Account
+    from eth_account.messages import encode_defunct
+except Exception:  # pragma: no cover - optional dependency guard for minimal installs
+    Account = None
+    encode_defunct = None
 
 # Configure Logger
 logging.basicConfig(level=logging.INFO)
@@ -70,18 +77,36 @@ PAID_REPORTS_PATH = os.path.join(os.path.dirname(__file__), "paid_reports.json")
 INVOICES_PATH = os.path.join(os.path.dirname(__file__), "invoices.json")
 CREATOR_APPLICATIONS_PATH = os.path.join(os.path.dirname(__file__), "creator_applications.json")
 PROVIDER_CONTROLS_PATH = os.path.join(os.path.dirname(__file__), "provider_controls.json")
+CREATOR_CLAIMS_PATH = os.path.join(os.path.dirname(__file__), "creator_claims.json")
 PAYMENT_AMOUNT_USDC = float(os.getenv("QMA_PAYMENT_AMOUNT_USDC", os.getenv("QMA_PRICE_FULL_USDC", "0.005")))
 PAYMENT_RESOURCE_TYPE = os.getenv("QMA_PAYMENT_RESOURCE_TYPE", "qma_signal_report")
 PAYMENT_NETWORK = os.getenv("QMA_PAYMENT_NETWORK", "eip155:5042002")
 PAYMENT_NETWORK_NAME = os.getenv("QMA_PAYMENT_NETWORK_NAME", "Arc Testnet")
 PAYMENT_WALLET_ADDRESS = os.getenv("QMA_ARC_SELLER_ADDRESS", "0x933a2405f84c224be1ef373ba16e992e1f459682")
+PLATFORM_TREASURY_ADDRESS = os.getenv("QMA_PLATFORM_TREASURY_ADDRESS", PAYMENT_WALLET_ADDRESS)
 ARC_GATEWAY_BASE_URL = os.getenv("QMA_ARC_GATEWAY_URL", "http://127.0.0.1:3000")
 ARC_GATEWAY_API = os.getenv("QMA_CIRCLE_GATEWAY_API", "https://gateway-api-testnet.circle.com")
 ARC_EXPLORER = os.getenv("QMA_ARC_EXPLORER", "https://testnet.arcscan.app")
 ARC_GATEWAY_WALLET = os.getenv("QMA_ARC_GATEWAY_WALLET", "0x0077777d7EBA4688BDeF3E311b846F25870A19B9")
+ARC_TESTNET_USDC = os.getenv("QMA_ARC_USDC_ADDRESS", "0x3600000000000000000000000000000000000000")
+ARC_GATEWAY_MINTER = os.getenv("QMA_ARC_GATEWAY_MINTER", "0x0022222ABE238Cc2C7Bb1f21003F0a260052475B")
+WITHDRAW_MODE = os.getenv("QMA_WITHDRAW_MODE", "seller_wallet").strip().lower()
+WITHDRAW_RELAYER_ADDRESS = os.getenv("QMA_WITHDRAW_RELAYER_ADDRESS", "")
+WITHDRAW_MIN_USDC = float(os.getenv("QMA_MIN_PROVIDER_WITHDRAW_USDC", "0"))
+WITHDRAW_RELAY_DAILY_LIMIT = int(os.getenv("QMA_PROVIDER_WITHDRAW_DAILY_LIMIT", "1"))
+CREATOR_CLAIM_MIN_USDC = float(os.getenv("QMA_CREATOR_CLAIM_MIN_USDC", "0"))
+CREATOR_CLAIM_INTENT_TTL_SECONDS = int(os.getenv("QMA_CREATOR_CLAIM_INTENT_TTL_SECONDS", "600"))
+ARC_GATEWAY_INTERNAL_SECRET = os.getenv("QMA_ARC_GATEWAY_INTERNAL_SECRET", "")
+DEFAULT_SETTLEMENT_MODE = os.getenv("QMA_DEFAULT_SETTLEMENT_MODE", "x402_direct_split").strip().lower()
+SPLIT_INVOICE_TTL_SECONDS = int(os.getenv("QMA_SPLIT_INVOICE_TTL_SECONDS", "1800"))
+SETTLEMENT_RAIL = os.getenv("QMA_SETTLEMENT_RAIL", paid_kit.DEFAULT_SETTLEMENT_RAIL)
+SETTLEMENT_CURRENCY = "USDC"
+SUPPORTED_SETTLEMENT_ASSETS = ["USDC"]
 INVOICE_TTL_SECONDS = int(os.getenv("QMA_INVOICE_TTL_SECONDS", "900"))
 ACCESS_TOKEN_TTL_SECONDS = int(os.getenv("QMA_ACCESS_TOKEN_TTL_SECONDS", "300"))
 ACCESS_TOKEN_SECRET = os.getenv("QMA_ACCESS_TOKEN_SECRET") or os.getenv("QMA_SESSION_SECRET") or "qma-local-demo-secret-change-me"
+SPLIT_LEG_URL_SECRET = os.getenv("QMA_SPLIT_LEG_URL_SECRET") or f"split-url:{ACCESS_TOKEN_SECRET}"
+SPLIT_RECEIPT_SECRET = os.getenv("QMA_SPLIT_RECEIPT_SECRET") or f"split-receipt:{ACCESS_TOKEN_SECRET}"
 ADMIN_TOKEN = os.getenv("QMA_ADMIN_TOKEN", "")
 ADMIN_WALLET_ADDRESS = os.getenv("QMA_ADMIN_WALLET", PAYMENT_WALLET_ADDRESS)
 RATE_LIMIT_ENABLED = os.getenv("QMA_RATE_LIMIT_ENABLED", "true").lower() not in ("false", "0", "no")
@@ -308,6 +333,197 @@ def save_paid_reports(reports: dict) -> None:
 
 paid_reports = load_paid_reports()
 
+def invoice_payment_schema(amount: Optional[float], *, settlement: Optional[dict] = None) -> dict:
+    amount_value = float(amount or 0)
+    current_settlement = settlement or paid_kit.settlement_profile(
+        amount_usdc=amount_value,
+        network_name=PAYMENT_NETWORK_NAME,
+        rail=SETTLEMENT_RAIL,
+        currency=SETTLEMENT_CURRENCY,
+        token_address=ARC_TESTNET_USDC,
+        decimals=6,
+        gateway_supported=True,
+    )
+    return {
+        "pricing": paid_kit.pricing_profile(amount_usdc=amount_value),
+        "settlement": current_settlement,
+        "accounting": paid_kit.accounting_profile(
+            amount_usdc=amount_value,
+            currency=current_settlement.get("currency", "USDC"),
+        ),
+    }
+
+def hydrate_payment_schema(record: Optional[dict]) -> dict:
+    if not isinstance(record, dict):
+        return {}
+    amount = record.get("amount", record.get("amount_usdc", 0))
+    schema = invoice_payment_schema(amount, settlement=record.get("settlement"))
+    record.setdefault("pricing", schema["pricing"])
+    record.setdefault("settlement", schema["settlement"])
+    record.setdefault("accounting", schema["accounting"])
+    return record
+
+def usdc_to_raw(amount_usdc: float) -> int:
+    return int(round(float(amount_usdc) * 1_000_000))
+
+def raw_usdc_str(raw_amount: int | str) -> str:
+    return str(int(raw_amount))
+
+def raw_usdc_to_decimal_string(raw_amount: int | str) -> str:
+    return f"{int(raw_amount) / 1_000_000:.6f}".rstrip("0").rstrip(".")
+
+def split_hmac_payload(parts: list[str]) -> str:
+    return "/".join(str(part) for part in parts)
+
+def sign_split_leg_url(*, invoice_id: str, provider_id: str, tier: str, leg_id: str, amount_raw: str, pay_to: str, expires_at: float) -> str:
+    payload = split_hmac_payload([
+        invoice_id,
+        provider_id,
+        tier,
+        leg_id,
+        raw_usdc_str(amount_raw),
+        normalize_address(pay_to),
+        str(int(expires_at)),
+    ])
+    return hmac.new(SPLIT_LEG_URL_SECRET.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+
+def verify_split_leg_url_sig(*, invoice_id: str, provider_id: str, tier: str, leg_id: str, amount_raw: str, pay_to: str, expires_at: float, sig: str) -> bool:
+    expected = sign_split_leg_url(
+        invoice_id=invoice_id,
+        provider_id=provider_id,
+        tier=tier,
+        leg_id=leg_id,
+        amount_raw=amount_raw,
+        pay_to=pay_to,
+        expires_at=expires_at,
+    )
+    return hmac.compare_digest(str(sig or ""), expected)
+
+def sign_split_receipt(*, invoice_id: str, leg_id: str, pay_to: str, settled_amount_raw: str, settlement_id: str) -> str:
+    payload = split_hmac_payload([
+        invoice_id,
+        leg_id,
+        normalize_address(pay_to),
+        raw_usdc_str(settled_amount_raw),
+        settlement_id,
+    ])
+    return hmac.new(SPLIT_RECEIPT_SECRET.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+
+def verify_split_receipt(*, invoice_id: str, leg_id: str, pay_to: str, settled_amount_raw: str, settlement_id: str, receipt: str) -> bool:
+    expected = sign_split_receipt(
+        invoice_id=invoice_id,
+        leg_id=leg_id,
+        pay_to=pay_to,
+        settled_amount_raw=settled_amount_raw,
+        settlement_id=settlement_id,
+    )
+    return hmac.compare_digest(str(receipt or ""), expected)
+
+def allocate_split_legs_raw(total_raw: int, creator_bps: int, platform_bps: int) -> dict:
+    weights = [max(0, int(creator_bps)), max(0, int(platform_bps))]
+    if sum(weights) != 10000:
+        raise HTTPException(status_code=400, detail="Creator/platform split must total 10000 bps.")
+    if total_raw <= 0:
+        raise HTTPException(status_code=400, detail="Invoice amount must be greater than 0.")
+    ideals = [(total_raw * weight) / 10000 for weight in weights]
+    floors = [int(value) for value in ideals]
+    leftover = total_raw - sum(floors)
+    order = sorted(range(len(weights)), key=lambda i: ideals[i] - floors[i], reverse=True)
+    for index in order[:leftover]:
+        floors[index] += 1
+    if any(weight > 0 and amount < 1 for weight, amount in zip(weights, floors)):
+        raise HTTPException(
+            status_code=400,
+            detail="Invoice amount is too small to produce valid nonzero creator and platform split legs.",
+        )
+    return {"creator": floors[0], "platform": floors[1]}
+
+def provider_settlement_mode(provider) -> str:
+    return str(getattr(provider, "settlement_mode", DEFAULT_SETTLEMENT_MODE) or DEFAULT_SETTLEMENT_MODE).strip().lower()
+
+def provider_revenue_wallet(provider) -> str:
+    return normalize_address(getattr(provider, "revenue_wallet", None) or getattr(provider, "owner_wallet", None))
+
+def build_invoice_split(*, invoice_id: str, provider, tier: str, amount_usdc: float, expires_at: float) -> dict:
+    creator_share_bps = int(getattr(provider, "revenue_share_bps", 8000))
+    platform_share_bps = 10000 - creator_share_bps
+    total_raw = usdc_to_raw(amount_usdc)
+    raw_allocations = allocate_split_legs_raw(total_raw, creator_share_bps, platform_share_bps)
+    creator_wallet = provider_revenue_wallet(provider)
+    platform_wallet = normalize_address(PLATFORM_TREASURY_ADDRESS)
+    if not creator_wallet:
+        raise HTTPException(status_code=400, detail=f"Provider {provider.provider_id} has no revenue wallet.")
+    if not platform_wallet:
+        raise HTTPException(status_code=500, detail="Platform treasury wallet is not configured.")
+    legs = []
+    for leg_id, role, pay_to in [
+        ("creator", "creator", creator_wallet),
+        ("platform", "platform", platform_wallet),
+    ]:
+        amount_raw = raw_usdc_str(raw_allocations[leg_id])
+        amount_usdc_str = raw_usdc_to_decimal_string(amount_raw)
+        sig = sign_split_leg_url(
+            invoice_id=invoice_id,
+            provider_id=provider.provider_id,
+            tier=tier,
+            leg_id=leg_id,
+            amount_raw=amount_raw,
+            pay_to=pay_to,
+            expires_at=expires_at,
+        )
+        url = (
+            f"{ARC_GATEWAY_BASE_URL.rstrip('/')}/qma-access/split-leg"
+            f"?invoice_id={invoice_id}&provider_id={provider.provider_id}&tier={tier}"
+            f"&leg_id={leg_id}&amount_raw={amount_raw}&pay_to={pay_to}"
+            f"&expires_at={int(expires_at)}&sig={sig}"
+        )
+        legs.append({
+            "leg_id": leg_id,
+            "role": role,
+            "pay_to": pay_to,
+            "amount_usdc": amount_usdc_str,
+            "amount_raw": amount_raw,
+            "status": "pending",
+            "settlement_id": None,
+            "expires_at": expires_at,
+            "resource": url,
+        })
+    return {
+        "mode": "x402_direct_split",
+        "creator_share_bps": creator_share_bps,
+        "platform_share_bps": platform_share_bps,
+        "total_amount_raw": raw_usdc_str(total_raw),
+        "legs": legs,
+    }
+
+def split_leg_by_id(invoice: dict, leg_id: str) -> Optional[dict]:
+    split = invoice.get("split") or {}
+    for leg in split.get("legs") or []:
+        if leg.get("leg_id") == leg_id:
+            return leg
+    return None
+
+def invoice_required_split_legs(invoice: dict) -> list[dict]:
+    return list((invoice.get("split") or {}).get("legs") or [])
+
+def invoice_split_mode(invoice: dict) -> str:
+    return str((invoice.get("settlement") or {}).get("mode") or (invoice.get("split") or {}).get("mode") or "treasury_ledger")
+
+def refresh_split_invoice_status(invoice: dict) -> str:
+    if invoice_split_mode(invoice) != "x402_direct_split":
+        return invoice.get("status", "pending")
+    legs = invoice_required_split_legs(invoice)
+    settled_count = sum(1 for leg in legs if leg.get("status") == "paid" and leg.get("settlement_id"))
+    if settled_count == len(legs) and legs:
+        invoice["status"] = "paid"
+    elif settled_count > 0:
+        invoice["status"] = "partial_paid"
+    elif time.time() > float(invoice.get("expires_at") or 0):
+        invoice["status"] = "expired"
+    else:
+        invoice["status"] = "pending"
+    return invoice["status"]
+
 def load_invoices() -> dict:
     try:
         return storage_backend.load_invoices()
@@ -330,6 +546,7 @@ def load_paid_invoices_for_wallet(address: str) -> dict:
     }
 
 def paid_invoice_event(invoice: dict) -> dict:
+    hydrate_payment_schema(invoice)
     return {
         "invoice_id": invoice.get("invoice_id"),
         "symbol": invoice.get("symbol"),
@@ -342,6 +559,9 @@ def paid_invoice_event(invoice: dict) -> dict:
         "seller_address": PAYMENT_WALLET_ADDRESS,
         "amount_usdc": invoice.get("amount"),
         "amount_raw": invoice.get("amount_raw"),
+        "pricing": invoice.get("pricing"),
+        "settlement": invoice.get("settlement"),
+        "accounting": invoice.get("accounting"),
         "settlement_id": invoice.get("settlement_id"),
         "gateway_status": invoice.get("gateway_status"),
         "transaction_hash": invoice.get("transaction_hash"),
@@ -356,11 +576,17 @@ def load_paid_invoice_events() -> list:
             return storage_backend.load_paid_invoice_events()
     except Exception as exc:
         logger.warning(f"Could not load paid invoice events: {exc}")
-    return [
-        paid_invoice_event(invoice)
-        for invoice in load_invoices().values()
-        if isinstance(invoice, dict) and invoice.get("status") == "paid"
-    ]
+    events = []
+    for invoice in load_invoices().values():
+        if not isinstance(invoice, dict) or invoice.get("status") != "paid":
+            continue
+        if invoice_split_mode(invoice) == "x402_direct_split":
+            for leg in invoice_required_split_legs(invoice):
+                if leg.get("status") == "paid" and leg.get("settlement_id"):
+                    events.append(split_leg_event(invoice, leg))
+        else:
+            events.append(paid_invoice_event(invoice))
+    return events
 
 def save_invoice(invoice: dict) -> None:
     try:
@@ -400,19 +626,69 @@ def save_provider_control(provider_id: str, control: dict) -> bool:
         logger.warning(f"Could not save provider control: {exc}")
         return False
 
+def load_creator_claims() -> list:
+    try:
+        if hasattr(storage_backend, "load_creator_claims"):
+            records = storage_backend.load_creator_claims()
+            if isinstance(records, list):
+                return records
+    except Exception as exc:
+        logger.warning(f"Could not load creator claims from storage backend: {exc}")
+    try:
+        if os.path.exists(CREATOR_CLAIMS_PATH):
+            with open(CREATOR_CLAIMS_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, list) else []
+    except Exception as exc:
+        logger.warning(f"Could not load local creator claims: {exc}")
+    return []
+
+def save_creator_claim_record(record: dict) -> bool:
+    saved = False
+    try:
+        if hasattr(storage_backend, "save_creator_claim"):
+            storage_backend.save_creator_claim(record)
+            saved = True
+    except Exception as exc:
+        logger.warning(f"Could not save creator claim to storage backend: {exc}")
+    try:
+        records = []
+        if os.path.exists(CREATOR_CLAIMS_PATH):
+            with open(CREATOR_CLAIMS_PATH, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+            records = existing if isinstance(existing, list) else []
+        claim_id = record.get("claim_id")
+        replaced = False
+        for idx, item in enumerate(records):
+            if item.get("claim_id") == claim_id:
+                records[idx] = record
+                replaced = True
+                break
+        if not replaced:
+            records.append(record)
+        with open(CREATOR_CLAIMS_PATH, "w", encoding="utf-8") as f:
+            json.dump(records[-1000:], f, indent=2)
+        saved = True
+    except Exception as exc:
+        logger.warning(f"Could not save local creator claim: {exc}")
+    return saved
+
 # format: {invoice_id: {"status": "pending"|"paid", "created_at": float, "symbol": str}}
 invoices_db: Dict[str, dict] = load_invoices()
 creator_applications: Dict[str, dict] = load_creator_applications()
 provider_runtime_controls.update(load_provider_controls())
+creator_claims_db: list = load_creator_claims()
 
 def reload_persistent_state(include_reports: bool = True, include_invoices: bool = False) -> None:
-    global payment_events, paid_reports, invoices_db
+    global payment_events, paid_reports, invoices_db, creator_claims_db
     payment_events = load_payment_ledger()
     if include_reports:
         paid_reports = load_paid_reports()
     if include_invoices:
         invoices_db = load_invoices()
     creator_applications.update(load_creator_applications())
+    provider_runtime_controls.update(load_provider_controls())
+    creator_claims_db = load_creator_claims()
 
 # Simple Cache for Live MEXC Anomalies
 live_anomalies_cache = {
@@ -421,37 +697,52 @@ live_anomalies_cache = {
 }
 CACHE_TTL_SECONDS = 30.0
 live_scan_lock = threading.Lock()
-MEXC_FETCH_CONTRACT_DETAILS = os.getenv("QMA_MEXC_FETCH_CONTRACT_DETAILS", "false").lower() in ("true", "1", "yes")
-MEXC_HEADERS = {
-    "Accept": "application/json, text/plain, */*",
-    "User-Agent": "QMA-Lepton-Agent/1.0 (+https://qma-three.vercel.app)",
-}
+creator_claim_lock = threading.Lock()
+split_leg_lock = threading.Lock()
+market_data_adapter = create_market_data_adapter(os.getenv("QMA_MARKET_DATA_SOURCE", "mexc_futures"))
 
 class QueryModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     symbol: str = Field(..., min_length=1, max_length=32)
-    fundingRate: float
-    marketCap: float = Field(..., gt=0)
-    FDV: float = Field(..., gt=0)
-    circRatio: float = Field(..., gt=0, le=1.5)
-    fromATH: float
-    volume24h: float = Field(..., gt=0)
+    fundingRate: Optional[float] = 0.0
+    marketCap: Optional[float] = Field(default=None, gt=0)
+    FDV: Optional[float] = Field(default=None, gt=0)
+    circRatio: Optional[float] = Field(default=None, gt=0, le=1.5)
+    fromATH: Optional[float] = None
+    volume24h: Optional[float] = Field(default=None, gt=0)
     amount: Optional[float] = Field(default=None, gt=0) # turnover proxy
+    openInterest: Optional[float] = Field(default=None, gt=0)
+    openInterestChange24h: Optional[float] = None
+    longShortRatio: Optional[float] = Field(default=None, gt=0)
+    price: Optional[float] = Field(default=None, gt=0)
 
 class InvoiceRequest(QueryModel):
     provider_id: str = Field(default="funding_memory", max_length=64)
     tier: str = Field(default="full", pattern="^(preview|full)$")
     resource_type: str = Field(default="qma_signal_report", max_length=64)
     buyer_type: str = Field(default="human", pattern="^(human|agent)$")
+    synthetic: bool = False
+    agent_label: Optional[str] = Field(default=None, max_length=120)
+    run_source: Optional[str] = Field(default=None, max_length=120)
 
 class QuoteRequest(QueryModel):
     provider_id: str = Field(default="funding_memory", max_length=64)
     tier: str = Field(default="full", pattern="^(preview|full)$")
 
-class PaymentVerifyRequest(BaseModel):
+class SplitSettlementProof(BaseModel):
+    leg_id: str = Field(..., min_length=2, max_length=32)
     settlement_id: str = Field(..., min_length=8)
+    pay_to: str = Field(..., min_length=8, max_length=80)
+    amount_raw: str = Field(..., min_length=1, max_length=80)
+    sidecar_receipt: str = Field(..., min_length=20, max_length=300)
+
+class PaymentVerifyRequest(BaseModel):
+    settlement_id: Optional[str] = Field(default=None, min_length=8)
     invoice_secret: str = Field(..., min_length=16)
     payer_address: Optional[str] = None
     amount_usdc: Optional[float] = None
+    split_settlements: List[SplitSettlementProof] = Field(default_factory=list)
 
 class CreatorApplicationRequest(BaseModel):
     creator_wallet: str = Field(..., min_length=8, max_length=80)
@@ -474,10 +765,23 @@ class ProviderToggleRequest(BaseModel):
     enabled: bool
     admin_note: Optional[str] = Field(default=None, max_length=300)
 
+class CreatorClaimRequest(BaseModel):
+    claimant_address: str = Field(..., min_length=8, max_length=80)
+    provider_ids: List[str] = Field(default_factory=list)
+    amount_usdc: Optional[float] = Field(default=None, gt=0)
+    nonce: str = Field(..., min_length=8, max_length=120)
+    issued_at: int = Field(..., gt=0)
+    signature: str = Field(..., min_length=20, max_length=300)
+
 def model_to_dict(model: BaseModel) -> dict:
     if hasattr(model, "model_dump"):
         return model.model_dump()
     return model.dict()
+
+def normalize_query_for_provider(provider, query: dict) -> dict:
+    if hasattr(provider, "normalize_query"):
+        return provider.normalize_query(query)
+    return canonical_query_payload(query)
 
 def canonical_query_payload(query: dict) -> dict:
     return paid_kit.canonical_query_payload(query)
@@ -516,6 +820,10 @@ def payment_requirement(
         facilitator_url=ARC_GATEWAY_API,
         explorer_url=ARC_EXPLORER,
         ttl_seconds=INVOICE_TTL_SECONDS,
+        settlement_rail=SETTLEMENT_RAIL,
+        settlement_currency=SETTLEMENT_CURRENCY,
+        settlement_token_address=ARC_TESTNET_USDC,
+        settlement_decimals=6,
     )
 
 def get_invoice_or_402(invoice_id: str) -> dict:
@@ -529,6 +837,7 @@ def get_invoice_or_402(invoice_id: str) -> dict:
                 "payment": payment_requirement(invoice_id=invoice_id),
             },
         )
+    hydrate_payment_schema(invoice)
     if time.time() > invoice["expires_at"]:
         invoice["status"] = "expired"
         raise HTTPException(
@@ -561,6 +870,137 @@ def fetch_circle_settlement(settlement_id: str) -> dict:
 def normalize_address(value: Optional[str]) -> str:
     return paid_kit.normalize_address(value)
 
+def bytes32_to_address(value: Optional[str]) -> str:
+    raw = str(value or "").strip().lower()
+    if not raw.startswith("0x") or len(raw) != 66:
+        raise HTTPException(status_code=400, detail="Malformed bytes32 address in withdraw intent")
+    try:
+        int(raw[2:], 16)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Malformed bytes32 address in withdraw intent")
+    return "0x" + raw[-40:]
+
+def address_to_bytes32(address: str) -> str:
+    return "0x" + normalize_address(address).replace("0x", "").rjust(64, "0")
+
+def same_address(left: Optional[str], right: Optional[str]) -> bool:
+    return normalize_address(left) == normalize_address(right)
+
+def canonical_provider_ids(provider_ids: list[str]) -> list[str]:
+    clean = []
+    for provider_id in provider_ids or []:
+        value = str(provider_id or "").strip()
+        if value and value not in clean:
+            clean.append(value)
+    return sorted(clean)
+
+def build_creator_claim_message(
+    *,
+    claimant_address: str,
+    provider_ids: list[str],
+    amount_usdc: float,
+    nonce: str,
+    issued_at: int,
+) -> str:
+    providers = ",".join(canonical_provider_ids(provider_ids))
+    return "\n".join([
+        "QMA Creator Claim",
+        f"claimant: {normalize_address(claimant_address)}",
+        f"providers: {providers}",
+        f"amount_usdc: {float(amount_usdc):.6f}",
+        f"nonce: {nonce}",
+        f"issued_at: {int(issued_at)}",
+        f"network: {PAYMENT_NETWORK_NAME}",
+    ])
+
+def recover_creator_claim_signer(message: str, signature: str) -> str:
+    if Account is None or encode_defunct is None:
+        raise HTTPException(status_code=503, detail="eth_account is not installed; creator claim signatures cannot be verified.")
+    try:
+        recovered = Account.recover_message(encode_defunct(text=message), signature=signature)
+        return normalize_address(recovered)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid creator claim signature: {exc}")
+
+def validate_withdraw_intent(burn_intent: dict, *, expected_depositor: str) -> dict:
+    spec = (burn_intent or {}).get("spec") or {}
+    required = [
+        "sourceDomain", "destinationDomain", "sourceContract", "destinationContract",
+        "sourceToken", "destinationToken", "sourceDepositor", "destinationRecipient",
+        "sourceSigner", "destinationCaller", "value",
+    ]
+    missing = [key for key in required if key not in spec]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Withdraw intent is missing fields: {', '.join(missing)}")
+
+    depositor = bytes32_to_address(spec.get("sourceDepositor"))
+    signer = bytes32_to_address(spec.get("sourceSigner"))
+    recipient = bytes32_to_address(spec.get("destinationRecipient"))
+    source_contract = bytes32_to_address(spec.get("sourceContract"))
+    destination_contract = bytes32_to_address(spec.get("destinationContract"))
+    source_token = bytes32_to_address(spec.get("sourceToken"))
+    destination_token = bytes32_to_address(spec.get("destinationToken"))
+    destination_caller = bytes32_to_address(spec.get("destinationCaller"))
+
+    if not same_address(depositor, expected_depositor):
+        raise HTTPException(status_code=403, detail="Withdraw intent depositor does not match the authorized Gateway balance owner")
+    if not same_address(signer, depositor):
+        raise HTTPException(status_code=403, detail="Withdraw intent signer must match depositor")
+    if not same_address(recipient, expected_depositor):
+        raise HTTPException(status_code=403, detail="Withdraw recipient must match the authorized Gateway balance owner")
+    try:
+        source_domain = int(spec.get("sourceDomain"))
+        destination_domain = int(spec.get("destinationDomain"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Withdraw intent domain is invalid")
+    if source_domain != 26 or destination_domain != 26:
+        raise HTTPException(status_code=400, detail="Withdraw intent must target Arc Testnet Gateway domain 26")
+    if not same_address(source_contract, ARC_GATEWAY_WALLET) or not same_address(destination_contract, ARC_GATEWAY_MINTER):
+        raise HTTPException(status_code=400, detail="Withdraw intent targets an unexpected Gateway contract")
+    if not same_address(source_token, ARC_TESTNET_USDC) or not same_address(destination_token, ARC_TESTNET_USDC):
+        raise HTTPException(status_code=400, detail="Withdraw intent targets an unsupported token")
+    if not same_address(destination_caller, "0x0000000000000000000000000000000000000000"):
+        raise HTTPException(status_code=400, detail="Withdraw intent mint is not permissionless")
+
+    try:
+        value_raw = int(spec.get("value"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Withdraw intent amount is invalid")
+    if value_raw <= 0:
+        raise HTTPException(status_code=400, detail="Withdraw amount must be greater than zero")
+    amount_usdc = raw_usdc_to_float(str(value_raw))
+    return {
+        "depositor": depositor,
+        "signer": signer,
+        "recipient": recipient,
+        "amount_usdc": amount_usdc,
+        "value_raw": str(value_raw),
+    }
+
+def enforce_withdraw_relay_policy(intent: dict) -> None:
+    if WITHDRAW_MIN_USDC > 0 and float(intent.get("amount_usdc") or 0) < WITHDRAW_MIN_USDC:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Minimum platform-relayed withdraw is {WITHDRAW_MIN_USDC:.6f} USDC",
+        )
+    if WITHDRAW_RELAY_DAILY_LIMIT <= 0:
+        return
+    now = time.time()
+    key = normalize_address(intent.get("depositor"))
+    bucket = withdraw_relay_daily_events[key]
+    while bucket and now - bucket[0] > 86400:
+        bucket.popleft()
+    if len(bucket) >= WITHDRAW_RELAY_DAILY_LIMIT:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Daily platform-relayed withdraw limit reached ({WITHDRAW_RELAY_DAILY_LIMIT}/day)",
+        )
+
+def record_withdraw_relay(intent: dict) -> None:
+    if WITHDRAW_RELAY_DAILY_LIMIT <= 0:
+        return
+    withdraw_relay_daily_events[normalize_address(intent.get("depositor"))].append(time.time())
+
 def paid_report_key(
     payer_address: Optional[str],
     query_hash: Optional[str],
@@ -571,6 +1011,9 @@ def paid_report_key(
 
 def raw_usdc_to_float(raw_amount: str) -> float:
     return int(raw_amount) / 1_000_000
+
+def raw_token_to_float(raw_amount: str, decimals: int = 6) -> float:
+    return int(raw_amount) / float(10 ** int(decimals))
 
 def fetch_gateway_balance(address: str) -> dict:
     try:
@@ -605,6 +1048,8 @@ def fetch_gateway_balance(address: str) -> dict:
     }
 
 gateway_balance_cache: Dict[str, dict] = {}
+gateway_info_cache: Dict[str, dict] = {}
+withdraw_relay_daily_events = defaultdict(deque)
 
 def fetch_gateway_balance_cached(address: str, ttl_seconds: int = 15) -> dict:
     key = normalize_address(address)
@@ -614,6 +1059,97 @@ def fetch_gateway_balance_cached(address: str, ttl_seconds: int = 15) -> dict:
         return cached["data"]
     data = fetch_gateway_balance(address)
     gateway_balance_cache[key] = {"at": now, "data": data}
+    return data
+
+def summarize_gateway_info(data: Optional[dict] = None, *, include_raw: bool = False) -> dict:
+    raw = data if isinstance(data, dict) else {}
+    domains = []
+    for item in raw.get("domains") or []:
+        wallet_contract = item.get("walletContract") or {}
+        minter_contract = item.get("minterContract") or {}
+        domains.append({
+            "domain": item.get("domain"),
+            "chain": item.get("chain"),
+            "network": item.get("network"),
+            "wallet_contract": wallet_contract.get("address"),
+            "minter_contract": minter_contract.get("address"),
+            "wallet_supported_tokens": wallet_contract.get("supportedTokens") or [],
+            "minter_supported_tokens": minter_contract.get("supportedTokens") or [],
+            "processed_height": item.get("processedHeight"),
+            "burn_intent_expiration_height": item.get("burnIntentExpirationHeight"),
+        })
+    arc_domain = next((item for item in domains if item.get("domain") == 26), None)
+    result = {
+        "status": "ok" if raw else "unavailable",
+        "api": ARC_GATEWAY_API,
+        "runtime_rail": SETTLEMENT_RAIL,
+        "runtime_currency": SETTLEMENT_CURRENCY,
+        "runtime_supported_assets": SUPPORTED_SETTLEMENT_ASSETS,
+        "runtime_gateway_supported": True,
+        "funding_visibility_only": ["EURC", "cirBTC"],
+        "domains": domains,
+        "domain_count": len(domains),
+        "arc_testnet": arc_domain or {
+            "domain": 26,
+            "chain": "Arc",
+            "network": "testnet",
+            "wallet_contract": ARC_GATEWAY_WALLET,
+            "minter_contract": "0x0022222ABE238Cc2C7Bb1f21003F0a260052475B",
+            "wallet_supported_tokens": [ARC_TESTNET_USDC],
+            "minter_supported_tokens": [ARC_TESTNET_USDC],
+        },
+        "notes": [
+            "QMA runtime settlement remains USDC-only on Circle Gateway x402.",
+            "EURC/cirBTC are funding visibility assets only until Gateway settlement support is explicitly enabled.",
+            "Creator/platform split is an accounting ledger over USDC receipts, not an on-chain split contract yet.",
+        ],
+    }
+    if include_raw:
+        result["raw"] = raw
+    return result
+
+def fetch_gateway_info() -> dict:
+    try:
+        resp = requests.get(f"{ARC_GATEWAY_API}/v1/info", timeout=10)
+    except requests.RequestException as exc:
+        return {**summarize_gateway_info(), "error": str(exc)}
+    if not resp.ok:
+        return {
+            **summarize_gateway_info(),
+            "error": f"{resp.status_code}: {resp.text[:200]}",
+        }
+    try:
+        return summarize_gateway_info(resp.json(), include_raw=True)
+    except ValueError as exc:
+        return {**summarize_gateway_info(), "error": f"Invalid Gateway info JSON: {exc}"}
+
+def fetch_gateway_info_cached(ttl_seconds: int = 300, *, include_raw: bool = False) -> dict:
+    now = time.time()
+    cached = gateway_info_cache.get("gateway")
+    if cached and now - cached.get("at", 0) < ttl_seconds:
+        data = cached["data"]
+    else:
+        data = fetch_gateway_info()
+        gateway_info_cache["gateway"] = {"at": now, "data": data}
+    if include_raw:
+        return data
+    compact = {key: value for key, value in data.items() if key != "raw"}
+    return compact
+
+def fetch_creator_claim_status_cached(ttl_seconds: int = 15) -> dict:
+    now = time.time()
+    cached = gateway_info_cache.get("creator_claim")
+    if cached and now - cached.get("at", 0) < ttl_seconds:
+        return cached["data"]
+    try:
+        resp = requests.get(f"{ARC_GATEWAY_BASE_URL.rstrip('/')}/api/creator/claim/status", timeout=5)
+        data = resp.json() if resp.ok else {
+            "configured": False,
+            "error": f"{resp.status_code}: {resp.text[:200]}",
+        }
+    except requests.RequestException as exc:
+        data = {"configured": False, "error": str(exc)}
+    gateway_info_cache["creator_claim"] = {"at": now, "data": data}
     return data
 
 def paginate_items(items: list, page: int, page_size: int) -> tuple[list, dict]:
@@ -655,6 +1191,7 @@ def compact_payment_event(event: dict) -> dict:
         "provider_owner_wallet": event.get("provider_owner_wallet"),
         "buyer_type": event.get("buyer_type", "human"),
         "amount_usdc": event.get("amount_usdc"),
+        "split_leg": event.get("split_leg"),
         "gateway_status": event.get("gateway_status"),
         "transaction_hash": event.get("transaction_hash"),
         "explorer_url": event.get("explorer_url"),
@@ -692,6 +1229,57 @@ def attach_report_summaries(events: list, report_summaries: list) -> list:
         enriched.append(row)
     return enriched
 
+def provider_split_metadata(provider_id: str, fallback_owner: Optional[str] = None) -> dict:
+    try:
+        provider = provider_registry.require(provider_id)
+        provider_name = provider.provider_name
+        owner_wallet = provider.owner_wallet or fallback_owner
+        share_bps = int(getattr(provider, "revenue_share_bps", 8000))
+    except Exception:
+        provider_name = provider_id
+        owner_wallet = fallback_owner
+        share_bps = 8000
+    share_bps = max(0, min(10000, share_bps))
+    return {
+        "provider_name": provider_name,
+        "owner_wallet": owner_wallet,
+        "creator_share_bps": share_bps,
+        "platform_share_bps": 10000 - share_bps,
+    }
+
+CLAIM_RESERVED_STATUSES = {"requested", "submitted", "paid"}
+
+def creator_claim_records_for_provider(provider_id: str, owner_wallet: Optional[str] = None) -> list:
+    owner = normalize_address(owner_wallet) if owner_wallet else ""
+    return [
+        record for record in creator_claims_db
+        if provider_id in (record.get("provider_ids") or [])
+        and (not owner or same_address(record.get("claimant_address"), owner))
+    ]
+
+def creator_claim_amounts(provider_id: str, owner_wallet: Optional[str] = None) -> dict:
+    records = creator_claim_records_for_provider(provider_id, owner_wallet)
+    paid = 0.0
+    pending = 0.0
+    failed = 0.0
+    for record in records:
+        allocations = record.get("allocations") or {}
+        amount = float(allocations.get(provider_id, 0) or 0)
+        status_value = str(record.get("status") or "").lower()
+        if status_value == "paid":
+            paid += amount
+        elif status_value in CLAIM_RESERVED_STATUSES:
+            pending += amount
+        elif status_value == "failed":
+            failed += amount
+    return {
+        "paid_usdc": round(paid, 6),
+        "pending_usdc": round(pending, 6),
+        "failed_usdc": round(failed, 6),
+        "reserved_usdc": round(paid + pending, 6),
+        "records": records,
+    }
+
 def summarize_payment_events(events: list) -> dict:
     unique_events = {}
     for event in events:
@@ -704,6 +1292,7 @@ def summarize_payment_events(events: list) -> dict:
     buyer_type_counts = {"human": 0, "agent": 0}
     revenue_by_tier = {"preview": 0.0, "full": 0.0, "legacy": 0.0}
     revenue_by_provider = {}
+    seen_report_keys = set()
     top_symbols = {}
     payer_stats = {}
     for event in sorted_events:
@@ -712,18 +1301,54 @@ def summarize_payment_events(events: list) -> dict:
         amount = float(event.get("amount_usdc") or 0)
         provider_id = event.get("provider_id", "funding_memory")
         buyer_type = event.get("buyer_type", "human")
-        tier_counts[tier] = tier_counts.get(tier, 0) + 1
-        buyer_type_counts[buyer_type] = buyer_type_counts.get(buyer_type, 0) + 1
+        report_key = event.get("invoice_id") or payment_event_key(event)
+        first_report_event = report_key not in seen_report_keys
+        if first_report_event:
+            seen_report_keys.add(report_key)
+            tier_counts[tier] = tier_counts.get(tier, 0) + 1
+            buyer_type_counts[buyer_type] = buyer_type_counts.get(buyer_type, 0) + 1
         revenue_by_tier[tier] = revenue_by_tier.get(tier, 0.0) + amount
+        split_meta = provider_split_metadata(
+            provider_id,
+            event.get("provider_owner_wallet") or event.get("seller_address"),
+        )
         provider_stats = revenue_by_provider.setdefault(provider_id, {
             "provider_id": provider_id,
-            "owner_wallet": event.get("provider_owner_wallet") or event.get("seller_address"),
+            "provider_name": split_meta["provider_name"],
+            "owner_wallet": split_meta["owner_wallet"],
+            "creator_share_bps": split_meta["creator_share_bps"],
+            "platform_share_bps": split_meta["platform_share_bps"],
             "payments": 0,
             "revenue_usdc": 0.0,
+            "creator_earned_usdc": 0.0,
+            "platform_fee_usdc": 0.0,
+            "creator_claimable_usdc": 0.0,
+            "withdrawal_mode": "creator_initiated_claim_planned",
+            "settlement_currency": "USDC",
+            "_invoice_ids": set(),
         })
-        provider_stats["payments"] += 1
+        provider_stats["_invoice_ids"].add(report_key)
+        provider_stats["payments"] = len(provider_stats["_invoice_ids"])
         provider_stats["revenue_usdc"] += amount
-        if event.get("symbol"):
+        split_leg = event.get("split_leg") or {}
+        split_role = split_leg.get("role")
+        if split_role == "creator":
+            provider_stats["creator_earned_usdc"] += amount
+            provider_stats["withdrawal_mode"] = "direct_gateway_split"
+        elif split_role == "platform":
+            provider_stats["platform_fee_usdc"] += amount
+            provider_stats["withdrawal_mode"] = "direct_gateway_split"
+        else:
+            provider_stats["creator_earned_usdc"] += amount * provider_stats["creator_share_bps"] / 10000
+            provider_stats["platform_fee_usdc"] += amount * provider_stats["platform_share_bps"] / 10000
+        claim_amounts = creator_claim_amounts(provider_id, provider_stats.get("owner_wallet"))
+        provider_stats["creator_claimed_usdc"] = claim_amounts["paid_usdc"]
+        provider_stats["creator_claim_pending_usdc"] = claim_amounts["pending_usdc"]
+        provider_stats["creator_claimable_usdc"] = 0.0 if provider_stats["withdrawal_mode"] == "direct_gateway_split" else max(
+            0.0,
+            provider_stats["creator_earned_usdc"] - claim_amounts["reserved_usdc"],
+        )
+        if first_report_event and event.get("symbol"):
             top_symbols[event["symbol"]] = top_symbols.get(event["symbol"], 0) + 1
         payer = normalize_address(event.get("payer_address"))
         if not payer:
@@ -733,29 +1358,52 @@ def summarize_payment_events(events: list) -> dict:
             "payments": 0,
             "spent_usdc": 0.0,
             "symbols": set(),
+            "providers": set(),
             "preview_count": 0,
             "full_count": 0,
             "last_paid_at": None,
         })
-        stats["payments"] += 1
+        if first_report_event:
+            stats["payments"] += 1
         stats["spent_usdc"] += amount
-        if tier == "preview":
+        if first_report_event and tier == "preview":
             stats["preview_count"] += 1
-        elif tier == "full":
+        elif first_report_event and tier == "full":
             stats["full_count"] += 1
         if event.get("symbol"):
             stats["symbols"].add(event.get("symbol"))
+        if event.get("provider_id"):
+            stats["providers"].add(event.get("provider_id"))
         stats["last_paid_at"] = max(stats["last_paid_at"] or 0, event.get("paid_at") or 0)
     payer_breakdown = []
     for stats in payer_stats.values():
         stats["symbols"] = sorted(stats["symbols"])
+        stats["providers"] = sorted(stats["providers"])
         payer_breakdown.append(stats)
     current_paid_count = tier_counts.get("preview", 0) + tier_counts.get("full", 0)
     current_revenue = revenue_by_tier.get("preview", 0.0) + revenue_by_tier.get("full", 0.0)
     revenue = sum(float(event.get("amount_usdc") or 0) for event in sorted_events)
+    provider_breakdown = []
+    for stats in revenue_by_provider.values():
+        stats.pop("_invoice_ids", None)
+        direct_split = stats.get("withdrawal_mode") == "direct_gateway_split"
+        provider_breakdown.append({
+            **stats,
+            "revenue_usdc": round(stats["revenue_usdc"], 6),
+            "creator_earned_usdc": round(stats["creator_earned_usdc"], 6),
+            "platform_fee_usdc": round(stats["platform_fee_usdc"], 6),
+            "creator_claimable_usdc": round(stats["creator_claimable_usdc"], 6),
+            "creator_claimed_usdc": round(stats.get("creator_claimed_usdc", 0), 6),
+            "creator_claim_pending_usdc": round(stats.get("creator_claim_pending_usdc", 0), 6),
+            "split_note": (
+                "Direct Gateway split. Creator leg settles to provider Gateway balance."
+                if direct_split else
+                "Ledger estimate only. Funds settle to platform treasury; creator claim execution is not live yet."
+            ),
+        })
     return {
         "events": sorted_events,
-        "paid_count": len(sorted_events),
+        "paid_count": len(seen_report_keys),
         "current_paid_count": current_paid_count,
         "legacy_paid_count": tier_counts.get("legacy", 0),
         "unique_payers": len(unique_payers),
@@ -766,7 +1414,7 @@ def summarize_payment_events(events: list) -> dict:
         "buyer_type_counts": buyer_type_counts,
         "revenue_by_tier": revenue_by_tier,
         "revenue_by_provider": sorted(
-            revenue_by_provider.values(),
+            provider_breakdown,
             key=lambda item: item["revenue_usdc"],
             reverse=True,
         ),
@@ -978,6 +1626,15 @@ def refresh_invoice_batch_tx(invoice: dict) -> None:
         invoice["explorer_url"] = temp_event.get("explorer_url")
 
 def validate_arc_payment(invoice: dict, settlement: dict, payer_address: Optional[str] = None) -> None:
+    hydrate_payment_schema(invoice)
+    settlement_meta = invoice.get("settlement") or {}
+    settlement_currency = settlement_meta.get("currency", "USDC")
+    if settlement_currency != "USDC" or settlement_meta.get("gateway_supported") is False:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{settlement_currency} settlement is not enabled for Circle Gateway runtime.",
+        )
+
     # In strict mode, only allow fully settled batches.
     if REQUIRE_COMPLETED_SETTLEMENT:
         accepted_statuses = {"completed", "confirmed"}
@@ -996,117 +1653,85 @@ def validate_arc_payment(invoice: dict, settlement: dict, payer_address: Optiona
     if seller != normalize_address(PAYMENT_WALLET_ADDRESS):
         raise HTTPException(status_code=400, detail="Settlement seller address does not match QMA seller wallet.")
 
-    paid_amount = raw_usdc_to_float(str(settlement.get("amount", "0")))
+    paid_amount = raw_token_to_float(str(settlement.get("amount", "0")), settlement_meta.get("decimals", 6))
     expected_amount = float(invoice["amount"])
     if paid_amount + 1e-9 < expected_amount:
-        raise HTTPException(status_code=400, detail=f"Settlement amount {paid_amount} USDC is below invoice amount {expected_amount} USDC.")
+        raise HTTPException(status_code=400, detail=f"Settlement amount {paid_amount} {settlement_currency} is below invoice amount {expected_amount} {settlement_currency}.")
 
     if payer_address and normalize_address(settlement.get("fromAddress")) != normalize_address(payer_address):
         raise HTTPException(status_code=400, detail="Settlement payer does not match connected wallet.")
 
-def fetch_json_or_none(url: str, *, params: Optional[dict] = None, timeout: float = 5.0, context: str = "request") -> Optional[dict]:
-    try:
-        resp = requests.get(url, params=params, headers=MEXC_HEADERS, timeout=timeout)
-        content_type = (resp.headers.get("content-type") or "").lower()
-        if resp.status_code >= 400:
-            logger.warning("MEXC %s returned HTTP %s", context, resp.status_code)
-            return None
-        if "json" not in content_type and not resp.text.strip().startswith(("{", "[")):
-            logger.warning("MEXC %s returned non-JSON content-type=%s", context, content_type or "unknown")
-            return None
-        return resp.json()
-    except requests.Timeout:
-        logger.warning("MEXC %s timed out", context)
-    except ValueError:
-        logger.warning("MEXC %s returned invalid JSON", context)
-    except requests.RequestException as exc:
-        logger.warning("MEXC %s request failed: %s", context, exc)
-    return None
+def validate_arc_split_leg_payment(invoice: dict, leg: dict, settlement: dict, payer_address: Optional[str] = None) -> None:
+    hydrate_payment_schema(invoice)
+    if REQUIRE_COMPLETED_SETTLEMENT:
+        accepted_statuses = {"completed", "confirmed"}
+        rejected_msg = f"Strict mode: settlement status is '{settlement.get('status')}'."
+    else:
+        accepted_statuses = {"received", "batched", "completed", "confirmed"}
+        rejected_msg = f"Settlement status is '{settlement.get('status')}'; payment has not been accepted by Circle yet."
+    if settlement.get("status") not in accepted_statuses:
+        raise HTTPException(status_code=402, detail=rejected_msg)
+    if normalize_address(settlement.get("toAddress")) != normalize_address(leg.get("pay_to")):
+        raise HTTPException(status_code=400, detail=f"Settlement pay_to does not match split leg {leg.get('leg_id')}.")
+    if raw_usdc_str(settlement.get("amount", "0")) != raw_usdc_str(leg.get("amount_raw")):
+        raise HTTPException(status_code=400, detail=f"Settlement amount does not exactly match split leg {leg.get('leg_id')}.")
+    if payer_address and normalize_address(settlement.get("fromAddress")) != normalize_address(payer_address):
+        raise HTTPException(status_code=400, detail="Settlement payer does not match connected wallet.")
 
+def split_leg_event(invoice: dict, leg: dict) -> dict:
+    return {
+        "event_id": f"{invoice.get('invoice_id')}:{leg.get('leg_id')}",
+        "invoice_id": invoice.get("invoice_id"),
+        "symbol": invoice.get("symbol"),
+        "provider_id": invoice.get("provider_id", "funding_memory"),
+        "provider_owner_wallet": invoice.get("owner_wallet"),
+        "buyer_type": invoice.get("buyer_type", "human"),
+        "synthetic": invoice.get("synthetic", False),
+        "agent_label": invoice.get("agent_label"),
+        "run_source": invoice.get("run_source"),
+        "tier": invoice.get("tier", "full"),
+        "resource_type": invoice.get("resource_type", PAYMENT_RESOURCE_TYPE),
+        "query": invoice.get("query"),
+        "query_hash": invoice.get("query_hash"),
+        "payer_address": leg.get("payer_address") or invoice.get("payer_address"),
+        "seller_address": leg.get("pay_to"),
+        "amount_usdc": raw_usdc_to_decimal_string(leg.get("amount_raw")),
+        "amount_raw": raw_usdc_str(leg.get("amount_raw")),
+        "pricing": {"amount_usdc": raw_usdc_to_decimal_string(leg.get("amount_raw"))},
+        "settlement": invoice.get("settlement"),
+        "accounting": invoice.get("accounting"),
+        "split_leg": {
+            "leg_id": leg.get("leg_id"),
+            "role": leg.get("role"),
+            "pay_to": leg.get("pay_to"),
+            "amount_raw": raw_usdc_str(leg.get("amount_raw")),
+            "amount_usdc": raw_usdc_to_decimal_string(leg.get("amount_raw")),
+        },
+        "settlement_id": leg.get("settlement_id"),
+        "gateway_status": leg.get("gateway_status"),
+        "transaction_hash": leg.get("transaction_hash"),
+        "explorer_url": leg.get("explorer_url"),
+        "paid_at": leg.get("paid_at") or invoice.get("paid_at"),
+    }
+
+def upsert_payment_event(event: dict) -> None:
+    key = payment_event_key(event)
+    if not key:
+        return
+    for idx, existing in enumerate(payment_events):
+        if payment_event_key(existing) == key:
+            payment_events[idx] = {**existing, **event}
+            return
+    payment_events.append(event)
 
 # Live Scanner Helpers
 def scan_mexc_live() -> list:
-    """Scans MEXC Futures tickers in real-time, using ticker fallbacks if metadata is unavailable."""
+    """Returns canonical live market signals from the active market-data adapter."""
     try:
-        ticker_resp = fetch_json_or_none(
-            "https://futures.mexc.com/api/v1/contract/ticker",
-            timeout=5,
-            context="ticker scan",
-        )
-        if not ticker_resp:
-            return live_anomalies_cache.get("data", [])
-        tickers = ticker_resp.get("data", [])
-        if not tickers:
-            return live_anomalies_cache.get("data", [])
-            
-        anomalies = []
-        def safe_float(value, default=0.0):
-            try:
-                return float(value)
-            except (TypeError, ValueError):
-                return default
-
-        # Filter for negative funding rate of <= -0.25% to catch signals
-        filtered_tickers = [t for t in tickers if safe_float(t.get("fundingRate")) <= -0.0025]
-        
-        # Sort by most negative funding rate and take top 12 to prevent rate limits
-        filtered_tickers = sorted(filtered_tickers, key=lambda x: safe_float(x.get("fundingRate")))[:12]
-
-        for ticker in filtered_tickers:
-            raw_symbol = ticker.get("symbol")
-            if not raw_symbol:
-                continue
-            symbol = raw_symbol.replace("_USDT", "")
-            contract_id = ticker.get("contractId")
-            
-            info = {}
-            if MEXC_FETCH_CONTRACT_DETAILS and contract_id:
-                intro_params = {"language": "vi-VN", "contractId": contract_id}
-                intro_resp = fetch_json_or_none(
-                    "https://www.mexc.com/api/activity/contract/coin/introduce/v2",
-                    params=intro_params,
-                    timeout=3,
-                    context=f"contract info for {symbol}",
-                )
-                info = (intro_resp or {}).get("data", {}) if isinstance(intro_resp, dict) else {}
-
-            last_price = safe_float(ticker.get("lastPrice"))
-            funding_rate = safe_float(ticker.get("fundingRate"))
-            hold_vol = safe_float(ticker.get("holdVol"))
-            if last_price <= 0:
-                continue
-
-            # Read parameters with safe fallbacks
-            volume_24h = safe_float(info.get("volume24h")) if info.get("volume24h") else hold_vol * last_price * 0.2
-            circulation = safe_float(info.get("circulationAmount")) if info.get("circulationAmount") else 100000000.0
-            issue = safe_float(info.get("issueAmount")) if info.get("issueAmount") else circulation * 1.5
-
-            market_cap = circulation * last_price if circulation else 10000000.0
-            fdv = issue * last_price if issue else market_cap * 1.5
-            circ_ratio = (circulation / issue) if (circulation and issue) else 0.5
-
-            ath = safe_float(info.get("historicalHigh")) if info.get("historicalHigh") else last_price * 2.0
-            from_ath = (last_price / ath - 1) * 100 if ath else -50.0
-
-            # OI amount
-            oi = hold_vol * last_price
-
-            anomalies.append({
-                "symbol": symbol,
-                "fundingRate": funding_rate,
-                "price": last_price,
-                "marketCap": market_cap,
-                "FDV": fdv,
-                "circRatio": circ_ratio,
-                "fromATH": from_ath,
-                "volume24h": volume_24h,
-                "openInterest": oi,
-                "amount": oi # amount proxy
-            })
-            
-        return anomalies
+        data = market_data_adapter.scan_anomalies()
+        return data or live_anomalies_cache.get("data", [])
     except Exception as e:
-        logger.error(f"Failed to scan MEXC: {e}")
+        logger.error(f"Failed to scan live market data: {e}")
         return []
 
 # Routes
@@ -1150,7 +1775,9 @@ def get_health():
 
 @app.get("/api/v1/config")
 def get_client_config():
-    seller_balance = fetch_gateway_balance_cached(PAYMENT_WALLET_ADDRESS)
+    seller_balance = fetch_gateway_balance_cached(PLATFORM_TREASURY_ADDRESS)
+    gateway_info = fetch_gateway_info_cached()
+    creator_claim_status = fetch_creator_claim_status_cached()
     return {
         "status": "ok",
         "engine": "ready",
@@ -1161,14 +1788,55 @@ def get_client_config():
         "arc_gateway": ARC_GATEWAY_BASE_URL,
         "arc_gateway_contract": ARC_GATEWAY_WALLET,
         # seller_wallet = the EOA address where USDC eventually lands after batch settlement
-        "seller_wallet": PAYMENT_WALLET_ADDRESS,
+        "seller_wallet": PLATFORM_TREASURY_ADDRESS,
+        "platform_treasury_wallet": PLATFORM_TREASURY_ADDRESS,
         # circle_deposit_contract = address buyers actually send funds to (Circle Gateway contract)
         "circle_deposit_contract": ARC_GATEWAY_WALLET,
         "seller_gateway_balance": seller_balance,
+        "gateway_info": gateway_info,
         "pricing": paid_kit.pricing_config(),
+        "settlement": {
+            "runtime_currency": SETTLEMENT_CURRENCY,
+            "supported_assets": SUPPORTED_SETTLEMENT_ASSETS,
+            "rail": SETTLEMENT_RAIL,
+            "token_address": ARC_TESTNET_USDC,
+            "decimals": 6,
+            "gateway_supported": True,
+            "funding_visibility_only": ["EURC", "cirBTC"],
+            "default_mode": DEFAULT_SETTLEMENT_MODE,
+        },
+        "split_payments": {
+            "mode": DEFAULT_SETTLEMENT_MODE,
+            "url_secret_configured": bool(SPLIT_LEG_URL_SECRET),
+            "internal_secret_configured": bool(ARC_GATEWAY_INTERNAL_SECRET),
+            "separate_secrets": SPLIT_LEG_URL_SECRET != ARC_GATEWAY_INTERNAL_SECRET,
+            "ttl_seconds": SPLIT_INVOICE_TTL_SECONDS,
+        },
         "gateway_deposit": {
             "default_usdc": GATEWAY_DEFAULT_DEPOSIT_USDC,
             "default_approve_usdc": GATEWAY_DEFAULT_APPROVE_USDC,
+        },
+        "withdraw": {
+            "mode": WITHDRAW_MODE,
+            "relayer_address": normalize_address(WITHDRAW_RELAYER_ADDRESS),
+            "gateway_minter": ARC_GATEWAY_MINTER,
+            "min_usdc": WITHDRAW_MIN_USDC,
+            "daily_limit": WITHDRAW_RELAY_DAILY_LIMIT,
+        },
+        "creator_claim": {
+            "mode": creator_claim_status.get("mode", "creator_initiated_hot_wallet_transfer"),
+            "configured": bool(creator_claim_status.get("configured")),
+            "executor": normalize_address(creator_claim_status.get("executor")),
+            "relayer": normalize_address(creator_claim_status.get("relayer")),
+            "treasury": normalize_address(creator_claim_status.get("treasury") or PLATFORM_TREASURY_ADDRESS),
+            "min_usdc": CREATOR_CLAIM_MIN_USDC,
+            "error": creator_claim_status.get("error"),
+        },
+        "roles": {
+            "seller_wallet": normalize_address(PLATFORM_TREASURY_ADDRESS),
+            "platform_treasury_wallet": normalize_address(PLATFORM_TREASURY_ADDRESS),
+            "admin_wallet": normalize_address(ADMIN_WALLET_ADDRESS),
+            "withdraw_relayer_address": normalize_address(WITHDRAW_RELAYER_ADDRESS),
         },
         "providers": [
             provider_metadata(provider_registry.require(provider["provider_id"]))
@@ -1177,6 +1845,11 @@ def get_client_config():
         ],
         "require_completed_settlement": REQUIRE_COMPLETED_SETTLEMENT,
     }
+
+@app.get("/api/v1/gateway/info")
+def get_gateway_info(include_raw: bool = Query(default=False)):
+    """Returns Circle Gateway capability diagnostics for QMA's current USDC-only runtime."""
+    return fetch_gateway_info_cached(include_raw=include_raw)
 
 @app.get("/api/v1/engine/profile")
 def get_engine_profile():
@@ -1243,6 +1916,12 @@ def payment_events_for_provider(provider_id: str) -> list:
         if event.get("provider_id", "funding_memory") == provider_id
     ]
     for invoice in paid_invoices:
+        hydrate_payment_schema(invoice)
+        if invoice_split_mode(invoice) == "x402_direct_split":
+            for leg in invoice_required_split_legs(invoice):
+                if leg.get("status") == "paid" and leg.get("settlement_id") and not any(event.get("settlement_id") == leg.get("settlement_id") for event in events):
+                    events.append(split_leg_event(invoice, leg))
+            continue
         if not any(event.get("settlement_id") == invoice.get("settlement_id") for event in events):
             events.append({
                 "invoice_id": invoice.get("invoice_id"),
@@ -1253,6 +1932,9 @@ def payment_events_for_provider(provider_id: str) -> list:
                 "tier": invoice.get("tier", "full"),
                 "payer_address": invoice.get("payer_address"),
                 "amount_usdc": invoice.get("amount"),
+                "pricing": invoice.get("pricing"),
+                "settlement": invoice.get("settlement"),
+                "accounting": invoice.get("accounting"),
                 "settlement_id": invoice.get("settlement_id"),
                 "gateway_status": invoice.get("gateway_status"),
                 "transaction_hash": invoice.get("transaction_hash"),
@@ -1271,26 +1953,55 @@ def build_provider_stats(provider_id: str) -> dict:
     events = payment_events_for_provider(provider_id)
     revenue = sum(float(event.get("amount_usdc") or 0) for event in events)
     share_bps = int(getattr(provider, "revenue_share_bps", 8000))
+    creator_direct = sum(float(event.get("amount_usdc") or 0) for event in events if (event.get("split_leg") or {}).get("role") == "creator")
+    platform_direct = sum(float(event.get("amount_usdc") or 0) for event in events if (event.get("split_leg") or {}).get("role") == "platform")
+    direct_split = creator_direct > 0 or platform_direct > 0
+    report_count = len({event.get("invoice_id") or payment_event_key(event) for event in events})
+    earned = creator_direct if direct_split else revenue * share_bps / 10000
+    claim_amounts = creator_claim_amounts(provider_id, provider.owner_wallet)
+    claimable = 0.0 if direct_split else max(0.0, earned - claim_amounts["reserved_usdc"])
+    revenue_wallet = provider_revenue_wallet(provider)
+    creator_gateway_balance = fetch_gateway_balance_cached(revenue_wallet) if direct_split and revenue_wallet else None
     tier_counts = {"preview": 0, "full": 0, "legacy": 0}
     buyer_type_counts = {"human": 0, "agent": 0}
     top_symbols = {}
     for event in events:
         tier = payment_event_tier(event)
-        tier_counts[tier] = tier_counts.get(tier, 0) + 1
-        buyer_type = event.get("buyer_type", "human")
-        buyer_type_counts[buyer_type] = buyer_type_counts.get(buyer_type, 0) + 1
+        report_key = event.get("invoice_id") or payment_event_key(event)
+        if report_key not in tier_counts.setdefault("_seen", set()):
+            tier_counts["_seen"].add(report_key)
+            tier_counts[tier] = tier_counts.get(tier, 0) + 1
+            buyer_type = event.get("buyer_type", "human")
+            buyer_type_counts[buyer_type] = buyer_type_counts.get(buyer_type, 0) + 1
         if event.get("symbol"):
             top_symbols[event["symbol"]] = top_symbols.get(event["symbol"], 0) + 1
+    tier_counts.pop("_seen", None)
     return {
         "provider_id": provider_id,
         "provider_name": provider.provider_name,
         "owner_wallet": provider.owner_wallet,
+        "revenue_wallet": revenue_wallet,
         "status": getattr(provider, "status", "approved"),
-        "payments": len(events),
+        "payments": report_count,
         "revenue_usdc": round(revenue, 6),
         "creator_share_bps": share_bps,
-        "creator_earned_usdc": round(revenue * share_bps / 10000, 6),
-        "platform_fee_usdc": round(revenue * (10000 - share_bps) / 10000, 6),
+        "creator_earned_usdc": round(earned, 6),
+        "platform_fee_usdc": round(platform_direct if direct_split else revenue * (10000 - share_bps) / 10000, 6),
+        "creator_claimable_usdc": round(claimable, 6),
+        "creator_claimed_usdc": claim_amounts["paid_usdc"],
+        "creator_claim_pending_usdc": claim_amounts["pending_usdc"],
+        "creator_gateway_balance": creator_gateway_balance,
+        "withdrawal_mode": "direct_gateway_split" if direct_split else "creator_initiated_claim_planned",
+        "split_note": (
+            "Direct Gateway split. Creator earnings settle directly to provider Gateway balance."
+            if direct_split else
+            "Ledger-backed creator claim. Gateway settles to platform treasury; payout execution is performed by the claim executor."
+        ),
+        "recent_claims": sorted(
+            claim_amounts["records"],
+            key=lambda item: item.get("requested_at") or 0,
+            reverse=True,
+        )[:10],
         "tier_counts": tier_counts,
         "buyer_type_counts": buyer_type_counts,
         "top_symbols": sorted(
@@ -1300,6 +2011,178 @@ def build_provider_stats(provider_id: str) -> dict:
         )[:8],
         "recent_payments": events[:10],
     }
+
+def provider_ids_owned_by(address: str) -> list[str]:
+    owner = normalize_address(address)
+    owned = []
+    for item in provider_registry.list():
+        provider_id = item.get("provider_id")
+        if not provider_id:
+            continue
+        try:
+            provider = provider_registry.require(provider_id)
+        except Exception:
+            continue
+        if same_address(provider.owner_wallet, owner):
+            owned.append(provider_id)
+    return sorted(owned)
+
+def provider_ids_by_revenue_wallet(address: str) -> list[str]:
+    wallet = normalize_address(address)
+    matched = []
+    for item in provider_registry.list():
+        provider_id = item.get("provider_id")
+        if not provider_id:
+            continue
+        try:
+            provider = provider_registry.require(provider_id)
+        except Exception:
+            continue
+        if same_address(provider_revenue_wallet(provider), wallet):
+            matched.append(provider_id)
+    return sorted(matched)
+
+def authorized_gateway_withdraw_depositor(address: str) -> dict:
+    depositor = normalize_address(address)
+    if same_address(depositor, PAYMENT_WALLET_ADDRESS) or same_address(depositor, PLATFORM_TREASURY_ADDRESS):
+        return {"address": depositor, "role": "platform_treasury", "provider_ids": []}
+    provider_ids = provider_ids_by_revenue_wallet(depositor)
+    if provider_ids:
+        return {"address": depositor, "role": "provider_revenue_wallet", "provider_ids": provider_ids}
+    raise HTTPException(status_code=403, detail="This wallet is not authorized to withdraw QMA Gateway balance.")
+
+def allocate_creator_claim(provider_ids: list[str], amount_usdc: float) -> tuple[dict, list[dict]]:
+    remaining = round(float(amount_usdc), 6)
+    allocations = {}
+    stats_rows = []
+    for provider_id in provider_ids:
+        stats = build_provider_stats(provider_id)
+        available = round(float(stats.get("creator_claimable_usdc") or 0), 6)
+        stats_rows.append(stats)
+        if remaining <= 0:
+            allocations[provider_id] = 0.0
+            continue
+        allocation = min(available, remaining)
+        allocations[provider_id] = round(allocation, 6)
+        remaining = round(remaining - allocation, 6)
+    if remaining > 0.000001:
+        raise HTTPException(status_code=400, detail="Claim amount exceeds available creator earnings.")
+    return allocations, stats_rows
+
+@app.post("/api/v1/creators/claim")
+def create_creator_claim(payload: CreatorClaimRequest):
+    """Creator-initiated claim: verify owner signature, debit ledger, and execute USDC payout."""
+    claimant = normalize_address(payload.claimant_address)
+    now = int(time.time())
+    if payload.issued_at > now + 60 or now - payload.issued_at > CREATOR_CLAIM_INTENT_TTL_SECONDS:
+        raise HTTPException(status_code=400, detail="Creator claim intent expired. Reopen the claim modal and sign again.")
+
+    requested_provider_ids = canonical_provider_ids(payload.provider_ids)
+    owned_provider_ids = provider_ids_owned_by(claimant)
+    if not owned_provider_ids:
+        raise HTTPException(status_code=403, detail="This wallet does not own any approved QMA provider.")
+    provider_ids = requested_provider_ids or owned_provider_ids
+    unowned = [provider_id for provider_id in provider_ids if provider_id not in owned_provider_ids]
+    if unowned:
+        raise HTTPException(status_code=403, detail=f"Wallet does not own provider(s): {', '.join(unowned)}")
+
+    with creator_claim_lock:
+        reload_persistent_state(include_reports=False)
+        stats_rows = [build_provider_stats(provider_id) for provider_id in provider_ids]
+        total_available = round(sum(float(row.get("creator_claimable_usdc") or 0) for row in stats_rows), 6)
+        requested_amount = round(float(payload.amount_usdc or total_available), 6)
+        if requested_amount <= 0:
+            raise HTTPException(status_code=400, detail="No creator earnings are available to claim.")
+        if CREATOR_CLAIM_MIN_USDC > 0 and requested_amount < CREATOR_CLAIM_MIN_USDC:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Minimum creator claim is {CREATOR_CLAIM_MIN_USDC:.6f} USDC.",
+            )
+        if requested_amount > total_available + 0.000001:
+            raise HTTPException(status_code=400, detail="Claim amount exceeds available creator earnings.")
+
+        message = build_creator_claim_message(
+            claimant_address=claimant,
+            provider_ids=provider_ids,
+            amount_usdc=requested_amount,
+            nonce=payload.nonce,
+            issued_at=payload.issued_at,
+        )
+        signer = recover_creator_claim_signer(message, payload.signature)
+        if not same_address(signer, claimant):
+            raise HTTPException(status_code=403, detail="Creator claim signature does not match claimant wallet.")
+
+        allocations, stats_rows = allocate_creator_claim(provider_ids, requested_amount)
+        claim_id = f"claim_{uuid.uuid4().hex}"
+        record = {
+            "claim_id": claim_id,
+            "claimant_address": claimant,
+            "provider_ids": provider_ids,
+            "amount_usdc": requested_amount,
+            "allocations": allocations,
+            "status": "requested",
+            "requested_at": time.time(),
+            "nonce": payload.nonce,
+            "signature": payload.signature,
+            "message": message,
+        }
+        creator_claims_db.append(record)
+        if not save_creator_claim_record(record):
+            raise HTTPException(status_code=500, detail="Could not persist creator claim request.")
+
+    try:
+        headers = {"Content-Type": "application/json"}
+        if ARC_GATEWAY_INTERNAL_SECRET:
+            headers["x-qma-internal-secret"] = ARC_GATEWAY_INTERNAL_SECRET
+        resp = requests.post(
+            f"{ARC_GATEWAY_BASE_URL.rstrip('/')}/api/creator/claim",
+            json={
+                "claimId": record["claim_id"],
+                "recipient": claimant,
+                "amountUsdc": f"{requested_amount:.6f}",
+                "providerIds": provider_ids,
+            },
+            headers=headers,
+            timeout=120,
+        )
+        data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+        if not resp.ok or data.get("error"):
+            raise HTTPException(
+                status_code=502,
+                detail=data.get("error") or f"Claim payout executor returned {resp.status_code}: {resp.text[:240]}",
+            )
+        record.update({
+            "status": "paid",
+            "paid_at": time.time(),
+            "transaction_hash": data.get("transaction_hash"),
+            "explorer_url": data.get("explorer_url"),
+            "payout_executor": data.get("payout_executor") or data.get("relayer"),
+        })
+        save_creator_claim_record(record)
+        reload_persistent_state(include_reports=False)
+        return {
+            "status": "success",
+            "claim": record,
+            "message": "Creator claim paid on-chain.",
+        }
+    except HTTPException as exc:
+        record.update({
+            "status": "failed",
+            "failed_at": time.time(),
+            "error": exc.detail,
+        })
+        save_creator_claim_record(record)
+        reload_persistent_state(include_reports=False)
+        raise
+    except Exception as exc:
+        record.update({
+            "status": "failed",
+            "failed_at": time.time(),
+            "error": str(exc),
+        })
+        save_creator_claim_record(record)
+        reload_persistent_state(include_reports=False)
+        raise HTTPException(status_code=502, detail=f"Creator claim payout failed: {exc}")
 
 @app.get("/api/v1/providers")
 def list_providers(
@@ -1526,6 +2409,7 @@ def get_platform_summary():
         "tier_counts": summary["tier_counts"],
         "buyer_type_counts": summary["buyer_type_counts"],
         "revenue_by_tier": summary["revenue_by_tier"],
+        "revenue_by_provider": summary["revenue_by_provider"],
         "top_symbols": summary["top_symbols"],
         "last_payment_key": summary["last_payment_key"],
         "last_paid_at": summary["last_paid_at"],
@@ -1567,6 +2451,7 @@ def get_wallet_metrics(
     events = load_payment_events_for_wallet(address)
     paid_invoices = list(load_paid_invoices_for_wallet(address).values())
     for invoice in paid_invoices:
+        hydrate_payment_schema(invoice)
         if not any(event.get("settlement_id") == invoice.get("settlement_id") for event in events):
             events.append({
                 "invoice_id": invoice.get("invoice_id"),
@@ -1580,6 +2465,9 @@ def get_wallet_metrics(
                 "seller_address": PAYMENT_WALLET_ADDRESS,
                 "amount_usdc": invoice.get("amount"),
                 "amount_raw": invoice.get("amount_raw"),
+                "pricing": invoice.get("pricing"),
+                "settlement": invoice.get("settlement"),
+                "accounting": invoice.get("accounting"),
                 "settlement_id": invoice.get("settlement_id"),
                 "gateway_status": invoice.get("gateway_status"),
                 "transaction_hash": invoice.get("transaction_hash"),
@@ -1626,8 +2514,21 @@ def wallet_events_with_invoice_fallback(address: str) -> list:
     paid_invoices = list(load_paid_invoices_for_wallet(address).values())
     existing_keys = {payment_event_key(event) for event in events}
     for invoice in paid_invoices:
+        hydrate_payment_schema(invoice)
         key = str(invoice.get("settlement_id") or invoice.get("invoice_id") or "")
         if key and key not in existing_keys:
+            # For split invoices, derive aggregate gateway_status from legs instead of
+            # the frozen "received" status that was written at verify time.
+            invoice_gateway_status = invoice.get("gateway_status")
+            if invoice_split_mode(invoice) == "x402_direct_split":
+                legs = invoice_required_split_legs(invoice)
+                paid_legs = [leg for leg in legs if leg.get("status") == "paid"]
+                if paid_legs and len(paid_legs) == len(legs):
+                    leg_statuses = {str(leg.get("gateway_status") or "").lower() for leg in paid_legs}
+                    if leg_statuses <= {"completed", "confirmed"}:
+                        invoice_gateway_status = "completed"
+                    elif leg_statuses & {"completed", "confirmed", "batched"}:
+                        invoice_gateway_status = "batched"
             events.append({
                 "invoice_id": invoice.get("invoice_id"),
                 "symbol": invoice.get("symbol"),
@@ -1640,8 +2541,11 @@ def wallet_events_with_invoice_fallback(address: str) -> list:
                 "seller_address": PAYMENT_WALLET_ADDRESS,
                 "amount_usdc": invoice.get("amount"),
                 "amount_raw": invoice.get("amount_raw"),
+                "pricing": invoice.get("pricing"),
+                "settlement": invoice.get("settlement"),
+                "accounting": invoice.get("accounting"),
                 "settlement_id": invoice.get("settlement_id"),
-                "gateway_status": invoice.get("gateway_status"),
+                "gateway_status": invoice_gateway_status,
                 "transaction_hash": invoice.get("transaction_hash"),
                 "explorer_url": invoice.get("explorer_url"),
                 "paid_at": invoice.get("paid_at"),
@@ -1757,6 +2661,22 @@ def get_live_anomalies():
         "anomalies": live_anomalies_cache["data"]
     }
 
+@app.get("/api/v1/market-data/cache")
+def get_market_data_cache(
+    symbol: Optional[str] = Query(default=None),
+    refresh: bool = Query(default=False),
+):
+    """Debugs the active market-data adapter cache, e.g. MEXC detailV2 contract size (cs)."""
+    normalized_symbol = str(symbol or "").strip().upper() or None
+    if normalized_symbol and "_" not in normalized_symbol:
+        normalized_symbol = f"{normalized_symbol}_USDT"
+    if not hasattr(market_data_adapter, "cache_status"):
+        return {
+            "source": getattr(market_data_adapter, "source_id", "unknown"),
+            "cache_supported": False,
+        }
+    return market_data_adapter.cache_status(symbol=normalized_symbol, refresh=refresh)
+
 @app.get("/api/v1/agent/recommendations")
 def get_agent_recommendations(limit: int = Query(default=8, ge=1, le=25)):
     """Ranks live anomalies as user-confirmed paid report candidates."""
@@ -1774,22 +2694,25 @@ def get_agent_recommendations(limit: int = Query(default=8, ge=1, le=25)):
         market_cap = max(float(item.get("marketCap") or 0), 1)
         circ = float(item.get("circRatio") or 0)
         ath = abs(float(item.get("fromATH") or 0))
-        query_payload = canonical_query_payload(item)
         for provider in enabled_providers:
+            query_payload = normalize_query_for_provider(provider, item)
             turnover_pct = (volume / market_cap) * 100
+            open_interest = float(query_payload.get("amount") or query_payload.get("openInterest") or 0)
+            oi_pct = (open_interest / market_cap) * 100
             structure_score = min(20.0, max(0.0, 1.0 - abs(circ - 0.65)) * 20)
             discount_score = min(10.0, ath / 10)
             reasons = []
             if provider.provider_id == "oi_memory":
-                turnover_score = min(55.0, turnover_pct * 8)
+                turnover_score = min(55.0, oi_pct * 3)
                 funding_score = min(15.0, funding_pct * 6)
-                score = round(min(100.0, turnover_score + funding_score + structure_score + discount_score), 1)
-                if turnover_pct >= 8:
-                    reasons.append("very high turnover / OI proxy")
-                elif turnover_pct >= 3:
-                    reasons.append("elevated turnover / OI proxy")
-                elif turnover_pct >= 1:
-                    reasons.append("usable turnover context")
+                volume_score = min(10.0, turnover_pct * 0.5)
+                score = round(min(100.0, turnover_score + volume_score + funding_score + structure_score + discount_score), 1)
+                if oi_pct >= 20:
+                    reasons.append("very high open-interest crowding")
+                elif oi_pct >= 8:
+                    reasons.append("elevated open-interest crowding")
+                elif oi_pct >= 2:
+                    reasons.append("usable open-interest context")
                 if funding_pct >= 0.25:
                     reasons.append("funding used as secondary context")
             else:
@@ -1839,12 +2762,148 @@ def quote_payment(req: QuoteRequest):
     provider_id = req_data.pop("provider_id", "funding_memory")
     tier = paid_kit.normalize_tier(req_data.pop("tier", "full"))
     provider = get_provider_or_404(provider_id)
+    req_data = normalize_query_for_provider(provider, req_data)
     quote = provider.quote_price(req_data, tier)
     return {
         "status": "success",
         "pricing": paid_kit.pricing_config(),
         **quote,
     }
+
+def require_internal_gateway_secret(x_qma_internal_secret: Optional[str] = None):
+    if not ARC_GATEWAY_INTERNAL_SECRET:
+        raise HTTPException(status_code=503, detail="QMA_ARC_GATEWAY_INTERNAL_SECRET is not configured.")
+    if not hmac.compare_digest(str(x_qma_internal_secret or ""), ARC_GATEWAY_INTERNAL_SECRET):
+        raise HTTPException(status_code=403, detail="Internal gateway secret required.")
+    return True
+
+@app.get("/api/internal/invoices/{invoice_id}/split-leg/{leg_id}")
+def get_internal_split_leg(
+    invoice_id: str,
+    leg_id: str,
+    x_qma_internal_secret: Optional[str] = Header(default=None),
+):
+    require_internal_gateway_secret(x_qma_internal_secret)
+    invoice = invoices_db.get(invoice_id)
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found.")
+    refresh_split_invoice_status(invoice)
+    leg = split_leg_by_id(invoice, leg_id)
+    if not leg:
+        raise HTTPException(status_code=404, detail="Split leg not found.")
+    save_invoice(invoice)
+    return {
+        "status": "success",
+        "invoice": {
+            "invoice_id": invoice_id,
+            "status": invoice.get("status"),
+            "provider_id": invoice.get("provider_id"),
+            "tier": invoice.get("tier"),
+            "expires_at": invoice.get("expires_at"),
+            "settlement_mode": invoice_split_mode(invoice),
+        },
+        "leg": leg,
+    }
+
+@app.post("/api/internal/invoices/{invoice_id}/split-leg/{leg_id}/reserve")
+def reserve_internal_split_leg(
+    invoice_id: str,
+    leg_id: str,
+    x_qma_internal_secret: Optional[str] = Header(default=None),
+):
+    require_internal_gateway_secret(x_qma_internal_secret)
+    with split_leg_lock:
+        invoice = invoices_db.get(invoice_id)
+        if not invoice:
+            raise HTTPException(status_code=404, detail="Invoice not found.")
+        status_value = refresh_split_invoice_status(invoice)
+        if status_value in {"paid", "expired"}:
+            save_invoice(invoice)
+            raise HTTPException(status_code=409, detail=f"Invoice is {status_value}.")
+        leg = split_leg_by_id(invoice, leg_id)
+        if not leg:
+            raise HTTPException(status_code=404, detail="Split leg not found.")
+        if leg.get("status") == "paid" and leg.get("settlement_id"):
+            raise HTTPException(status_code=409, detail="Split leg is already settled.")
+        processing_until = float(leg.get("processing_until") or 0)
+        if leg.get("status") == "processing" and processing_until > time.time():
+            raise HTTPException(status_code=409, detail="Split leg settlement is already in progress.")
+        leg["status"] = "processing"
+        leg["processing_until"] = time.time() + 120
+        leg["reserved_at"] = time.time()
+        save_invoice(invoice)
+        return {"status": "reserved", "invoice_id": invoice_id, "leg_id": leg_id, "leg": leg}
+
+@app.post("/api/internal/invoices/{invoice_id}/split-leg/{leg_id}/release")
+def release_internal_split_leg(
+    invoice_id: str,
+    leg_id: str,
+    x_qma_internal_secret: Optional[str] = Header(default=None),
+):
+    require_internal_gateway_secret(x_qma_internal_secret)
+    with split_leg_lock:
+        invoice = invoices_db.get(invoice_id)
+        if not invoice:
+            raise HTTPException(status_code=404, detail="Invoice not found.")
+        leg = split_leg_by_id(invoice, leg_id)
+        if not leg:
+            raise HTTPException(status_code=404, detail="Split leg not found.")
+        if leg.get("status") == "processing":
+            leg["status"] = "pending"
+            leg.pop("processing_until", None)
+        refresh_split_invoice_status(invoice)
+        save_invoice(invoice)
+        return {"status": "released", "invoice_id": invoice_id, "leg_id": leg_id, "leg": leg}
+
+@app.post("/api/internal/invoices/{invoice_id}/split-leg/{leg_id}/record")
+def record_internal_split_leg(
+    invoice_id: str,
+    leg_id: str,
+    payload: dict,
+    x_qma_internal_secret: Optional[str] = Header(default=None),
+):
+    require_internal_gateway_secret(x_qma_internal_secret)
+    with split_leg_lock:
+        invoice = invoices_db.get(invoice_id)
+        if not invoice:
+            raise HTTPException(status_code=404, detail="Invoice not found.")
+        leg = split_leg_by_id(invoice, leg_id)
+        if not leg:
+            raise HTTPException(status_code=404, detail="Split leg not found.")
+        if leg.get("status") == "paid" and leg.get("settlement_id"):
+            raise HTTPException(status_code=409, detail="Split leg is already settled.")
+        settled_amount_raw = raw_usdc_str(payload.get("amount_raw") or payload.get("settled_amount_raw") or "0")
+        if settled_amount_raw != raw_usdc_str(leg.get("amount_raw")):
+            raise HTTPException(status_code=400, detail="Settled split leg amount does not match invoice leg.")
+        if normalize_address(payload.get("pay_to")) != normalize_address(leg.get("pay_to")):
+            raise HTTPException(status_code=400, detail="Settled split leg pay_to does not match invoice leg.")
+        settlement_id = str(payload.get("settlement_id") or "")
+        if not settlement_id:
+            raise HTTPException(status_code=400, detail="settlement_id is required.")
+        receipt = str(payload.get("sidecar_receipt") or "")
+        if not verify_split_receipt(
+            invoice_id=invoice_id,
+            leg_id=leg_id,
+            pay_to=leg.get("pay_to"),
+            settled_amount_raw=settled_amount_raw,
+            settlement_id=settlement_id,
+            receipt=receipt,
+        ):
+            raise HTTPException(status_code=400, detail="Invalid split leg sidecar receipt.")
+        leg.update({
+            "status": "paid",
+            "settlement_id": settlement_id,
+            "payer_address": normalize_address(payload.get("payer_address")),
+            "gateway_status": payload.get("gateway_status"),
+            "transaction_hash": payload.get("transaction_hash"),
+            "explorer_url": payload.get("explorer_url"),
+            "paid_at": time.time(),
+            "sidecar_receipt": receipt,
+        })
+        leg.pop("processing_until", None)
+        refresh_split_invoice_status(invoice)
+        save_invoice(invoice)
+        return {"status": "recorded", "invoice_id": invoice_id, "leg_id": leg_id, "invoice_status": invoice.get("status"), "leg": leg}
 
 @app.post("/api/v1/payment/invoice")
 def create_invoice(req: InvoiceRequest):
@@ -1854,7 +2913,11 @@ def create_invoice(req: InvoiceRequest):
     buyer_type = req_data.pop("buyer_type", "human")
     tier = paid_kit.normalize_tier(req_data.pop("tier", "full"))
     resource_type = req_data.pop("resource_type", PAYMENT_RESOURCE_TYPE) or PAYMENT_RESOURCE_TYPE
+    synthetic = bool(req_data.pop("synthetic", False))
+    agent_label = req_data.pop("agent_label", None)
+    run_source = req_data.pop("run_source", None)
     provider = get_provider_or_404(provider_id)
+    req_data = normalize_query_for_provider(provider, req_data)
     quote = provider.quote_price(req_data, tier)
     invoice, requirement = paid_kit.create_invoice(
         query=req_data,
@@ -1871,13 +2934,50 @@ def create_invoice(req: InvoiceRequest):
         facilitator_url=ARC_GATEWAY_API,
         explorer_url=ARC_EXPLORER,
         ttl_seconds=INVOICE_TTL_SECONDS,
+        settlement_rail=SETTLEMENT_RAIL,
+        settlement_currency=SETTLEMENT_CURRENCY,
+        settlement_token_address=ARC_TESTNET_USDC,
+        settlement_decimals=6,
     )
+    hydrate_payment_schema(invoice)
+    settlement_mode = provider_settlement_mode(provider)
+    invoice["settlement"]["mode"] = settlement_mode
+    invoice["accounting"] = {
+        **invoice.get("accounting", {}),
+        "settlement_mode": settlement_mode,
+        "creator_wallet": provider_revenue_wallet(provider),
+        "creator_share_bps": int(getattr(provider, "revenue_share_bps", 8000)),
+        "platform_share_bps": 10000 - int(getattr(provider, "revenue_share_bps", 8000)),
+    }
+    invoice["wallet_address"] = PLATFORM_TREASURY_ADDRESS
+    invoice["platform_treasury_wallet"] = normalize_address(PLATFORM_TREASURY_ADDRESS)
+    invoice["synthetic"] = synthetic
+    invoice["agent_label"] = agent_label
+    invoice["run_source"] = run_source
+    if settlement_mode == "x402_direct_split":
+        invoice["expires_at"] = invoice["created_at"] + SPLIT_INVOICE_TTL_SECONDS
+        invoice["split"] = build_invoice_split(
+            invoice_id=invoice["invoice_id"],
+            provider=provider,
+            tier=invoice["tier"],
+            amount_usdc=invoice["amount"],
+            expires_at=invoice["expires_at"],
+        )
+        requirement["resource"] = invoice["split"]["legs"][0]["resource"]
+        requirement["split"] = invoice["split"]
+        requirement["settlement"]["mode"] = settlement_mode
+        requirement["pay_to"] = None
     invoices_db[invoice["invoice_id"]] = invoice
     save_invoice(invoice)
     return {
         "invoice_id": invoice["invoice_id"],
         "amount": invoice["amount"],
-        "currency": "USDC",
+        "amount_usdc": invoice["amount"],
+        "currency": invoice["settlement"]["currency"],
+        "pricing": invoice["pricing"],
+        "settlement": invoice["settlement"],
+        "split": invoice.get("split"),
+        "accounting": invoice["accounting"],
         "network": PAYMENT_NETWORK,
         "network_name": PAYMENT_NETWORK_NAME,
         "provider_id": invoice["provider_id"],
@@ -1889,23 +2989,155 @@ def create_invoice(req: InvoiceRequest):
         "complexity_score": quote["complexity_score"],
         "resource_type": invoice["resource_type"],
         "wallet_address": invoice["wallet_address"],
+        "platform_treasury_wallet": invoice.get("platform_treasury_wallet"),
         "provider_owner_wallet": invoice["owner_wallet"],
+        "synthetic": invoice.get("synthetic", False),
+        "agent_label": invoice.get("agent_label"),
+        "run_source": invoice.get("run_source"),
         "expires_at": invoice["expires_at"],
         "nonce": invoice["nonce"],
         "invoice_secret": invoice["invoice_secret"],
         "query_hash": invoice["query_hash"],
         "payment_requirement": requirement,
         "arc_gateway_url": requirement["resource"],
+        "split_legs": invoice.get("split", {}).get("legs", []),
+    }
+
+def verify_split_payment(invoice_id: str, invoice: dict, proof: PaymentVerifyRequest):
+    refresh_split_invoice_status(invoice)
+    if invoice.get("status") == "expired":
+        raise HTTPException(status_code=400, detail="Invoice expired. Create a new purchase.")
+    required_legs = invoice_required_split_legs(invoice)
+    if not required_legs:
+        raise HTTPException(status_code=400, detail="Invoice has no split legs.")
+    provided = {item.leg_id: item for item in proof.split_settlements or []}
+    if len(provided) != len(proof.split_settlements or []):
+        raise HTTPException(status_code=400, detail="Duplicate split settlement leg submitted.")
+    missing = [leg.get("leg_id") for leg in required_legs if leg.get("leg_id") not in provided and not leg.get("settlement_id")]
+    if missing:
+        invoice["status"] = "partial_paid" if any(leg.get("settlement_id") for leg in required_legs) else "pending"
+        save_invoice(invoice)
+        raise HTTPException(status_code=402, detail=f"Missing split settlement leg(s): {', '.join(missing)}")
+
+    payer = normalize_address(proof.payer_address)
+    verified_legs = []
+    with split_leg_lock:
+        for leg in required_legs:
+            leg_id = leg.get("leg_id")
+            submitted = provided.get(leg_id)
+            if not submitted:
+                continue
+            if raw_usdc_str(submitted.amount_raw) != raw_usdc_str(leg.get("amount_raw")):
+                raise HTTPException(status_code=400, detail=f"Split leg {leg_id} amount does not match invoice.")
+            if normalize_address(submitted.pay_to) != normalize_address(leg.get("pay_to")):
+                raise HTTPException(status_code=400, detail=f"Split leg {leg_id} pay_to does not match invoice.")
+            if not verify_split_receipt(
+                invoice_id=invoice_id,
+                leg_id=leg_id,
+                pay_to=leg.get("pay_to"),
+                settled_amount_raw=submitted.amount_raw,
+                settlement_id=submitted.settlement_id,
+                receipt=submitted.sidecar_receipt,
+            ):
+                raise HTTPException(status_code=400, detail=f"Invalid sidecar receipt for split leg {leg_id}.")
+            settlement = fetch_circle_settlement(submitted.settlement_id)
+            validate_arc_split_leg_payment(invoice, leg, settlement, payer_address=proof.payer_address)
+            settlement_payer = normalize_address(settlement.get("fromAddress"))
+            if payer and settlement_payer != payer:
+                raise HTTPException(status_code=400, detail="Split settlement payer mismatch.")
+            payer = payer or settlement_payer
+            batch = find_arc_batch_tx(settlement)
+            leg.update({
+                "status": "paid",
+                "settlement_id": submitted.settlement_id,
+                "payer_address": settlement_payer,
+                "gateway_status": settlement.get("status"),
+                "transaction_hash": batch.get("batch_tx"),
+                "explorer_url": batch.get("explorer_url"),
+                "paid_at": time.time(),
+                "sidecar_receipt": submitted.sidecar_receipt,
+            })
+            verified_legs.append(leg)
+
+        if not all(leg.get("status") == "paid" and leg.get("settlement_id") for leg in required_legs):
+            invoice["status"] = "partial_paid"
+            save_invoice(invoice)
+            raise HTTPException(status_code=402, detail="Invoice is partially paid. Complete all split legs before unlock.")
+
+        invoice["status"] = "paid"
+        invoice["paid_at"] = time.time()
+        invoice["payer_address"] = payer
+        invoice["settlement_id"] = f"split:{invoice_id}"
+        invoice["split_settlement_ids"] = [leg.get("settlement_id") for leg in required_legs]
+        invoice["gateway_status"] = "received"
+        invoice["amount_raw"] = (invoice.get("split") or {}).get("total_amount_raw")
+        invoice["verification_mode"] = "circle-gateway-x402-direct-split"
+        save_invoice(invoice)
+
+    reload_persistent_state(include_reports=False)
+    for leg in required_legs:
+        upsert_payment_event(split_leg_event(invoice, leg))
+    save_payment_ledger(payment_events)
+    save_invoice(invoice)
+
+    access_token = sign_access_token({
+        "invoice_id": invoice_id,
+        "settlement_id": invoice.get("settlement_id"),
+        "payer_address": normalize_address(invoice.get("payer_address")),
+        "symbol": invoice.get("symbol"),
+        "query_hash": invoice.get("query_hash"),
+        "provider_id": invoice.get("provider_id", "funding_memory"),
+        "buyer_type": invoice.get("buyer_type", "human"),
+        "tier": invoice.get("tier", "full"),
+        "resource_type": invoice.get("resource_type", PAYMENT_RESOURCE_TYPE),
+        "amount": invoice.get("amount"),
+        "settlement": invoice.get("settlement"),
+        "accounting": invoice.get("accounting"),
+    })
+    return {
+        "invoice_id": invoice_id,
+        "status": invoice["status"],
+        "amount": invoice.get("amount"),
+        "amount_usdc": invoice.get("amount"),
+        "currency": invoice.get("settlement", {}).get("currency", "USDC"),
+        "pricing": invoice.get("pricing"),
+        "settlement": invoice.get("settlement"),
+        "split": invoice.get("split"),
+        "accounting": invoice.get("accounting"),
+        "gateway_status": invoice.get("gateway_status"),
+        "settlement_id": invoice.get("settlement_id"),
+        "split_settlement_ids": invoice.get("split_settlement_ids"),
+        "payer_address": invoice.get("payer_address"),
+        "provider_id": invoice.get("provider_id", "funding_memory"),
+        "buyer_type": invoice.get("buyer_type", "human"),
+        "tier": invoice.get("tier", "full"),
+        "tier_label": paid_kit.SUPPORTED_TIERS[paid_kit.normalize_tier(invoice.get("tier", "full"))]["label"],
+        "resource_type": invoice.get("resource_type", PAYMENT_RESOURCE_TYPE),
+        "provider_owner_wallet": invoice.get("owner_wallet"),
+        "seller_wallet": PLATFORM_TREASURY_ADDRESS,
+        "circle_deposit_contract": ARC_GATEWAY_WALLET,
+        "transaction_hash": None,
+        "explorer_url": None,
+        "verification_mode": invoice["verification_mode"],
+        "access_token": access_token,
+        "access_token_expires_in": ACCESS_TOKEN_TTL_SECONDS,
+        "require_completed_settlement": REQUIRE_COMPLETED_SETTLEMENT,
+        "message": "Direct x402 split verified. Creator and platform legs settled.",
     }
 
 @app.post("/api/v1/payment/verify")
 def verify_payment(invoice_id: str = Query(...), proof: Optional[PaymentVerifyRequest] = None):
     """Verifies a real Circle Gateway x402 settlement on Arc Testnet."""
     if proof is None:
-        raise HTTPException(status_code=400, detail="settlement_id is required.")
+        raise HTTPException(status_code=400, detail="payment proof is required.")
     invoice = get_invoice_or_402(invoice_id)
+    hydrate_payment_schema(invoice)
     if not hmac.compare_digest(str(proof.invoice_secret), str(invoice.get("invoice_secret"))):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invoice secret mismatch.")
+    if invoice_split_mode(invoice) == "x402_direct_split" or proof.split_settlements:
+        return verify_split_payment(invoice_id, invoice, proof)
+    if not proof.settlement_id:
+        raise HTTPException(status_code=400, detail="settlement_id is required.")
     settlement = fetch_circle_settlement(proof.settlement_id)
     validate_arc_payment(invoice, settlement, payer_address=proof.payer_address)
     batch = find_arc_batch_tx(settlement)
@@ -1929,6 +3161,9 @@ def verify_payment(invoice_id: str = Query(...), proof: Optional[PaymentVerifyRe
             "provider_id": invoice.get("provider_id", "funding_memory"),
             "provider_owner_wallet": invoice.get("owner_wallet"),
             "buyer_type": invoice.get("buyer_type", "human"),
+            "synthetic": invoice.get("synthetic", False),
+            "agent_label": invoice.get("agent_label"),
+            "run_source": invoice.get("run_source"),
             "tier": invoice.get("tier", "full"),
             "resource_type": invoice.get("resource_type", PAYMENT_RESOURCE_TYPE),
             "query": invoice.get("query"),
@@ -1937,6 +3172,9 @@ def verify_payment(invoice_id: str = Query(...), proof: Optional[PaymentVerifyRe
             "seller_address": PAYMENT_WALLET_ADDRESS,
             "amount_usdc": invoice.get("amount"),
             "amount_raw": invoice.get("amount_raw"),
+            "pricing": invoice.get("pricing"),
+            "settlement": invoice.get("settlement"),
+            "accounting": invoice.get("accounting"),
             "settlement_id": invoice.get("settlement_id"),
             "gateway_status": invoice.get("gateway_status"),
             "transaction_hash": invoice.get("transaction_hash"),
@@ -1959,10 +3197,18 @@ def verify_payment(invoice_id: str = Query(...), proof: Optional[PaymentVerifyRe
         "tier": invoice.get("tier", "full"),
         "resource_type": invoice.get("resource_type", PAYMENT_RESOURCE_TYPE),
         "amount": invoice.get("amount"),
+        "settlement": invoice.get("settlement"),
+        "accounting": invoice.get("accounting"),
     })
     return {
         "invoice_id": invoice_id,
         "status": invoice["status"],
+        "amount": invoice.get("amount"),
+        "amount_usdc": invoice.get("amount"),
+        "currency": invoice.get("settlement", {}).get("currency", "USDC"),
+        "pricing": invoice.get("pricing"),
+        "settlement": invoice.get("settlement"),
+        "accounting": invoice.get("accounting"),
         # gateway_status: received = Circle accepted signature; completed = on-chain batch finalised
         "gateway_status": invoice["gateway_status"],
         "settlement_id": invoice["settlement_id"],
@@ -2128,11 +3374,59 @@ Past performance does not guarantee future results."""
 
 @app.post("/api/v1/payment/withdraw")
 def submit_withdraw(payload: dict):
-    """Submits a signed BurnIntent authorization to Circle Gateway for withdrawal."""
+    """Submits a signed BurnIntent authorization to Circle Gateway for withdrawal.
+
+    In seller_wallet mode, the browser receives a mint attestation and sends
+    gatewayMint itself. In platform_relayed mode, the Arc sidecar relays
+    gatewayMint with the platform hot wallet so the seller does not pay gas.
+    """
     burn_intent = payload.get("burnIntent")
     signature = payload.get("signature")
     if not burn_intent or not signature:
         raise HTTPException(status_code=400, detail="burnIntent and signature are required")
+
+    try:
+        requested_depositor = bytes32_to_address((burn_intent.get("spec") or {}).get("sourceDepositor"))
+    except Exception as exc:
+        if isinstance(exc, HTTPException):
+            raise exc
+        raise HTTPException(status_code=400, detail=f"Withdraw intent depositor is invalid: {exc}")
+    withdraw_owner = authorized_gateway_withdraw_depositor(requested_depositor)
+    expected_depositor = withdraw_owner["address"]
+    intent = validate_withdraw_intent(burn_intent, expected_depositor=expected_depositor)
+
+    if WITHDRAW_MODE in ("platform_relayed", "relayed", "gasless"):
+        enforce_withdraw_relay_policy(intent)
+        try:
+            relay_resp = requests.post(
+                f"{ARC_GATEWAY_BASE_URL.rstrip('/')}/api/withdraw/relay",
+                json={
+                    "burnIntent": burn_intent,
+                    "signature": signature,
+                    "expectedDepositor": expected_depositor,
+                },
+                timeout=120,
+            )
+        except requests.RequestException as exc:
+            raise HTTPException(status_code=502, detail=f"Withdraw relayer unavailable: {exc}")
+        if not relay_resp.ok:
+            try:
+                relay_error = relay_resp.json()
+            except Exception:
+                relay_error = {"error": relay_resp.text[:300]}
+            raise HTTPException(
+                status_code=relay_resp.status_code,
+                detail=relay_error.get("error") or relay_error.get("detail") or f"Relayer returned {relay_resp.status_code}",
+            )
+        data = relay_resp.json()
+        record_withdraw_relay(intent)
+        return {
+            **data,
+            "withdraw_mode": "platform_relayed",
+            "relayed": True,
+            "amount_usdc": data.get("amount_usdc", f"{intent['amount_usdc']:.6f}"),
+            "withdraw_owner": withdraw_owner,
+        }
 
     try:
         resp = requests.post(
@@ -2150,7 +3444,13 @@ def submit_withdraw(payload: dict):
                     status_code=502,
                     detail=f"Circle Gateway did not return a mint attestation: {json.dumps(data)[:300]}",
                 )
-            return data
+            return {
+                **data,
+                "withdraw_mode": "seller_wallet",
+                "relayed": False,
+                "amount_usdc": f"{intent['amount_usdc']:.6f}",
+                "withdraw_owner": withdraw_owner,
+            }
         raise HTTPException(
             status_code=502,
             detail=f"Circle Gateway transfer API returned {resp.status_code}: {resp.text[:300]}",
@@ -2163,7 +3463,7 @@ def submit_withdraw(payload: dict):
 
 def authorize_paid_invoice(
     *,
-    query: QueryModel,
+    query: dict,
     invoice_id: str,
     token: Optional[str],
     required_tier: str,
@@ -2188,9 +3488,9 @@ def authorize_paid_invoice(
                 ),
             },
         )
-    if invoice["symbol"].upper() != query.symbol.upper():
+    if invoice["symbol"].upper() != str(query.get("symbol", "")).upper():
         raise HTTPException(status_code=400, detail="Invoice symbol does not match query symbol.")
-    current_query_hash = query_fingerprint(model_to_dict(query))
+    current_query_hash = query_fingerprint(query)
     if invoice.get("query_hash") != current_query_hash:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -2241,9 +3541,14 @@ def build_preview_report(full_report: dict, invoice: dict) -> dict:
         ],
         "upgrade_cta": "Upgrade to the full report for all analogs, weighted percentiles, confidence intervals, and evidence diagnostics.",
         "invoice": full_report.get("invoice"),
+        "provider_note": full_report.get("provider_note"),
+        "analysis_focus": full_report.get("analysis_focus"),
+        "turnover_context": full_report.get("turnover_context"),
+        "provider_diagnostics": full_report.get("provider_diagnostics"),
     }
 
 def invoice_report_meta(invoice_id: str, invoice: dict) -> dict:
+    hydrate_payment_schema(invoice)
     return {
         "invoice_id": invoice_id,
         "status": "paid",
@@ -2257,6 +3562,9 @@ def invoice_report_meta(invoice_id: str, invoice: dict) -> dict:
         "payer_address": invoice.get("payer_address"),
         "provider_owner_wallet": invoice.get("owner_wallet"),
         "amount_usdc": invoice.get("amount"),
+        "pricing": invoice.get("pricing"),
+        "settlement": invoice.get("settlement"),
+        "accounting": invoice.get("accounting"),
         "network": invoice.get("network"),
         "verification_mode": invoice.get("verification_mode"),
     }
@@ -2270,16 +3578,17 @@ def run_paid_provider_report(
     required_tier: str,
 ) -> dict:
     provider = get_provider_or_404(provider_id)
+    normalized_query = normalize_query_for_provider(provider, model_to_dict(query))
     invoice = authorize_paid_invoice(
-        query=query,
+        query=normalized_query,
         invoice_id=invoice_id,
         token=token,
         required_tier=required_tier,
         provider_id=provider.provider_id,
     )
     refresh_invoice_batch_tx(invoice)
-    full_report = provider.full_report(model_to_dict(query))
-    full_report["query"] = invoice.get("query") or canonical_query_payload(model_to_dict(query))
+    full_report = provider.full_report(normalized_query)
+    full_report["query"] = invoice.get("query") or canonical_query_payload(normalized_query)
     full_report["query_hash"] = invoice.get("query_hash")
     full_report["provider_id"] = provider.provider_id
     full_report["provider_name"] = provider.provider_name

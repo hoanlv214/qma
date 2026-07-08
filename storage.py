@@ -73,6 +73,69 @@ def paid_report_summary_from_row(row: dict) -> dict:
     return {key: value for key, value in summary.items() if value is not None}
 
 
+def invoice_payment_events(invoice: dict) -> list:
+    if not isinstance(invoice, dict):
+        return []
+    split = invoice.get("split") if isinstance(invoice.get("split"), dict) else {}
+    if split.get("mode") == "x402_direct_split":
+        events = []
+        for leg in split.get("legs") or []:
+            if leg.get("status") == "paid" and leg.get("settlement_id"):
+                events.append({
+                    "event_id": f"{invoice.get('invoice_id')}:{leg.get('leg_id')}",
+                    "invoice_id": invoice.get("invoice_id"),
+                    "settlement_id": leg.get("settlement_id"),
+                    "payer_address": leg.get("payer_address") or invoice.get("payer_address"),
+                    "symbol": invoice.get("symbol"),
+                    "tier": invoice.get("tier"),
+                    "provider_id": invoice.get("provider_id", "funding_memory"),
+                    "query_hash": invoice.get("query_hash"),
+                    "paid_at": leg.get("paid_at") or invoice.get("paid_at"),
+                    "amount_usdc": leg.get("amount_usdc"),
+                    "amount_raw": leg.get("amount_raw"),
+                    "gateway_status": leg.get("gateway_status"),
+                    "transaction_hash": leg.get("transaction_hash"),
+                    "explorer_url": leg.get("explorer_url"),
+                    "provider_owner_wallet": invoice.get("owner_wallet"),
+                    "buyer_type": invoice.get("buyer_type", "human"),
+                    "synthetic": invoice.get("synthetic", False),
+                    "agent_label": invoice.get("agent_label"),
+                    "run_source": invoice.get("run_source"),
+                    "resource_type": invoice.get("resource_type"),
+                    "settlement": invoice.get("settlement"),
+                    "accounting": invoice.get("accounting"),
+                    "split_leg": {
+                        "leg_id": leg.get("leg_id"),
+                        "role": leg.get("role"),
+                        "pay_to": leg.get("pay_to"),
+                        "amount_raw": leg.get("amount_raw"),
+                        "amount_usdc": leg.get("amount_usdc"),
+                    },
+                })
+        return events
+    return [{
+        "invoice_id": invoice.get("invoice_id"),
+        "settlement_id": invoice.get("settlement_id"),
+        "payer_address": invoice.get("payer_address"),
+        "symbol": invoice.get("symbol"),
+        "tier": invoice.get("tier"),
+        "provider_id": invoice.get("provider_id", "funding_memory"),
+        "query_hash": invoice.get("query_hash"),
+        "paid_at": invoice.get("paid_at"),
+        "provider_owner_wallet": invoice.get("owner_wallet"),
+        "buyer_type": invoice.get("buyer_type", "human"),
+        "synthetic": invoice.get("synthetic", False),
+        "agent_label": invoice.get("agent_label"),
+        "run_source": invoice.get("run_source"),
+        "resource_type": invoice.get("resource_type"),
+        "amount_usdc": invoice.get("amount"),
+        "amount_raw": invoice.get("amount_raw"),
+        "gateway_status": invoice.get("gateway_status"),
+        "transaction_hash": invoice.get("transaction_hash"),
+        "explorer_url": invoice.get("explorer_url"),
+    }]
+
+
 class JsonStorage:
     """Local JSON fallback for development and offline demos."""
 
@@ -220,28 +283,10 @@ class JsonStorage:
         return dict(ordered[:limit])
 
     def load_paid_invoice_events(self, *, limit: int = 5000) -> list:
-        invoices = [
-            invoice for invoice in self.load_invoices().values()
-            if isinstance(invoice, dict) and invoice.get("status") == "paid"
-        ]
-        events = [{
-            "invoice_id": invoice.get("invoice_id"),
-            "settlement_id": invoice.get("settlement_id"),
-            "payer_address": invoice.get("payer_address"),
-            "symbol": invoice.get("symbol"),
-            "tier": invoice.get("tier"),
-            "provider_id": invoice.get("provider_id", "funding_memory"),
-            "query_hash": invoice.get("query_hash"),
-            "paid_at": invoice.get("paid_at"),
-            "provider_owner_wallet": invoice.get("owner_wallet"),
-            "buyer_type": invoice.get("buyer_type", "human"),
-            "resource_type": invoice.get("resource_type"),
-            "amount_usdc": invoice.get("amount"),
-            "amount_raw": invoice.get("amount_raw"),
-            "gateway_status": invoice.get("gateway_status"),
-            "transaction_hash": invoice.get("transaction_hash"),
-            "explorer_url": invoice.get("explorer_url"),
-        } for invoice in invoices]
+        events = []
+        for invoice in self.load_invoices().values():
+            if isinstance(invoice, dict) and invoice.get("status") == "paid":
+                events.extend(invoice_payment_events(invoice))
         return sorted(events, key=lambda item: item.get("paid_at") or 0, reverse=True)[:limit]
 
     def save_invoice(self, invoice: dict) -> None:
@@ -534,7 +579,8 @@ class SupabaseStorage:
         events = []
         for row in rows:
             invoice = row.get("invoice") if isinstance(row.get("invoice"), dict) else {}
-            events.append({
+            events.extend(invoice_payment_events({
+                **invoice,
                 "invoice_id": row.get("invoice_id") or invoice.get("invoice_id"),
                 "settlement_id": row.get("settlement_id") or invoice.get("settlement_id"),
                 "payer_address": row.get("payer_address") or invoice.get("payer_address"),
@@ -543,15 +589,7 @@ class SupabaseStorage:
                 "provider_id": row.get("provider_id") or invoice.get("provider_id", "funding_memory"),
                 "query_hash": row.get("query_hash") or invoice.get("query_hash"),
                 "paid_at": row.get("paid_at") if row.get("paid_at") is not None else invoice.get("paid_at"),
-                "provider_owner_wallet": invoice.get("owner_wallet"),
-                "buyer_type": invoice.get("buyer_type", "human"),
-                "resource_type": invoice.get("resource_type"),
-                "amount_usdc": invoice.get("amount"),
-                "amount_raw": invoice.get("amount_raw"),
-                "gateway_status": invoice.get("gateway_status"),
-                "transaction_hash": invoice.get("transaction_hash"),
-                "explorer_url": invoice.get("explorer_url"),
-            })
+            }))
         return events
 
     def save_invoice(self, invoice: dict) -> None:

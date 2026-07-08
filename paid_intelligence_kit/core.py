@@ -23,6 +23,12 @@ SUPPORTED_TIERS = {
     },
 }
 
+SUPPORTED_SETTLEMENT_ASSETS = ["USDC"]
+DEFAULT_SETTLEMENT_RAIL = "circle_gateway_x402"
+DEFAULT_SETTLEMENT_CURRENCY = "USDC"
+DEFAULT_SETTLEMENT_DECIMALS = 6
+DEFAULT_SETTLEMENT_TOKEN_ADDRESS = "0x3600000000000000000000000000000000000000"
+
 
 def normalize_address(value: Optional[str]) -> str:
     return (value or "").strip().lower()
@@ -46,6 +52,40 @@ def pricing_config() -> dict:
         "preview_base_usdc": tier_price("preview"),
         "full_base_usdc": tier_price("full"),
         "complexity_uplift_max": float(os.getenv("QMA_PRICE_COMPLEXITY_UPLIFT_MAX", "0")),
+    }
+
+
+def settlement_profile(
+    *,
+    amount_usdc: float,
+    network_name: str,
+    rail: str = DEFAULT_SETTLEMENT_RAIL,
+    currency: str = DEFAULT_SETTLEMENT_CURRENCY,
+    token_address: str = DEFAULT_SETTLEMENT_TOKEN_ADDRESS,
+    decimals: int = DEFAULT_SETTLEMENT_DECIMALS,
+    gateway_supported: bool = True,
+) -> dict:
+    return {
+        "rail": rail,
+        "currency": currency,
+        "token_address": token_address,
+        "decimals": decimals,
+        "amount": f"{float(amount_usdc):.6f}".rstrip("0").rstrip("."),
+        "network": network_name,
+        "gateway_supported": gateway_supported,
+    }
+
+
+def pricing_profile(*, amount_usdc: float) -> dict:
+    return {
+        "amount_usdc": f"{float(amount_usdc):.6f}".rstrip("0").rstrip("."),
+    }
+
+
+def accounting_profile(*, amount_usdc: float, currency: str = DEFAULT_SETTLEMENT_CURRENCY) -> dict:
+    return {
+        "currency": currency,
+        "amount_usdc": f"{float(amount_usdc):.6f}".rstrip("0").rstrip("."),
     }
 
 
@@ -106,6 +146,10 @@ def canonical_query_payload(query: dict) -> dict:
         "fromATH": as_float(query.get("fromATH")),
         "volume24h": as_float(query.get("volume24h")),
         "amount": as_float(query.get("amount")),
+        "openInterest": as_float(query.get("openInterest")),
+        "openInterestChange24h": as_float(query.get("openInterestChange24h")),
+        "longShortRatio": as_float(query.get("longShortRatio")),
+        "price": as_float(query.get("price")),
     }
 
 
@@ -130,6 +174,10 @@ def payment_requirement(
     facilitator_url: str,
     explorer_url: str,
     ttl_seconds: int,
+    settlement_rail: str = DEFAULT_SETTLEMENT_RAIL,
+    settlement_currency: str = DEFAULT_SETTLEMENT_CURRENCY,
+    settlement_token_address: str = DEFAULT_SETTLEMENT_TOKEN_ADDRESS,
+    settlement_decimals: int = DEFAULT_SETTLEMENT_DECIMALS,
 ) -> dict:
     memo = f"QMA:{provider_id}:{tier}:{invoice_id}" if invoice_id else f"QMA:{provider_id}:{tier}:invoice-required"
     resource = f"{gateway_base_url}/qma-access"
@@ -138,12 +186,24 @@ def payment_requirement(
             f"?invoice_id={invoice_id or ''}&symbol={symbol or ''}"
             f"&provider_id={provider_id}&tier={tier}&amount_usdc={amount_usdc}"
         )
+    settlement = settlement_profile(
+        amount_usdc=amount_usdc,
+        network_name=network_name,
+        rail=settlement_rail,
+        currency=settlement_currency,
+        token_address=settlement_token_address,
+        decimals=settlement_decimals,
+        gateway_supported=settlement_currency == "USDC",
+    )
     return {
         "scheme": "circle-x402-batching",
         "network": network,
         "network_name": network_name,
         "asset": "USDC",
         "amount": amount_usdc,
+        "pricing": pricing_profile(amount_usdc=amount_usdc),
+        "settlement": settlement,
+        "accounting": accounting_profile(amount_usdc=amount_usdc, currency=settlement["currency"]),
         "tier": tier,
         "provider_id": provider_id,
         "resource_type": resource_type,
@@ -174,6 +234,10 @@ def create_invoice(
     facilitator_url: str,
     explorer_url: str,
     ttl_seconds: int,
+    settlement_rail: str = DEFAULT_SETTLEMENT_RAIL,
+    settlement_currency: str = DEFAULT_SETTLEMENT_CURRENCY,
+    settlement_token_address: str = DEFAULT_SETTLEMENT_TOKEN_ADDRESS,
+    settlement_decimals: int = DEFAULT_SETTLEMENT_DECIMALS,
 ) -> tuple[dict, dict]:
     normalized_tier = normalize_tier(tier)
     query_payload = canonical_query_payload(query)
@@ -194,12 +258,20 @@ def create_invoice(
         facilitator_url=facilitator_url,
         explorer_url=explorer_url,
         ttl_seconds=ttl_seconds,
+        settlement_rail=settlement_rail,
+        settlement_currency=settlement_currency,
+        settlement_token_address=settlement_token_address,
+        settlement_decimals=settlement_decimals,
     )
+    settlement = requirement["settlement"]
     invoice = {
         "invoice_id": invoice_id,
         "status": "pending",
         "amount": amount,
         "currency": "USDC",
+        "pricing": requirement["pricing"],
+        "settlement": settlement,
+        "accounting": requirement["accounting"],
         "provider_id": provider_id,
         "buyer_type": buyer_type,
         "owner_wallet": owner_wallet or seller_address,
@@ -283,6 +355,9 @@ def record_entitlement(store: dict, *, invoice: dict, report: dict, saved_at: Op
         "provider_id": invoice.get("provider_id", "funding_memory"),
         "provider_owner_wallet": invoice.get("owner_wallet") or invoice.get("wallet_address"),
         "buyer_type": invoice.get("buyer_type", "human"),
+        "synthetic": invoice.get("synthetic", False),
+        "agent_label": invoice.get("agent_label"),
+        "run_source": invoice.get("run_source"),
         "query_hash": invoice.get("query_hash"),
         "query": invoice.get("query"),
         "symbol": invoice.get("symbol"),
@@ -295,6 +370,9 @@ def record_entitlement(store: dict, *, invoice: dict, report: dict, saved_at: Op
         "gateway_status": invoice.get("gateway_status"),
         "amount_usdc": invoice.get("amount"),
         "paid_at": invoice.get("paid_at"),
+        "pricing": invoice.get("pricing"),
+        "settlement": invoice.get("settlement"),
+        "accounting": invoice.get("accounting"),
         "saved_at": saved_at or time.time(),
         "report": report,
     }

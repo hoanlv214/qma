@@ -57,7 +57,7 @@
     color: var(--accent);
 }
 
-.anomalies-list {
+/* .anomalies-list {
     flex: 1;
     overflow-y: auto;
     padding: 10px;
@@ -65,7 +65,7 @@
     flex-direction: column;
     gap: 6px;
     min-height: 0;
-}
+} */
 
 /* ===== ANOMALY CARDS ===== */
 .anomaly-card {
@@ -1739,7 +1739,7 @@
     transition: opacity 0.5s ease-out;
 }
 
-.report-container > * {
+.report-container>* {
     min-width: 0;
 }
 
@@ -2024,6 +2024,14 @@
     margin-bottom: 16px;
 }
 
+.gateway-diagnostics-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.creator-split-ledger {
+    margin-top: 14px;
+}
+
 .balance-tile {
     border-radius: var(--radius-sm);
     padding: 12px 14px;
@@ -2142,15 +2150,15 @@
         overflow: auto;
     }
 
-    .split-tables,
+    /* .split-tables,
     .report-container {
         grid-template-columns: 1fr;
-    }
+    } */
 
-    .section-span-all,
+    /* .section-span-all,
     .section-span-2 {
         grid-column: 1;
-    }
+    } */
 
     .profile-grid {
         grid-template-columns: repeat(2, 1fr);
@@ -2262,8 +2270,12 @@
     margin-bottom: 4px;
 }
 
-.wallet-menu-header .wallet-menu-address {
+.wallet-menu-identity {
     flex: 1 1 auto;
+    min-width: 0;
+}
+
+.wallet-menu-header .wallet-menu-address {
     min-width: 0;
     margin-bottom: 0;
     padding: 0;
@@ -2278,6 +2290,44 @@
     font-family: var(--mono);
     font-size: var(--text-sm);
     line-height: 1.3;
+}
+
+.wallet-role-label {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    max-width: 100%;
+    margin-top: 4px;
+    padding: 2px 7px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--t3);
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    line-height: 1.25;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.wallet-role-label.role-treasury,
+.wallet-role-label.role-creator {
+    border-color: rgba(34, 211, 160, 0.28);
+    background: rgba(34, 211, 160, 0.08);
+    color: var(--green);
+}
+
+.wallet-role-label.role-admin {
+    border-color: rgba(125, 92, 255, 0.35);
+    background: rgba(125, 92, 255, 0.10);
+    color: var(--accent);
+}
+
+.wallet-role-label.role-relayer {
+    border-color: rgba(245, 158, 11, 0.30);
+    background: rgba(245, 158, 11, 0.10);
+    color: #f59e0b;
 }
 
 /* Override styles.css `.wallet-menu button { width: 100% }` on copy icon */
@@ -2410,6 +2460,54 @@
 .wallet-menu-link:hover {
     background: rgba(255, 255, 255, 0.04);
     color: var(--t1);
+}
+
+.creator-earnings-list {
+    display: grid;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.creator-earnings-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 10px;
+    border: 1px solid var(--bdr);
+    border-radius: var(--radius-xs);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.creator-earnings-item strong,
+.creator-earnings-item span {
+    display: block;
+}
+
+.creator-earnings-item span {
+    margin-top: 2px;
+    color: var(--t3);
+    font-family: var(--mono);
+    font-size: 0.68rem;
+}
+
+.creator-earnings-amount {
+    flex-shrink: 0;
+    color: var(--green);
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    font-weight: 700;
+}
+
+.action-note {
+    margin-top: 10px;
+    padding: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-xs);
+    background: rgba(255, 255, 255, 0.035);
+    color: var(--t2);
+    font-size: 0.78rem;
+    line-height: 1.5;
 }
 
 /* --- Stats & Metrics Dropdown Popover --- */
@@ -2898,7 +2996,7 @@ body.advanced-view .query-form-grid {
 
 /* The inner wrapper: fields flex-1, buttons fixed-width, all on one line */
 body.advanced-view .query-fields-grid {
-    grid-template-columns: repeat(8, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
     gap: 6px 8px;
 }
 
@@ -3684,5 +3782,226 @@ body.basic-view .platform-stats-section {
 }
 
 .paywall-trust-links a {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+[hidden] {
+    display: none !important;
+}
+
+/* Agent Buyer Horizontal Bar styles */
+.agent-control-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--bdr);
+    padding: 12px 24px;
+    margin-bottom: 0;
+}
+
+.agent-bar-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: max-content;
+}
+
+.agent-bar-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--t1);
+    white-space: nowrap;
+}
+
+.agent-status-indicator {
+    font-size: 0.65rem;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.agent-status-indicator.idle {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--t3);
+}
+
+.agent-status-indicator.active {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--green);
+    animation: agentPulse 1.5s infinite alternate;
+}
+
+@keyframes agentPulse {
+    from {
+        opacity: 0.6;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+.agent-bar-input-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 600px;
+}
+
+.agent-bar-input {
+    flex: 1;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    padding: 8px 12px;
+    background: var(--bg-2);
+    border: 1px solid var(--bdr);
+    border-radius: 6px;
+    color: var(--t1);
+    transition: border-color 0.2s ease;
+}
+
+.agent-bar-input:focus {
+    border-color: var(--green);
+    outline: none;
+}
+
+.agent-bar-submit {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 8px 16px;
+    background: var(--green);
+    color: var(--bg-1);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: opacity 0.2s ease;
+    white-space: nowrap;
+}
+
+.agent-bar-submit:hover:not(:disabled) {
+    opacity: 0.9;
+}
+
+.agent-bar-submit:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.agent-bar-presets {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: max-content;
+}
+
+.agent-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.preset-btn {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    padding: 4px 8px;
+    background: var(--bg-2);
+    border: 1px solid var(--bdr);
+    border-radius: 4px;
+    color: var(--t2);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.preset-btn:hover {
+    border-color: var(--green);
+    color: var(--green);
+}
+
+.provider-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.68rem;
+    font-family: var(--mono);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--bdr);
+    color: var(--t2);
     font-size: 0.64rem;
+}
+
+/* ── RESPONSIVE FIXES FOR MOBILE LAYOUT SQUISH ── */
+@media (max-width: 900px) {
+
+    /* Enforce full width and normal wrapping for main components */
+    .workspace,
+    .main-panel,
+    .report-viewport,
+    .report-container {
+        width: 100% !important;
+        min-width: 0 !important;
+        max-width: 100vw !important;
+    }
+
+    /* Prevent Copilot flex layout from forcing viewport to squish */
+    .agent-control-bar {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        padding: 12px !important;
+        gap: 12px !important;
+        height: auto !important;
+    }
+
+    .agent-bar-info,
+    .agent-bar-presets {
+        min-width: 0 !important;
+        flex-wrap: wrap !important;
+    }
+
+    .agent-bar-info {
+        justify-content: space-between !important;
+    }
+
+    .agent-bar-input-wrap {
+        max-width: 100% !important;
+        flex-direction: column !important;
+        align-items: stretch !important;
+    }
+
+    .agent-bar-submit {
+        width: 100% !important;
+    }
+
+    .agent-bar-title {
+        white-space: normal !important;
+    }
+
+    /* Fix table wrappers to prevent forcing page width */
+    .split-table-col {
+        min-width: 0 !important;
+        overflow-x: auto !important;
+    }
+
+    .split-table-col--settlements .activity-table,
+    .split-table-col--wallets .activity-table,
+    .activity-table {
+        min-width: 600px !important;
+    }
+
+    .body .seller-balance-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .body .split-tables {
+        grid-template-columns: 1fr !important;
+    }
 }

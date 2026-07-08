@@ -6,7 +6,8 @@
   "scripts": {
     "agent:dry": "node examples/agent_buyer.mjs --dry-run",
     "agent:preview": "node examples/agent_buyer.mjs --live --tier preview",
-    "agent:full": "node examples/agent_buyer.mjs --live --tier full"
+    "agent:full": "node examples/agent_buyer.mjs --live --tier full",
+    "agent:swarm": "node scripts/qma_agent_swarm.mjs"
   },
   "dependencies": {
     "viem": "^2.48.11"

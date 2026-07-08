@@ -12,7 +12,10 @@ payment_ledger.json
 paid_reports.json
 invoices.json
 creator_applications.json
+creator_claims.json
 private_data/
+data/cache/
 data/full_*.csv
 *.key
+.qma-test-wallets*.json
 exports/

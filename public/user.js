@@ -354,29 +354,39 @@ function walletActionKey(event = {}) {
 }
 
 function paymentEventsToWalletActions(payments = []) {
-    return payments.flatMap((payment) => {
-        const base = {
+    const grouped = groupPaymentsByInvoice(payments);
+    return grouped.map((payment) => {
+        // Emit exactly one wallet-action row per grouped invoice.
+        // Using 'verified_split_payment' for split groups, 'verified_payment' otherwise,
+        // so local saveWalletEvent entries naturally deduplicate against these.
+        const isSplit = payment.is_group || String(payment.settlement_id || '').startsWith('split:');
+        return {
+            type: isSplit ? 'verified_split_payment' : 'verified_payment',
             amount_usdc: payment.amount_usdc,
             settlement_id: payment.settlement_id,
             tx_hash: payment.transaction_hash,
             explorer_url: payment.explorer_url,
             symbol: payment.symbol,
+            gateway_status: payment.gateway_status,
             at: Number(payment.paid_at || 0) > 10_000_000_000
                 ? Number(payment.paid_at)
                 : Number(payment.paid_at || 0) * 1000,
             source: 'database',
         };
-        return [
-            { ...base, type: 'verified_payment' },
-            { ...base, type: 'x402_settlement' },
-        ];
     });
 }
+
+// Types that represent individual split legs — they are shown inside the
+// grouped row in renderPayments, not as standalone rows in the events feed.
+const LEG_LEVEL_TYPES = new Set(['x402_split_leg']);
 
 function mergeWalletActions(localEvents = [], paymentEvents = []) {
     const merged = [];
     const seen = new Set();
-    [...localEvents, ...paymentEventsToWalletActions(paymentEvents)].forEach((event) => {
+    // Filter out leg-level local events so they don't appear as extra rows
+    // alongside the already-grouped verified_split_payment row.
+    const filteredLocal = localEvents.filter((e) => !LEG_LEVEL_TYPES.has(e.type));
+    [...filteredLocal, ...paymentEventsToWalletActions(paymentEvents)].forEach((event) => {
         const key = walletActionKey(event);
         if (seen.has(key)) return;
         seen.add(key);
@@ -411,7 +421,115 @@ function renderEvents(account, paymentEvents = []) {
     }).join('');
 }
 
+// Returns true when a payment event represents an actual split leg
+// (created by the x402_direct_split flow). Legacy treasury_ledger events
+// carry an invoice_id but are NOT split legs and must not be grouped.
+function isSplitLegEvent(event) {
+    if (!event) return false;
+    // Explicit split leg type from local wallet storage
+    if (event.type === 'x402_split_leg') return true;
+    // Split leg events have a split_leg descriptor from the backend
+    if (event.split_leg && typeof event.split_leg === 'object') return true;
+    // Settlement_id that looks like a UUID (not 'split:…') means it came from
+    // a single-leg legacy payment — not a real split leg.
+    return false;
+}
+
+function groupPaymentsByInvoice(events) {
+    const grouped = [];
+    const invoiceMap = new Map();
+
+    for (const event of events) {
+        let invId = event.invoice_id;
+        if (!invId && event.settlement_id && String(event.settlement_id).startsWith('split:')) {
+            invId = String(event.settlement_id).split(':')[1];
+        }
+
+        // No invoice_id → not groupable; render as a standalone row.
+        if (!invId) {
+            grouped.push({ ...event, is_group: false });
+            continue;
+        }
+
+        // Aggregate invoice marker (settlement_id = 'split:…') or a locally
+        // saved verified_split_payment — these set the totals for the group.
+        const isAggregateMarker = (
+            event.type === 'verified_split_payment' ||
+            (event.settlement_id && String(event.settlement_id).startsWith('split:'))
+        );
+
+        // If this event has an invoice_id but is NOT a real split leg and NOT
+        // the aggregate marker, it is a legacy treasury_ledger payment that
+        // happens to carry an invoice_id. Render it as a single standalone row.
+        if (!isAggregateMarker && !isSplitLegEvent(event)) {
+            grouped.push({ ...event, is_group: false });
+            continue;
+        }
+
+        if (!invoiceMap.has(invId)) {
+            const newGroup = {
+                is_group: true,
+                invoice_id: invId,
+                legs: [],
+                symbol: event.symbol,
+                tier: event.tier || event.tier_category,
+                provider_id: event.provider_id,
+                buyer_type: event.buyer_type,
+                gateway_status: event.gateway_status,
+                paid_at: event.paid_at || event.at,
+                amount_usdc: 0,
+                has_report: event.has_report,
+                entitlement_id: event.entitlement_id,
+                transaction_hash: null,
+                settlement_id: `split:${invId}`,
+            };
+            invoiceMap.set(invId, newGroup);
+            grouped.push(newGroup);
+        }
+
+        const group = invoiceMap.get(invId);
+        if (isAggregateMarker) {
+            group.gateway_status = event.gateway_status || group.gateway_status;
+            group.has_report = group.has_report || event.has_report;
+            group.entitlement_id = group.entitlement_id || event.entitlement_id;
+            group.total_override = Number(event.amount_usdc || 0);
+            group.paid_at = event.paid_at || event.at || group.paid_at;
+            group.type = event.type;
+        } else {
+            // Real split leg
+            group.legs.push(event);
+            group.amount_usdc += Number(event.amount_usdc || 0);
+            group.has_report = group.has_report || event.has_report;
+            group.entitlement_id = group.entitlement_id || event.entitlement_id;
+            if (!group.gateway_status && event.gateway_status) {
+                group.gateway_status = event.gateway_status;
+            }
+            if (!group.tier && event.tier) group.tier = event.tier;
+        }
+    }
+
+    for (const group of grouped) {
+        if (group.is_group && group.total_override) {
+            group.amount_usdc = group.total_override;
+        }
+        // A group with no real legs and no total_override is an orphaned
+        // aggregate marker that should render as a plain row.
+        if (group.is_group && group.legs.length === 0 && !group.total_override) {
+            group.is_group = false;
+        }
+        // Promote gateway_status from legs when all are confirmed.
+        if (group.is_group && group.legs.length > 0) {
+            const allCompleted = group.legs.every(leg => ['completed', 'confirmed'].includes(String(leg.gateway_status || '').toLowerCase()));
+            if (allCompleted) {
+                group.gateway_status = 'completed';
+            }
+        }
+    }
+    return grouped;
+}
+
 function renderPayments(events, entitlements = []) {
+    events = groupPaymentsByInvoice(events);
     entitlements = normalizeEntitlementsList(entitlements);
     paymentRowsById = {};
     if (!events.length) {
@@ -429,12 +547,48 @@ function renderPayments(events, entitlements = []) {
         const provider = event.provider_id || entitlement?.provider_id || entitlement?.report?.provider_id || 'funding_memory';
         const buyerType = event.buyer_type || 'human';
         const isFinalStatus = ['completed', 'confirmed'].includes(String(event.gateway_status || '').toLowerCase());
-        const missingTxLabel = isFinalStatus ? 'Arcscan unavailable' : 'Arcscan pending';
+        // For the parent (invoice-level) row we show only the settlement-status
+        // badge via gatewayStatusBadge() — 'Arcscan unavailable/pending' is only
+        // meaningful at the per-leg child-row level where each leg has its own
+        // independent Circle batch tx. Do NOT add Arcscan text here.
         const ref = event.explorer_url && event.transaction_hash
             ? `<a class="tx-link" href="${event.explorer_url}" target="_blank" rel="noreferrer">${shortAddress(event.transaction_hash)}</a>`
             : event.settlement_id
-                ? `<span class="mono-td" title="${escapeHtml(event.settlement_id)}">${shortAddress(event.settlement_id)}</span><div class="badge ${isFinalStatus ? 'badge-muted' : 'badge-pending'} tx-pending-badge">${escapeHtml(missingTxLabel)}</div>`
+                ? `<span class="mono-td" title="${escapeHtml(event.settlement_id)}">${shortAddress(event.settlement_id)}</span>`
                 : '<span class="badge badge-muted">n/a</span>';
+        const hasLegs = event.is_group && event.legs && event.legs.length > 0;
+        const expandBtn = hasLegs ? `<div style="margin-top:4px; font-size:0.75rem; color:var(--primary); cursor:pointer;" onclick="event.stopPropagation(); document.querySelectorAll('.legs-for-${escapeHtml(rowId)}').forEach(e => e.style.display = e.style.display === 'none' ? 'table-row' : 'none');">[expand ▾]</div>` : '';
+
+        let legsHtml = '';
+        if (hasLegs) {
+            legsHtml = event.legs.map((leg) => {
+                const legIsFinal = ['completed', 'confirmed'].includes(String(leg.gateway_status || '').toLowerCase());
+                const legMissingTxLabel = legIsFinal ? 'Arcscan unavailable' : 'Arcscan pending';
+                const legRef = leg.explorer_url && leg.transaction_hash
+                    ? `<a class="tx-link" href="${leg.explorer_url}" target="_blank" rel="noreferrer">${shortAddress(leg.transaction_hash)}</a>`
+                    : leg.settlement_id
+                        ? `<span class="mono-td" title="${escapeHtml(leg.settlement_id)}">${shortAddress(leg.settlement_id)}</span><div class="badge ${legIsFinal ? 'badge-muted' : 'badge-pending'} tx-pending-badge">${escapeHtml(legMissingTxLabel)}</div>`
+                        : '<span class="badge badge-muted">n/a</span>';
+                // Derive role label from split_leg.role (creator/platform) — never fall back to bare 'leg'
+                const roleStr = (leg.split_leg?.role || leg.role || '').trim() || 'creator';
+                const payToStr = leg.split_leg?.pay_to || leg.pay_to || leg.seller_address || '';
+                return `
+                    <tr class="split-leg-row legs-for-${escapeHtml(rowId)}" style="display:none; background-color: rgba(255,255,255,0.02);">
+                        <td colspan="5" style="padding-left: 2rem; border-top:none; border-bottom:none;">
+                            <span style="color:var(--text-dark);">└─ ${escapeHtml(roleStr)} leg</span>
+                            <span style="margin-left: 1rem; font-weight:600;">${Number(leg.amount_usdc || 0).toFixed(3)} USDC</span>
+                            <span style="margin-left: 0.5rem; color:var(--text-dark);">→ ${payToStr ? shortAddress(payToStr) : '...'}</span>
+                        </td>
+                        <td style="border-top:none; border-bottom:none;"></td>
+                        <td style="border-top:none; border-bottom:none;">${gatewayStatusBadge(leg.gateway_status)}</td>
+                        <td style="border-top:none; border-bottom:none;">
+                            <div class="reference-cell">${legRef}</div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
         return `
             <tr class="${hasReport ? 'user-payment-row is-clickable' : 'user-payment-row'}" data-row-id="${escapeHtml(rowId)}" data-entitlement-id="${escapeHtml(entitlementIdValue)}" title="${escapeHtml(formatDateTime(event.paid_at))}">
                 <td class="signal-cell">
@@ -452,6 +606,7 @@ function renderPayments(events, entitlements = []) {
                 </td>
                 <td>
                     <strong class="payment-amount">${Number(event.amount_usdc || 0).toFixed(3)} USDC</strong>
+                    ${expandBtn}
                 </td>
                 <td>${gatewayStatusBadge(event.gateway_status)}</td>
                 <td>
@@ -459,6 +614,7 @@ function renderPayments(events, entitlements = []) {
                     ${hasReport ? '' : '<div class="row-subtitle">No saved report</div>'}
                 </td>
             </tr>
+            ${legsHtml}
             ${entitlement?.report ? renderPaymentDetail(event, entitlement, rowId) : renderLazyPaymentDetail(rowId, hasReport)}
         `;
     }).join('');

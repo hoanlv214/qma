@@ -39,13 +39,16 @@ Optional overrides:
 QMA_PRICE_PREVIEW_USDC=0.001
 QMA_PRICE_FULL_USDC=0.005
 QMA_PAYMENT_AMOUNT_USDC=0.005
+QMA_PLATFORM_TREASURY_ADDRESS=0x23e7c029a287a83d80b2e084e008211658dda11d
 QMA_ARC_SELLER_ADDRESS=0x23e7c029a287a83d80b2e084e008211658dda11d
 QMA_ARC_GATEWAY_URL=http://127.0.0.1:3000
 QMA_CIRCLE_GATEWAY_API=https://gateway-api-testnet.circle.com
 QMA_ARC_EXPLORER=https://testnet.arcscan.app
+QMA_SPLIT_LEG_URL_SECRET=replace-with-split-url-secret
+QMA_ARC_GATEWAY_INTERNAL_SECRET=replace-with-sidecar-internal-secret
 ```
 
-The seller address must be the wallet that should receive USDC through Circle Gateway. For this demo, keep buyer and seller separate. If `acc1` is your test buyer, use `acc2` or a fresh treasury wallet as `QMA_ARC_SELLER_ADDRESS`.
+The platform treasury receives the platform leg of direct split payments. Keep buyer, creator, and platform treasury wallets separate during testing. `QMA_ARC_SELLER_ADDRESS` is kept as a backward-compatible alias for older single-seller payment flows.
 
 ## Demo Flow
 

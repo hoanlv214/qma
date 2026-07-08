@@ -286,12 +286,14 @@ async function chooseRecommendation(entitlements = []) {
   if (!picks.length) throw new Error("QMA returned no recommendations.");
 
   const requestedSymbol = CONFIG.symbol?.trim().toUpperCase();
+  const requestedProvider = CONFIG.providerId?.trim();
   const forcedTier = CONFIG.tier;
   const maxPrice = CONFIG.maxPriceUsdc;
   const budget = CONFIG.budgetUsdc;
 
   const evaluated = picks
     .filter((pick) => !requestedSymbol || String(pick.symbol || "").toUpperCase() === requestedSymbol)
+    .filter((pick) => !requestedProvider || String(pick.provider_id || "funding_memory") === requestedProvider)
     .map((pick) => {
       const symbol = String(pick.symbol || pick.query?.symbol || "").toUpperCase();
       const fullEntry = findSymbolEntitlement(entitlements, symbol, "full");
@@ -353,16 +355,19 @@ async function createInvoice(pick) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       ...pick.query,
-      provider_id: pick.provider_id || "funding_memory",
+      provider_id: CONFIG.providerId || pick.provider_id || "funding_memory",
       buyer_type: "agent",
       tier: pick.agent_tier,
       resource_type: "qma_signal_report",
+      synthetic: CONFIG.synthetic,
+      agent_label: CONFIG.agentLabel,
+      run_source: CONFIG.runSource,
     }),
   });
 }
 
-async function signX402Payment(invoice, account) {
-  const challengeResp = await fetch(invoice.arc_gateway_url);
+async function signX402Payment(resourceUrl, account) {
+  const challengeResp = await fetch(resourceUrl);
   if (challengeResp.status !== 402) {
     throw new Error(`Expected x402 402 challenge, got ${challengeResp.status}: ${await challengeResp.text()}`);
   }
@@ -432,8 +437,8 @@ async function signX402Payment(invoice, account) {
   };
 }
 
-async function settlePayment(invoice, paymentHeader) {
-  const resp = await fetch(invoice.arc_gateway_url, {
+async function settlePayment(resourceUrl, paymentHeader) {
+  const resp = await fetch(resourceUrl, {
     headers: { "payment-signature": paymentHeader },
   });
   const data = await resp.json().catch(async () => ({ error: await resp.text() }));
@@ -443,15 +448,82 @@ async function settlePayment(invoice, paymentHeader) {
   return data;
 }
 
+function invoiceSplitLegs(invoice = {}) {
+  return Array.isArray(invoice.split_legs) && invoice.split_legs.length
+    ? invoice.split_legs
+    : Array.isArray(invoice.split?.legs)
+      ? invoice.split.legs
+      : [];
+}
+
+function legResourceUrl(leg = {}) {
+  return leg.resource || leg.arc_gateway_url || leg.url;
+}
+
+async function paySplitInvoice(invoice, account) {
+  const settlements = [];
+  const legs = invoiceSplitLegs(invoice);
+  if (!legs.length) throw new Error("Split invoice has no split_legs.");
+
+  for (const leg of legs) {
+    if (leg.status === "paid" && leg.settlement_id && leg.sidecar_receipt) {
+      settlements.push({
+        leg_id: leg.leg_id,
+        settlement_id: leg.settlement_id,
+        pay_to: leg.pay_to,
+        amount_raw: String(leg.amount_raw),
+        sidecar_receipt: leg.sidecar_receipt,
+      });
+      continue;
+    }
+    const resourceUrl = legResourceUrl(leg);
+    if (!resourceUrl) throw new Error(`Split leg ${leg.leg_id || leg.role || "unknown"} has no resource URL.`);
+    if (String(leg.pay_to || "").toLowerCase() === account.address.toLowerCase()) {
+      throw new Error(`Agent wallet is the ${leg.role || leg.leg_id} split recipient. Use a separate buyer wallet.`);
+    }
+
+    console.log(`Paying ${leg.role || leg.leg_id} leg: ${leg.amount_usdc} USDC -> ${short(leg.pay_to)}`);
+    const { paymentHeader } = await signX402Payment(resourceUrl, account);
+    const settlement = await settlePayment(resourceUrl, paymentHeader);
+    const settlementId = settlement.settlement_id || settlement.settlementId;
+    if (!settlementId || !settlement.sidecar_receipt) {
+      throw new Error(`Split leg did not return settlement_id and sidecar_receipt: ${JSON.stringify(settlement)}`);
+    }
+    console.log(`Settled ${leg.role || leg.leg_id}: ${short(settlementId)} (${settlement.status || "received"})`);
+    settlements.push({
+      leg_id: settlement.leg_id || leg.leg_id,
+      settlement_id: settlementId,
+      pay_to: settlement.pay_to || leg.pay_to,
+      amount_raw: String(settlement.amount_raw || leg.amount_raw),
+      sidecar_receipt: settlement.sidecar_receipt,
+    });
+  }
+
+  return settlements;
+}
+
 async function verifyPayment(invoice, settlement, account) {
+  const settlementId = settlement.settlementId || settlement.settlement_id;
   return request(`/api/v1/payment/verify?invoice_id=${encodeURIComponent(invoice.invoice_id)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      settlement_id: settlement.settlementId,
+      settlement_id: settlementId,
       invoice_secret: invoice.invoice_secret,
       payer_address: account.address,
       amount_usdc: Number(settlement.amount_usdc),
+    }),
+  });
+}
+
+async function verifySplitPayment(invoice, splitSettlements, account) {
+  return request(`/api/v1/payment/verify?invoice_id=${encodeURIComponent(invoice.invoice_id)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      invoice_secret: invoice.invoice_secret,
+      payer_address: account.address,
+      split_settlements: splitSettlements,
     }),
   });
 }
@@ -472,18 +544,22 @@ async function fetchReport(invoice, verifyData, pick) {
 
 const CONFIG = {
   apiUrl: String(process.env.QMA_API_URL || argValue("api", DEFAULT_API)).replace(/\/$/, ""),
-  privateKey: process.env.AGENT_PRIVATE_KEY || argValue("private-key"),
+  privateKey: process.env.AGENT_PRIVATE_KEY || process.env.QMA_AGENT_PRIVATE_KEY || argValue("private-key"),
   budgetUsdc: Number(process.env.AGENT_BUDGET_USDC || argValue("budget", "0.01")),
   maxPriceUsdc: Number(process.env.AGENT_MAX_PRICE_USDC || argValue("max-price", "0.005")),
   depositUsdc: Number(process.env.AGENT_GATEWAY_DEPOSIT_USDC || argValue("deposit", "1")),
   approveUsdc: Number(process.env.AGENT_GATEWAY_APPROVE_USDC || argValue("approve", "10")),
   rpcUrl: process.env.ARC_TESTNET_RPC || argValue("rpc", "https://rpc.testnet.arc.network"),
-  policyWallet: process.env.AGENT_WALLET_ADDRESS || argValue("wallet"),
+  policyWallet: process.env.AGENT_WALLET_ADDRESS || process.env.QMA_AGENT_WALLET_ADDRESS || argValue("wallet") || argValue("buyer-wallet"),
+  providerId: process.env.PROVIDER_ID || argValue("provider"),
   tier: argValue("tier") ? normalizeTier(argValue("tier")) : null,
   symbol: argValue("symbol"),
-  limit: Number(argValue("limit", "8")),
+  limit: Math.min(25, Math.max(1, Number(process.env.AGENT_RECOMMENDATION_LIMIT || argValue("limit", "8")))),
   live: hasFlag("live"),
   autoDeposit: !hasFlag("no-auto-deposit"),
+  synthetic: String(process.env.QMA_SYNTHETIC_RUN || argValue("synthetic", "false")).toLowerCase() === "true",
+  agentLabel: process.env.QMA_AGENT_LABEL || argValue("agent-label") || null,
+  runSource: process.env.QMA_RUN_SOURCE || argValue("run-source") || null,
 };
 
 async function main() {
@@ -519,6 +595,12 @@ async function main() {
   console.log(`\nInvoice: ${invoice.invoice_id}`);
   console.log(`Provider: ${invoice.provider_id} | Amount: ${invoice.amount} ${invoice.currency}`);
   console.log(`Gateway: ${invoice.arc_gateway_url}`);
+  if (invoiceSplitLegs(invoice).length) {
+    console.log("Split legs:");
+    for (const leg of invoiceSplitLegs(invoice)) {
+      console.log(`- ${leg.role || leg.leg_id}: ${leg.amount_usdc} USDC -> ${short(leg.pay_to)}`);
+    }
+  }
 
   if (!CONFIG.live) {
     console.log("\nDry run complete. The agent selected a report and created an invoice without spending USDC.");
@@ -528,11 +610,15 @@ async function main() {
 
   console.log(`\nAgent wallet: ${account.address}`);
   await ensureGatewayBalance(invoice, account);
-  const { paymentHeader } = await signX402Payment(invoice, account);
-  const settlement = await settlePayment(invoice, paymentHeader);
-  console.log(`Settlement: ${settlement.settlementId} (${settlement.status || "received"})`);
-
-  const verifyData = await verifyPayment(invoice, settlement, account);
+  const splitLegs = invoiceSplitLegs(invoice);
+  const verifyData = splitLegs.length
+    ? await verifySplitPayment(invoice, await paySplitInvoice(invoice, account), account)
+    : await (async () => {
+      const { paymentHeader } = await signX402Payment(invoice.arc_gateway_url, account);
+      const settlement = await settlePayment(invoice.arc_gateway_url, paymentHeader);
+      console.log(`Settlement: ${settlement.settlementId || settlement.settlement_id} (${settlement.status || "received"})`);
+      return verifyPayment(invoice, settlement, account);
+    })();
   console.log(`Verified: ${verifyData.status} tx=${verifyData.transaction_hash ? short(verifyData.transaction_hash) : "batch pending"}`);
 
   const report = await fetchReport(invoice, verifyData, pick);
