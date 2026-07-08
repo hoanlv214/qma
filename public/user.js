@@ -733,9 +733,19 @@ function fallbackPageMeta(meta, pageSize, totalFallback, visibleCount) {
 async function loadProfile(account, page = 1) {
     if (!account) return;
     currentWallet = account;
-    connectBtn.textContent = IS_PUBLIC_PROFILE ? 'Open My Profile' : shortAddress(account);
-    connectBtn.title = account;
     const cachedToken = getCachedWalletProfileToken(account);
+    if (IS_PUBLIC_PROFILE) {
+        connectBtn.textContent = 'Open My Profile';
+        connectBtn.classList.remove('needs-unlock');
+    } else {
+        connectBtn.textContent = cachedToken ? shortAddress(account) : 'Unlock Profile 🔐';
+        if (!cachedToken) {
+            connectBtn.classList.add('needs-unlock');
+        } else {
+            connectBtn.classList.remove('needs-unlock');
+        }
+    }
+    connectBtn.title = account;
     setPrivacyNotice(IS_PUBLIC_PROFILE
         ? 'Public profile: purchases and settlements are visible, paid report snapshots are owner-only.'
         : cachedToken
@@ -839,6 +849,13 @@ nextBtn.addEventListener('click', () => {
 (async function init() {
     await loadHealth();
     if (currentWallet) {
+        if (!IS_PUBLIC_PROFILE && !getCachedWalletProfileToken(currentWallet)) {
+            try {
+                await requestWalletProfileSession(currentWallet);
+            } catch (err) {
+                console.warn('Auto-unlock signature rejected', err);
+            }
+        }
         await loadProfile(currentWallet, 1);
     } else if (IS_PUBLIC_PROFILE) {
         connectBtn.textContent = 'Open My Profile';
