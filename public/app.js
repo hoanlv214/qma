@@ -210,7 +210,11 @@ function renderQuickProfileAccess(account) {
     const ttl = cached ? walletProfileTokenTtlLabel(account) : '';
     quickProfileAccess.classList.toggle('is-unlocked', Boolean(cached));
     quickProfileAccess.classList.toggle('is-locked', !cached);
-    if (quickProfileAccessIcon) quickProfileAccessIcon.textContent = cached ? 'OPEN' : 'LOCK';
+    if (quickProfileAccessIcon) {
+        quickProfileAccessIcon.innerHTML = cached
+            ? '<i class="ti ti-lock-open" style="font-size: 16px;" aria-hidden="true"></i>'
+            : '<i class="ti ti-lock" style="font-size: 16px;" aria-hidden="true"></i>';
+    }
     if (quickProfileAccessTitle) quickProfileAccessTitle.textContent = cached ? 'Private snapshots unlocked' : 'Private snapshots locked';
     if (quickProfileAccessDesc) {
         quickProfileAccessDesc.textContent = cached
@@ -504,12 +508,12 @@ function detectInjectedProviders() {
     const providerList = Array.isArray(eth.providers) ? eth.providers : [eth];
 
     for (const p of providerList) {
-        if (p.isRabby)                         found.push({ id: 'rabby',    label: 'Rabby', icon: '🐰' });
-        else if (p.isOKExWallet || p.isOKX)    found.push({ id: 'okx',      label: 'OKX Wallet', icon: '⬡' });
-        else if (p.isCoinbaseWallet)           found.push({ id: 'coinbase', label: 'Coinbase Wallet', icon: '🔵' });
-        else if (p.isMetaMask)                 found.push({ id: 'metamask', label: 'MetaMask', icon: '🦊' });
-        else if (p.isPhantom && p.ethereum)    found.push({ id: 'phantom',  label: 'Phantom', icon: '👻' });
-        else if (p.isTrust)                    found.push({ id: 'trust',    label: 'Trust Wallet', icon: '🛡️' });
+        if (p.isRabby) found.push({ id: 'rabby', label: 'Rabby', icon: '🐰' });
+        else if (p.isOKExWallet || p.isOKX) found.push({ id: 'okx', label: 'OKX Wallet', icon: '⬡' });
+        else if (p.isCoinbaseWallet) found.push({ id: 'coinbase', label: 'Coinbase Wallet', icon: '🔵' });
+        else if (p.isMetaMask) found.push({ id: 'metamask', label: 'MetaMask', icon: '🦊' });
+        else if (p.isPhantom && p.ethereum) found.push({ id: 'phantom', label: 'Phantom', icon: '👻' });
+        else if (p.isTrust) found.push({ id: 'trust', label: 'Trust Wallet', icon: '🛡️' });
     }
     // Deduplicate by id
     return [...new Map(found.map(x => [x.id, x])).values()];
@@ -577,10 +581,10 @@ function buildMobileDeeplink(walletId) {
     const pageUrl = encodeURIComponent(window.location.href);
     const map = {
         metamask: `https://metamask.app.link/dapp/${window.location.host}${window.location.pathname}${window.location.search}`,
-        okx:      `okx://wallet/dapp/url?dappUrl=${pageUrl}`,
-        coinbase:  `https://go.cb-w.com/dapp?cb_url=${pageUrl}`,
-        trust:    `https://link.trustwallet.com/open_url?coin_id=60&url=${pageUrl}`,
-        phantom:  `https://phantom.app/ul/browse/${pageUrl}?ref=${pageUrl}`,
+        okx: `okx://wallet/dapp/url?dappUrl=${pageUrl}`,
+        coinbase: `https://go.cb-w.com/dapp?cb_url=${pageUrl}`,
+        trust: `https://link.trustwallet.com/open_url?coin_id=60&url=${pageUrl}`,
+        phantom: `https://phantom.app/ul/browse/${pageUrl}?ref=${pageUrl}`,
     };
     return map[walletId] || null;
 }
@@ -788,8 +792,8 @@ function openMobileWalletModal() {
     // Build deeplink buttons
     const wallets = [
         { id: 'metamask', label: 'Open in MetaMask', icon: '🦊' },
-        { id: 'okx',      label: 'Open in OKX Wallet', icon: '⬡' },
-        { id: 'trust',    label: 'Open in Trust Wallet', icon: '🛡️' },
+        { id: 'okx', label: 'Open in OKX Wallet', icon: '⬡' },
+        { id: 'trust', label: 'Open in Trust Wallet', icon: '🛡️' },
         { id: 'coinbase', label: 'Open in Coinbase Wallet', icon: '🔵' },
     ];
 

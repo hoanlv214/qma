@@ -13,6 +13,7 @@
         rel="stylesheet">
     <link rel="stylesheet" href="/public/styles.css">
     <link rel="stylesheet" href="/public/app.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
     <script>
         (() => {
             const isLocal = ["localhost", "127.0.0.1", "0.0.0.0"].includes(window.location.hostname);
@@ -422,7 +423,8 @@
                                     <div class="testnet-help-copy">
                                         <strong class="testnet-help-title">Need Arc USDC?</strong>
                                     </div>
-                                    <button type="button" class="testnet-help-action" id="paywall-funding-assistant-btn">Open Funding
+                                    <button type="button" class="testnet-help-action"
+                                        id="paywall-funding-assistant-btn">Open Funding
                                         Assistant</button>
                                 </div>
                                 <p class="paywall-snapshot-note">This exact paid snapshot is saved to Wallet History.
@@ -849,15 +851,18 @@
             </div>
             <div class="quick-profile-access is-locked" id="quick-profile-access">
                 <div class="quick-profile-access-copy">
-                    <div class="quick-profile-access-icon" id="quick-profile-access-icon">LOCK</div>
+                    <div class="quick-profile-access-icon" id="quick-profile-access-icon">
+                        <i class="ti ti-lock" style="font-size: 20px;" aria-hidden="true"></i>
+                    </div>
                     <div>
-                        <div class="quick-profile-access-title" id="quick-profile-access-title">Private snapshots locked</div>
-                        <div class="quick-profile-access-desc" id="quick-profile-access-desc">Sign once to unlock saved report snapshots for this browser session.</div>
+                        <div class="quick-profile-access-title" id="quick-profile-access-title">Private snapshots locked
+                        </div>
+                        <div class="quick-profile-access-desc" id="quick-profile-access-desc">Sign once to unlock saved
+                            report snapshots for this browser session.</div>
                     </div>
                 </div>
                 <div class="quick-profile-access-actions">
                     <span class="quick-profile-access-pill" id="quick-profile-access-pill">locked</span>
-                    <button type="button" class="refresh-btn quick-profile-unlock-btn" id="quick-profile-unlock-btn">Unlock</button>
                 </div>
             </div>
             <div class="profile-grid">
@@ -1009,7 +1014,8 @@
                     <div class="funding-section-top">
                         <div>
                             <div class="funding-section-title">Wallet Status</div>
-                            <p class="funding-section-desc">QMA checks readiness before payment without bridging or depositing from this modal.</p>
+                            <p class="funding-section-desc">QMA checks readiness before payment without bridging or
+                                depositing from this modal.</p>
                         </div>
                         <span class="funding-status-pill" id="fund-readiness-status">Checking</span>
                     </div>
@@ -1042,7 +1048,8 @@
                         <div class="funding-next-step">
                             <span class="funding-item-label">Next Step</span>
                             <strong class="funding-item-value" id="fund-next-step">Connect wallet first</strong>
-                            <button type="button" class="funding-action-btn" id="fund-primary-action">Connect wallet first</button>
+                            <button type="button" class="funding-action-btn" id="fund-primary-action">Connect wallet
+                                first</button>
                         </div>
                     </div>
                     <div class="funding-network-details">

@@ -3527,23 +3527,39 @@ body.basic-view .platform-stats-section {
 }
 
 /* Quick profile history stays intentionally compact. */
+/* ===== UNIFIED ACCESS CARD DESIGN (MODAL) ===== */
 .quick-profile-access {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 14px;
-    margin: 0 0 16px;
-    padding: 13px 14px;
-    border: 1px solid rgba(245, 158, 11, 0.24);
-    border-radius: 8px;
-    background: rgba(245, 158, 11, 0.055);
+    gap: 16px;
+    margin: 0 0 20px;
+    padding: 16px 20px;
+    border-radius: 12px;
+    position: relative;
+    overflow: hidden;
+    backdrop-filter: blur(12px);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.quick-profile-access::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    opacity: 0.1;
+    background: linear-gradient(135deg, rgba(255,255,255,0.1), transparent);
+    pointer-events: none;
 }
 
 .quick-profile-access-copy {
     display: flex;
     align-items: center;
-    gap: 11px;
+    gap: 16px;
     min-width: 0;
+    position: relative;
+    z-index: 1;
 }
 
 .quick-profile-access-icon {
@@ -3551,72 +3567,212 @@ body.basic-view .platform-stats-section {
     align-items: center;
     justify-content: center;
     flex: 0 0 auto;
-    width: 34px;
-    height: 34px;
-    border: 1px solid rgba(245, 158, 11, 0.34);
-    border-radius: 7px;
-    background: rgba(245, 158, 11, 0.1);
-    color: var(--amber);
-    font-family: var(--mono);
-    font-size: 0.58rem;
-    font-weight: 800;
-    letter-spacing: 0.7px;
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    font-size: 1.1rem;
+    position: relative;
+    z-index: 1;
+}
+
+.quick-profile-access-icon::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: 14px;
+    filter: blur(8px);
+    opacity: 0.35;
+    z-index: -1;
 }
 
 .quick-profile-access-title {
     color: var(--t1);
-    font-size: 0.82rem;
+    font-size: 0.95rem;
     font-weight: 750;
+    letter-spacing: 0.2px;
 }
 
 .quick-profile-access-desc {
     color: var(--t3);
-    font-size: 0.72rem;
-    line-height: 1.4;
-    margin-top: 3px;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    margin-top: 4px;
+    font-family: var(--mono);
+    letter-spacing: -0.2px;
+}
+
+.quick-profile-access-desc strong, 
+.quick-profile-access-desc b {
+    color: var(--t1);
+    font-family: var(--mono);
 }
 
 .quick-profile-access-actions {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 12px;
     flex: 0 0 auto;
+    position: relative;
+    z-index: 1;
 }
 
 .quick-profile-access-pill {
     display: inline-flex;
     align-items: center;
-    border: 1px solid rgba(245, 158, 11, 0.34);
-    border-radius: 999px;
-    background: rgba(245, 158, 11, 0.1);
-    color: var(--amber);
+    gap: 6px;
+    border-radius: 20px;
     font-family: var(--mono);
-    font-size: 0.6rem;
+    font-size: 0.65rem;
     font-weight: 800;
-    letter-spacing: 0.5px;
-    padding: 3px 8px;
+    letter-spacing: 0.6px;
+    padding: 5px 12px;
     text-transform: uppercase;
-    white-space: nowrap;
+}
+
+.quick-profile-unlock-btn {
+    border: 1px solid transparent;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: var(--sans);
+    font-size: 0.8rem;
+    font-weight: 750;
+    padding: 8px 14px;
+    transition: all 0.2s ease;
+    min-width: 70px;
+}
+
+/* ── DEFAULT / PUBLIC (Purple - unified) ── */
+.quick-profile-access.is-public {
+    border: 1px solid rgba(124, 111, 255, 0.3);
+    background: linear-gradient(145deg, rgba(124, 111, 255, 0.08) 0%, rgba(10, 13, 24, 0.6) 100%);
+}
+.quick-profile-access.is-public .quick-profile-access-icon {
+    border: 1px solid rgba(124, 111, 255, 0.4);
+    background: rgba(124, 111, 255, 0.15);
+    color: var(--purple);
+}
+.quick-profile-access.is-public .quick-profile-access-icon::after {
+    background: var(--purple);
+}
+.quick-profile-access.is-public .quick-profile-access-pill {
+    border: 1px solid rgba(124, 111, 255, 0.4);
+    background: rgba(124, 111, 255, 0.15);
+    color: var(--purple);
+}
+
+/* ── LOCKED (Amber) ── */
+.quick-profile-access,
+.quick-profile-access.is-locked {
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    background: linear-gradient(145deg, rgba(245, 158, 11, 0.08) 0%, rgba(10, 13, 24, 0.6) 100%);
+}
+.quick-profile-access.is-locked .quick-profile-access-icon,
+.quick-profile-access .quick-profile-access-icon {
+    border: 1px solid rgba(245, 158, 11, 0.4);
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--amber);
+}
+.quick-profile-access.is-locked .quick-profile-access-icon::after,
+.quick-profile-access .quick-profile-access-icon::after {
+    background: var(--amber);
+}
+.quick-profile-access.is-locked .quick-profile-access-pill,
+.quick-profile-access .quick-profile-access-pill {
+    border: 1px solid rgba(245, 158, 11, 0.4);
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--amber);
+}
+.quick-profile-unlock-btn {
+    border-color: rgba(245, 158, 11, 0.4);
+    background: rgba(245, 158, 11, 0.12);
+    color: var(--t1);
+}
+.quick-profile-unlock-btn:hover {
+    border-color: rgba(34, 211, 160, 0.45);
+    background: rgba(34, 211, 160, 0.1);
+    color: var(--green);
+}
+
+/* ── UNLOCKED (Green & Animated) ── */
+@keyframes border-rotate-app {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
 }
 
 .quick-profile-access.is-unlocked {
-    border-color: rgba(34, 211, 160, 0.28);
-    background: rgba(34, 211, 160, 0.055);
+    border: 1px solid rgba(34, 211, 160, 0.35);
+    background: linear-gradient(145deg, rgba(34, 211, 160, 0.08) 0%, rgba(10, 13, 24, 0.6) 100%);
 }
 
-.quick-profile-access.is-unlocked .quick-profile-access-icon,
-.quick-profile-access.is-unlocked .quick-profile-access-pill {
-    border-color: rgba(34, 211, 160, 0.34);
-    background: rgba(34, 211, 160, 0.12);
+/* Animated active border */
+.quick-profile-access.is-unlocked::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: conic-gradient(from 0deg, transparent 70%, rgba(34, 211, 160, 0.45) 100%);
+    animation: border-rotate-app 3.5s linear infinite;
+    z-index: 0;
+    opacity: 0.6;
+}
+.quick-profile-access.is-unlocked::after {
+    content: '';
+    position: absolute;
+    inset: 1px;
+    background: rgba(6, 8, 15, 0.95);
+    border-radius: 11px;
+    z-index: 0;
+}
+
+.quick-profile-access.is-unlocked .quick-profile-access-icon {
+    border: 1px solid rgba(34, 211, 160, 0.4);
+    background: rgba(34, 211, 160, 0.15);
     color: var(--green);
+}
+.quick-profile-access.is-unlocked .quick-profile-access-icon::after {
+    background: var(--green);
+}
+.quick-profile-access.is-unlocked .quick-profile-access-pill {
+    border: 1px solid rgba(34, 211, 160, 0.4);
+    background: rgba(34, 211, 160, 0.15);
+    color: var(--green);
+}
+
+/* Pulse countdown indicator in the pill */
+@keyframes pulse-countdown-app {
+    0% { transform: scale(0.75); opacity: 0.5; box-shadow: 0 0 0 0 rgba(34, 211, 160, 0.7); }
+    70% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 6px rgba(34, 211, 160, 0); }
+    100% { transform: scale(0.75); opacity: 0.5; box-shadow: 0 0 0 0 rgba(34, 211, 160, 0); }
+}
+
+.quick-profile-access.is-unlocked .quick-profile-access-pill::before {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: pulse-countdown-app 2s infinite;
 }
 
 .quick-profile-access.is-unlocked .quick-profile-unlock-btn {
     display: none;
 }
 
-.quick-profile-unlock-btn {
-    min-width: 70px;
+/* Highlight Wallet Address in Modal Subtitle */
+#wallet-profile-address {
+    display: inline-block;
+    margin-top: 5px;
+    padding: 3px 8px;
+    background: rgba(124, 111, 255, 0.12);
+    border: 1px solid rgba(124, 111, 255, 0.25);
+    border-radius: 6px;
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.2px;
 }
 
 .profile-payment-row.is-clickable {
