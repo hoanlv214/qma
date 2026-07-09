@@ -1,15 +1,64 @@
 {
   "version": 2,
   "cleanUrls": true,
-  "framework": null,
-  "rewrites": [
+  "builds": [
     {
-      "source": "/api/:path*",
-      "destination": "https://qma-api.onrender.com/api/:path*"
+      "src": "index.html",
+      "use": "@vercel/static"
     },
     {
-      "source": "/profile",
-      "destination": "/user"
+      "src": "app.html",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "user.html",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "marketplace.html",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "docs.html",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "public/**/*",
+      "use": "@vercel/static"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "https://qma-api.onrender.com/api/$1"
+    },
+    {
+      "src": "/",
+      "dest": "/index.html"
+    },
+    {
+      "src": "/app",
+      "dest": "/app.html"
+    },
+    {
+      "src": "/user",
+      "dest": "/user.html"
+    },
+    {
+      "src": "/profile",
+      "dest": "/user.html"
+    },
+    {
+      "src": "/marketplace",
+      "dest": "/marketplace.html"
+    },
+    {
+      "src": "/docs",
+      "dest": "/docs.html"
+    },
+    {
+      "src": "/public/(.*)",
+      "dest": "/public/$1"
     }
   ]
 }
