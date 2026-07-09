@@ -887,7 +887,7 @@ async function loadProfile(account, page = 1) {
     const [summaryResp, firstPaymentsResp, walletStatus] = await Promise.all([
         fetch(apiUrl(`/api/v1/wallets/${account}/summary`)),
         fetch(apiUrl(`/api/v1/wallets/${account}/payments?${params.toString()}`), { headers: walletPrivateHeaders(isPublicProfile ? '' : cachedToken) }),
-        isPublicProfile ? Promise.resolve(null) : loadWalletStatus(account)
+        loadWalletStatus(account)
     ]);
     let paymentsResp = firstPaymentsResp;
     if (paymentsResp.status === 403 && cachedToken) {
