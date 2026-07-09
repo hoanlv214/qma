@@ -9,27 +9,7 @@
     },
     {
       "source": "/profile",
-      "destination": "/user.html"
-    },
-    {
-      "source": "/user",
-      "destination": "/user.html"
-    },
-    {
-      "source": "/",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/app",
-      "destination": "/app.html"
-    },
-    {
-      "source": "/marketplace",
-      "destination": "/marketplace.html"
-    },
-    {
-      "source": "/docs",
-      "destination": "/docs.html"
+      "destination": "/user"
     }
   ]
 }
