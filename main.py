@@ -1814,6 +1814,11 @@ def get_wallet_summary(address: str):
         "last_paid_at": summary["last_paid_at"],
     }
 
+@app.get("/api/v1/wallets/{address}")
+def get_wallet_profile_alias(address: str):
+    """Returns the wallet summary for direct wallet profile API probes."""
+    return get_wallet_summary(address)
+
 @app.get("/api/v1/wallets/{address}/payments")
 def get_wallet_payments(
     address: str,

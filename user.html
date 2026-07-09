@@ -13,6 +13,7 @@
         rel="stylesheet">
     <link rel="stylesheet" href="/public/styles.css">
     <link rel="stylesheet" href="/public/user.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
     <script>
         (() => {
             const isLocal = ["localhost", "127.0.0.1", "0.0.0.0"].includes(window.location.hostname);
@@ -44,7 +45,22 @@
         <section class="profile-hero">
             <p class="profile-kicker">Wallet intelligence history</p>
             <h1 class="profile-hero-title">Paid Reports Profile</h1>
-            <p class="profile-hero-desc">Review purchased QMA previews, full reports, Arc settlement references, and local wallet actions.</p>
+        </section>
+
+        <section class="profile-access-card is-public" id="profile-access-card">
+            <div class="profile-access-copy">
+                <div class="profile-access-icon" id="profile-access-icon">
+                    <i class="ti ti-lock" style="font-size: 20px;" aria-hidden="true"></i>
+                </div>
+                <div>
+                    <div class="profile-access-title" id="profile-access-title">Public profile view</div>
+                    <div class="profile-access-desc" id="profile-access-desc">Purchases and settlements are visible. Private balances and saved report snapshots need the wallet owner session.</div>
+                </div>
+            </div>
+            <div class="profile-access-actions">
+                <span class="profile-access-pill" id="profile-access-pill">public</span>
+                <button type="button" class="profile-access-button" id="profile-unlock-btn">Unlock private</button>
+            </div>
         </section>
 
         <section class="profile-grid user-profile-grid">

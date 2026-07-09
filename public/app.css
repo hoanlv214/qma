@@ -3527,6 +3527,98 @@ body.basic-view .platform-stats-section {
 }
 
 /* Quick profile history stays intentionally compact. */
+.quick-profile-access {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    margin: 0 0 16px;
+    padding: 13px 14px;
+    border: 1px solid rgba(245, 158, 11, 0.24);
+    border-radius: 8px;
+    background: rgba(245, 158, 11, 0.055);
+}
+
+.quick-profile-access-copy {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    min-width: 0;
+}
+
+.quick-profile-access-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    border: 1px solid rgba(245, 158, 11, 0.34);
+    border-radius: 7px;
+    background: rgba(245, 158, 11, 0.1);
+    color: var(--amber);
+    font-family: var(--mono);
+    font-size: 0.58rem;
+    font-weight: 800;
+    letter-spacing: 0.7px;
+}
+
+.quick-profile-access-title {
+    color: var(--t1);
+    font-size: 0.82rem;
+    font-weight: 750;
+}
+
+.quick-profile-access-desc {
+    color: var(--t3);
+    font-size: 0.72rem;
+    line-height: 1.4;
+    margin-top: 3px;
+}
+
+.quick-profile-access-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+}
+
+.quick-profile-access-pill {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid rgba(245, 158, 11, 0.34);
+    border-radius: 999px;
+    background: rgba(245, 158, 11, 0.1);
+    color: var(--amber);
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    padding: 3px 8px;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.quick-profile-access.is-unlocked {
+    border-color: rgba(34, 211, 160, 0.28);
+    background: rgba(34, 211, 160, 0.055);
+}
+
+.quick-profile-access.is-unlocked .quick-profile-access-icon,
+.quick-profile-access.is-unlocked .quick-profile-access-pill {
+    border-color: rgba(34, 211, 160, 0.34);
+    background: rgba(34, 211, 160, 0.12);
+    color: var(--green);
+}
+
+.quick-profile-access.is-unlocked .quick-profile-unlock-btn {
+    display: none;
+}
+
+.quick-profile-unlock-btn {
+    min-width: 70px;
+}
+
 .profile-payment-row.is-clickable {
     cursor: pointer;
 }
