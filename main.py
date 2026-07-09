@@ -315,15 +315,51 @@ def load_paid_report_summaries(limit: int = 5000) -> list:
     ]
 
 def load_paid_report_by_id(address: str, entitlement_id: str) -> Optional[dict]:
+    normalized = normalize_address(address)
+
+    # Helper to clean up provider prefix if present
+    def clean_id(eid: str) -> str:
+        parts = eid.split(":")
+        # If format is {provider}:{address}:{hash}:{tier}, strip the provider part
+        if len(parts) == 4:
+            return ":".join(parts[1:])
+        return eid
+
+    target_clean = clean_id(entitlement_id)
+
+    # Try exact match first on the storage backend
     try:
         if hasattr(storage_backend, "load_paid_report_by_id"):
-            return storage_backend.load_paid_report_by_id(address, entitlement_id)
+            record = storage_backend.load_paid_report_by_id(address, entitlement_id)
+            if record:
+                return record
+            # Try with other possible prefix matches if exact match failed
+            if entitlement_id != target_clean:
+                # Direct match using stripped ID
+                record = storage_backend.load_paid_report_by_id(address, target_clean)
+                if record:
+                    return record
+            else:
+                # It has no prefix, try with 'funding_memory' prefix
+                record = storage_backend.load_paid_report_by_id(address, f"funding_memory:{entitlement_id}")
+                if record:
+                    return record
+                record = storage_backend.load_paid_report_by_id(address, f"oi_memory:{entitlement_id}")
+                if record:
+                    return record
     except Exception as exc:
-        logger.warning(f"Could not load paid report by id: {exc}")
-    normalized = normalize_address(address)
-    record = load_paid_reports().get(entitlement_id)
-    if isinstance(record, dict) and normalize_address(record.get("payer_address")) == normalized:
-        return record
+        logger.warning(f"Could not load paid report from backend: {exc}")
+
+    # Fallback to scanning all reports loaded from the file/backend
+    try:
+        reports = load_paid_reports()
+        for kid, rec in reports.items():
+            if clean_id(kid) == target_clean:
+                if isinstance(rec, dict) and normalize_address(rec.get("payer_address")) == normalized:
+                    return rec
+    except Exception as exc:
+        logger.warning(f"Fallback scan failed: {exc}")
+
     return None
 
 def save_paid_reports(reports: dict) -> None:
@@ -744,6 +780,11 @@ class PaymentVerifyRequest(BaseModel):
     payer_address: Optional[str] = None
     amount_usdc: Optional[float] = None
     split_settlements: List[SplitSettlementProof] = Field(default_factory=list)
+
+class WalletProfileSessionRequest(BaseModel):
+    nonce: str = Field(..., min_length=8, max_length=120)
+    issued_at: int = Field(..., gt=0)
+    signature: str = Field(..., min_length=20, max_length=300)
 
 class CreatorApplicationRequest(BaseModel):
     creator_wallet: str = Field(..., min_length=8, max_length=80)
@@ -1825,6 +1866,11 @@ def get_user_profile():
     """Serves the wallet profile/history UI."""
     return serve_html_file("user.html", "<h1>QMA User Profile File not found</h1>", status_code=404)
 
+@app.get("/profile", response_class=HTMLResponse)
+def get_private_profile():
+    """Serves the owner-only wallet profile UI."""
+    return serve_html_file("user.html", "<h1>QMA User Profile File not found</h1>", status_code=404)
+
 @app.get("/marketplace", response_class=HTMLResponse)
 def get_marketplace():
     """Serves the creator/provider marketplace UI."""
@@ -2672,6 +2718,11 @@ def get_wallet_summary(address: str):
         "last_payment_key": summary["last_payment_key"],
         "last_paid_at": summary["last_paid_at"],
     }
+
+@app.get("/api/v1/wallets/{address}")
+def get_wallet_profile_alias(address: str):
+    """Returns the wallet summary for direct wallet profile API probes."""
+    return get_wallet_summary(address)
 
 @app.get("/api/v1/wallets/{address}/payments")
 def get_wallet_payments(

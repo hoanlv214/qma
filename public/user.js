@@ -1,12 +1,15 @@
 const API_BASE_URL = String(window.QMA_API_BASE_URL || '').replace(/\/$/, '');
 const PAGE_SIZE = 10;
 
-let currentWallet = new URLSearchParams(window.location.search).get('wallet') || localStorage.getItem('qma_connected_wallet') || '';
+let isPublicProfile = window.location.pathname.replace(/\/$/, '').startsWith('/user');
+const initialWalletParam = new URLSearchParams(window.location.search).get('wallet') || '';
+let currentWallet = initialWalletParam || localStorage.getItem('qma_connected_wallet') || '';
 let currentPage = 1;
 let totalPages = 1;
 let arcGatewayBaseUrl = '';
 let expandedPaymentId = '';
 let paymentRowsById = {};
+let walletProfileToken = '';
 
 const connectBtn = document.getElementById('profile-connect-btn');
 const chainBalanceEl = document.getElementById('user-chain-balance');
@@ -19,6 +22,84 @@ const eventsBody = document.getElementById('user-events-body');
 const prevBtn = document.getElementById('user-payments-prev');
 const nextBtn = document.getElementById('user-payments-next');
 const pageLabel = document.getElementById('user-payments-page');
+const accessCard = document.getElementById('profile-access-card');
+const accessIcon = document.getElementById('profile-access-icon');
+const accessTitle = document.getElementById('profile-access-title');
+const accessDesc = document.getElementById('profile-access-desc');
+const accessPill = document.getElementById('profile-access-pill');
+const unlockBtn = document.getElementById('profile-unlock-btn');
+
+function refreshRouteMode() {
+    isPublicProfile = window.location.pathname.replace(/\/$/, '').startsWith('/user');
+}
+
+function getWalletQueryParam() {
+    return new URLSearchParams(window.location.search).get('wallet') || '';
+}
+
+function sameAddress(a, b) {
+    return Boolean(a && b && String(a).toLowerCase() === String(b).toLowerCase());
+}
+
+function connectedWalletCache() {
+    return localStorage.getItem('qma_connected_wallet') || '';
+}
+
+function profileUrl(account = currentWallet) {
+    return account ? `/user?wallet=${encodeURIComponent(account)}` : '/user';
+}
+
+function syncUserWalletRoute(account = currentWallet) {
+    if (!account || !isPublicProfile) return;
+    const nextUrl = profileUrl(account);
+    const currentUrl = `${window.location.pathname}${window.location.search}`;
+    if (currentUrl !== nextUrl) {
+        window.history.replaceState({}, '', nextUrl);
+    }
+}
+
+function createToastContainer() {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+    return container;
+}
+
+function showToast(message, type = 'info') {
+    const container = createToastContainer();
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.innerHTML = `
+        <span class="toast-message">${escapeHtml(message)}</span>
+        <button class="toast-close" type="button" aria-label="Close">&times;</button>
+    `;
+    container.appendChild(toast);
+    const close = () => {
+        toast.classList.add('fade-out');
+        setTimeout(() => toast.remove(), 250);
+    };
+    toast.querySelector('.toast-close')?.addEventListener('click', close);
+    setTimeout(() => {
+        if (toast.parentNode) close();
+    }, 5000);
+}
+
+window.alert = function (message) {
+    const text = String(message || '');
+    const lower = text.toLowerCase();
+    const type = lower.includes('error') || lower.includes('failed') || lower.includes('invalid')
+        ? 'error'
+        : lower.includes('success') || lower.includes('connected') || lower.includes('unlocked')
+            ? 'success'
+            : lower.includes('warn') || lower.includes('expired')
+                ? 'warning'
+                : 'info';
+    showToast(text, type);
+};
 
 function apiUrl(path) {
     return `${API_BASE_URL}${path}`;
@@ -27,6 +108,214 @@ function apiUrl(path) {
 function gatewayApiUrl(path) {
     if (!arcGatewayBaseUrl) return '';
     return `${arcGatewayBaseUrl.replace(/\/$/, '')}${path}`;
+}
+
+function walletTokenCacheKey(account) {
+    return `qma_wallet_profile_token_${String(account || '').toLowerCase()}`;
+}
+
+function clearWalletProfileSession(account) {
+    if (!account) return;
+    sessionStorage.removeItem(walletTokenCacheKey(account));
+    walletProfileToken = '';
+}
+
+function getCachedWalletProfileSession(account) {
+    if (!account) return null;
+    const raw = sessionStorage.getItem(walletTokenCacheKey(account));
+    if (!raw) return null;
+    try {
+        const cached = JSON.parse(raw);
+        if (cached?.token && Number(cached.expiresAt || 0) > Date.now() + 15_000) {
+            walletProfileToken = cached.token;
+            return cached;
+        }
+    } catch {
+        // Older test builds stored raw tokens. Drop them to avoid expired-token reload bugs.
+    }
+    clearWalletProfileSession(account);
+    return null;
+}
+
+function getCachedWalletProfileToken(account) {
+    return getCachedWalletProfileSession(account)?.token || '';
+}
+
+function getOwnerWalletProfileToken(account) {
+    if (!sameAddress(connectedWalletCache(), account)) return '';
+    return getCachedWalletProfileToken(account);
+}
+
+function hasOwnerProfileSession(account = currentWallet) {
+    return Boolean(getOwnerWalletProfileToken(account));
+}
+
+function formatTokenTtl(account) {
+    const cached = getCachedWalletProfileSession(account);
+    if (!cached?.expiresAt) return '';
+    const ms = Number(cached.expiresAt) - Date.now();
+    if (ms <= 0) return '';
+    const minutes = Math.max(1, Math.round(ms / 60000));
+    return minutes >= 60
+        ? `expires in ${Math.floor(minutes / 60)}h ${minutes % 60}m`
+        : `expires in ${minutes} min`;
+}
+
+function setAccessCardState(state, title, desc, pill, actionLabel = 'Unlock private') {
+    if (!accessCard) return;
+    accessCard.classList.toggle('is-public', state === 'public');
+    accessCard.classList.toggle('is-locked', state === 'locked');
+    accessCard.classList.toggle('is-unlocked', state === 'unlocked');
+    if (accessIcon) {
+        if (state === 'unlocked') {
+            accessIcon.innerHTML = `<i class="ti ti-lock-open" style="font-size: 20px; color: #5dcaa5;" aria-hidden="true"></i>`;
+        } else if (state === 'locked') {
+            accessIcon.innerHTML = `<i class="ti ti-lock" style="font-size: 20px; color: #f59e0b;" aria-hidden="true"></i>`;
+        } else {
+            accessIcon.innerHTML = `<i class="ti ti-lock" style="font-size: 20px;" aria-hidden="true"></i>`;
+        }
+    }
+    if (accessTitle) accessTitle.textContent = title;
+    if (accessDesc) accessDesc.textContent = desc;
+    if (accessPill) accessPill.textContent = pill;
+    if (unlockBtn) unlockBtn.textContent = actionLabel;
+}
+
+function updateAccessUi(account = currentWallet) {
+    const cachedToken = getOwnerWalletProfileToken(account);
+    const ttl = cachedToken ? formatTokenTtl(account) : '';
+    if (isPublicProfile) {
+        if (cachedToken) {
+            setAccessCardState(
+                'unlocked',
+                'Owner session available',
+                `This browser already has a private profile session for ${shortAddress(account)}. Open the private profile without signing again${ttl ? ` - ${ttl}` : ''}.`,
+                'ready',
+                'Open private'
+            );
+        } else {
+            setAccessCardState(
+                'public',
+                'Public profile view',
+                'Purchases and settlements are visible. Connect the owner wallet once to unlock private balances and saved report snapshots.',
+                'public',
+                'Unlock private'
+            );
+        }
+        return;
+    }
+    if (cachedToken) {
+        setAccessCardState(
+            'unlocked',
+            'Private snapshots unlocked',
+            `Signed once for this browser session${ttl ? ` - ${ttl}` : ''}. Quick profile and this page will reuse the same token.`,
+            'active',
+            'Unlocked'
+        );
+    } else if (account) {
+        setAccessCardState(
+            'locked',
+            'Private snapshots locked',
+            'Wallet history is visible, but saved report snapshots need one owner signature for this browser session.',
+            'locked',
+            'Unlock private'
+        );
+    } else {
+        setAccessCardState(
+            'locked',
+            'Connect wallet to view private profile',
+            'Connect once, then sign once. The token is stored in sessionStorage until it expires.',
+            'connect',
+            'Connect wallet'
+        );
+    }
+}
+
+async function getActiveWalletAccount(accountHint = '') {
+    if (!window.ethereum?.request) return '';
+    let accounts = await window.ethereum.request({ method: 'eth_accounts' }).catch(() => []);
+    let active = accounts && accounts[0] ? String(accounts[0]) : '';
+    if (!active || (accountHint && active.toLowerCase() !== String(accountHint).toLowerCase())) {
+        accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+        active = accounts && accounts[0] ? String(accounts[0]) : '';
+    }
+    return active;
+}
+
+async function unlockWalletProfile(account, options = {}) {
+    let finalAccount = account || currentWallet;
+    if (!finalAccount) {
+        finalAccount = await getActiveWalletAccount();
+        if (!finalAccount) throw new Error('No wallet account returned.');
+    }
+    localStorage.setItem('qma_connected_wallet', finalAccount);
+    currentWallet = finalAccount;
+    const token = await requestWalletProfileSession(finalAccount);
+    if (token && options.updateRoute !== false) {
+        syncUserWalletRoute(finalAccount);
+    }
+    updateAccessUi(finalAccount);
+    return token;
+}
+
+function walletProfileMessage(account, nonce, issuedAt) {
+    return [
+        'QMA Wallet Profile Access',
+        `Wallet: ${String(account || '').toLowerCase()}`,
+        `Nonce: ${nonce}`,
+        `Issued At: ${issuedAt}`,
+        'Purpose: unlock-paid-report-snapshots',
+    ].join('\n');
+}
+
+async function requestWalletProfileSession(account) {
+    if (!account) return '';
+    const cached = getCachedWalletProfileToken(account);
+    if (cached) return cached;
+    if (!window.ethereum?.request) {
+        throw new Error('Connect the wallet owner to unlock private report snapshots.');
+    }
+    const active = await getActiveWalletAccount(account);
+    if (active.toLowerCase() !== String(account).toLowerCase()) {
+        throw new Error('Connected wallet does not match this private profile.');
+    }
+    const issuedAt = Math.floor(Date.now() / 1000);
+    const nonce = `${issuedAt}-${Math.random().toString(36).slice(2)}`;
+    const message = walletProfileMessage(account, nonce, issuedAt);
+    const signature = await window.ethereum.request({
+        method: 'personal_sign',
+        params: [message, active],
+    });
+    const resp = await fetch(apiUrl(`/api/v1/wallets/${account.toLowerCase()}/session`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nonce, issued_at: issuedAt, signature }),
+    });
+    if (!resp.ok) {
+        const payload = await resp.json().catch(() => ({}));
+        throw new Error(payload.detail || 'Could not unlock private profile.');
+    }
+    const data = await resp.json();
+    const token = data.wallet_token || '';
+    if (token) {
+        sessionStorage.setItem(walletTokenCacheKey(account), JSON.stringify({
+            token,
+            expiresAt: Date.now() + Math.max(30, Number(data.expires_in || 3600)) * 1000,
+        }));
+        localStorage.setItem('qma_connected_wallet', account);
+        walletProfileToken = token;
+        showToast('Private profile access unlocked for this session.', 'success');
+        updateAccessUi(account);
+    }
+    return token;
+}
+
+function walletPrivateHeaders(token) {
+    return token ? { 'X-QMA-Wallet-Token': token } : {};
+}
+
+function setPrivacyNotice(message = '') {
+    // No-op: dynamic privacy notices are disabled in favor of profile access card UI
 }
 
 function escapeHtml(value) {
@@ -93,7 +382,7 @@ function gatewayStatusBadge(status) {
 }
 
 function entitlementId(entry = {}) {
-    return entry.entitlement_id || entry.query_hash || entry.settlement_id || `${entry.symbol || 'report'}-${entry.paid_at || entry.saved_at || ''}`;
+    return entry.entitlement_id || '';
 }
 
 function normalizeTier(value) {
@@ -293,16 +582,19 @@ function renderLazyPaymentDetail(rowId = '', hasReport = false) {
 }
 
 async function loadPaymentDetail(rowId, entitlementId) {
-    if (!rowId || !entitlementId || !currentWallet) return;
+    if (!rowId || !currentWallet) return;
     const detail = document.getElementById(`receipt-detail-${rowId}`);
     const event = paymentRowsById[rowId] || {};
     if (!detail || !detail.classList.contains('needs-report-load')) return;
     try {
-        const resp = await fetch(apiUrl(`/api/v1/wallets/${currentWallet}/reports/${encodeURIComponent(entitlementId)}`));
-        if (!resp.ok) throw new Error(`Report endpoint returned ${resp.status}`);
-        const data = await resp.json();
+        let token = walletProfileToken || getCachedWalletProfileToken(currentWallet);
+        if (!token) {
+            setPrivacyNotice('Wallet owner signature is required to open private paid snapshots.');
+            token = await requestWalletProfileSession(currentWallet);
+        }
+        const entitlement = await resolvePaymentEntitlement(event, entitlementId, token);
         const wrapper = document.createElement('tbody');
-        wrapper.innerHTML = renderPaymentDetail(event, data.entitlement || {}, rowId).trim();
+        wrapper.innerHTML = renderPaymentDetail(event, entitlement || {}, rowId).trim();
         const nextRow = wrapper.firstElementChild;
         if (!nextRow) return;
         nextRow.hidden = false;
@@ -316,11 +608,57 @@ async function loadPaymentDetail(rowId, entitlementId) {
         detail.innerHTML = `
             <td colspan="8">
                 <div class="receipt-detail-card">
-                    <div class="receipt-detail-empty">Could not load this paid report snapshot.</div>
+                    <div class="receipt-detail-empty">${escapeHtml(err.message || 'Could not load this paid report snapshot.')}</div>
                 </div>
             </td>
         `;
     }
+}
+
+async function fetchWalletReportById(entitlementId, token) {
+    if (!entitlementId) return null;
+    const resp = await fetch(
+        apiUrl(`/api/v1/wallets/${currentWallet}/reports/${encodeURIComponent(entitlementId)}`),
+        { headers: walletPrivateHeaders(token) }
+    );
+    if (resp.status === 403) {
+        clearWalletProfileSession(currentWallet);
+        setPrivacyNotice('Private profile session expired. Unlock again to open paid snapshots.');
+        throw new Error('Wallet owner session expired.');
+    }
+    if (resp.status === 404) return null;
+    if (!resp.ok) throw new Error(`Report endpoint returned ${resp.status}`);
+    const data = await resp.json();
+    return data.entitlement || null;
+}
+
+async function fetchWalletEntitlements(token) {
+    const resp = await fetch(apiUrl(`/api/v1/entitlements/wallet/${currentWallet}`), {
+        headers: walletPrivateHeaders(token),
+    });
+    if (resp.status === 403) {
+        clearWalletProfileSession(currentWallet);
+        setPrivacyNotice('Private profile session expired. Unlock again to open paid snapshots.');
+        throw new Error('Wallet owner session expired.');
+    }
+    if (!resp.ok) throw new Error(`Entitlements endpoint returned ${resp.status}`);
+    const data = await resp.json();
+    return normalizeEntitlementsList(data.entitlements || []);
+}
+
+async function resolvePaymentEntitlement(event, entitlementId, token) {
+    const direct = await fetchWalletReportById(entitlementId, token);
+    if (direct?.report) return direct;
+
+    const entitlements = await fetchWalletEntitlements(token);
+    const matched = findEntitlementForPayment(event, entitlements);
+    if (matched?.report) return matched;
+
+    const matchedId = matched?.entitlement_id || event?.entitlement_id || '';
+    const fallback = await fetchWalletReportById(matchedId, token);
+    if (fallback?.report) return fallback;
+
+    throw new Error('No saved report snapshot was found for this receipt.');
 }
 
 function getWalletEvents(account) {
@@ -531,6 +869,7 @@ function groupPaymentsByInvoice(events) {
 function renderPayments(events, entitlements = []) {
     events = groupPaymentsByInvoice(events);
     entitlements = normalizeEntitlementsList(entitlements);
+    const ownerSession = hasOwnerProfileSession(currentWallet);
     paymentRowsById = {};
     if (!events.length) {
         paymentsBody.innerHTML = '<tr class="empty-row"><td colspan="8">No verified payments yet.</td></tr>';
@@ -541,8 +880,8 @@ function renderPayments(events, entitlements = []) {
         const query = entitlement?.query || entitlement?.report?.query || event.query || {};
         const rowId = paymentRowId(event, index);
         paymentRowsById[rowId] = event;
-        const entitlementIdValue = event.entitlement_id || (entitlement?.report ? entitlementId(entitlement) : '');
-        const hasReport = Boolean(entitlement?.report || event.has_report || entitlementIdValue);
+        const entitlementIdValue = ownerSession ? (event.entitlement_id || entitlement?.entitlement_id || '') : '';
+        const hasReport = ownerSession && Boolean(entitlement?.report || event.has_report || entitlementIdValue);
         const tier = tierLabel(event.tier_category || event.tier || entitlement?.tier);
         const provider = event.provider_id || entitlement?.provider_id || entitlement?.report?.provider_id || 'funding_memory';
         const buyerType = event.buyer_type || 'human';
@@ -598,7 +937,7 @@ function renderPayments(events, entitlements = []) {
                 <td>
                     <span class="report-tier-pill">${escapeHtml(tier)}</span>
                 </td>
-                <td>    
+                <td>
                     <div class="row-subtitle">${escapeHtml(provider)}</div>
                 </td>
                 <td>
@@ -611,7 +950,7 @@ function renderPayments(events, entitlements = []) {
                 <td>${gatewayStatusBadge(event.gateway_status)}</td>
                 <td>
                     <div class="reference-cell">${ref}</div>
-                    ${hasReport ? '' : '<div class="row-subtitle">No saved report</div>'}
+                    ${hasReport ? '' : `<div class="row-subtitle">${ownerSession ? 'No saved report' : 'Owner only'}</div>`}
                 </td>
             </tr>
             ${legsHtml}
@@ -704,26 +1043,57 @@ function fallbackPageMeta(meta, pageSize, totalFallback, visibleCount) {
 async function loadProfile(account, page = 1) {
     if (!account) return;
     currentWallet = account;
-    connectBtn.textContent = shortAddress(account);
+    syncUserWalletRoute(account);
+    const cachedToken = getOwnerWalletProfileToken(account);
+    updateAccessUi(account);
+    if (isPublicProfile) {
+        connectBtn.textContent = cachedToken ? shortAddress(account) : 'Unlock Private';
+        connectBtn.classList.remove('needs-unlock');
+    } else {
+        connectBtn.textContent = cachedToken ? shortAddress(account) : 'Unlock Profile';
+        if (!cachedToken) {
+            connectBtn.classList.add('needs-unlock');
+        } else {
+            connectBtn.classList.remove('needs-unlock');
+        }
+    }
     connectBtn.title = account;
-    renderEvents(account);
+    setPrivacyNotice(isPublicProfile
+        ? cachedToken
+            ? 'Owner token found in sessionStorage. Private paid snapshots can open without signing again.'
+            : 'Public profile: purchases and settlements are visible, paid report snapshots are owner-only.'
+        : cachedToken
+            ? 'Private profile unlocked for this browser session.'
+            : 'Private profile: connect wallet once to unlock your own paid report snapshots.'
+    );
+    renderEvents(cachedToken ? account : '');
 
     const params = new URLSearchParams({
         page: String(page),
         page_size: String(PAGE_SIZE)
     });
-    const [summaryResp, paymentsResp, walletStatus] = await Promise.all([
+    const [summaryResp, firstPaymentsResp, walletStatus] = await Promise.all([
         fetch(apiUrl(`/api/v1/wallets/${account}/summary`)),
-        fetch(apiUrl(`/api/v1/wallets/${account}/payments?${params.toString()}`)),
+        fetch(apiUrl(`/api/v1/wallets/${account}/payments?${params.toString()}`), { headers: walletPrivateHeaders(cachedToken) }),
         loadWalletStatus(account)
     ]);
+    let paymentsResp = firstPaymentsResp;
+    if (paymentsResp.status === 403 && cachedToken) {
+        clearWalletProfileSession(account);
+        setPrivacyNotice('Private profile session expired. Showing public history until you unlock again.');
+        showToast('Private profile session expired. Showing public history until you sign again.', 'warning');
+        paymentsResp = await fetch(apiUrl(`/api/v1/wallets/${account}/payments?${params.toString()}`));
+    }
     if (!summaryResp.ok || !paymentsResp.ok) {
         paymentsBody.innerHTML = '<tr class="empty-row"><td colspan="8">Could not load wallet history.</td></tr>';
+        showToast('Could not load wallet history.', 'error');
         return;
     }
     const summary = await summaryResp.json();
     const payments = await paymentsResp.json();
-    renderEvents(account, payments.recent_payments || []);
+    if (cachedToken) {
+        renderEvents(account, payments.recent_payments || []);
+    }
     renderProfileSummary({
         ...summary,
         recent_payments: payments.recent_payments || [],
@@ -759,21 +1129,35 @@ function renderProfileSummary(metrics, walletStatus) {
 }
 
 async function connectWallet() {
+    if (currentWallet && getOwnerWalletProfileToken(currentWallet)) {
+        syncUserWalletRoute(currentWallet);
+        await loadProfile(currentWallet, 1);
+        return;
+    }
     if (!window.ethereum?.request) {
         alert('EVM is required to connect a wallet.');
         return;
     }
-    const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-    const account = accounts && accounts[0] ? accounts[0] : '';
+    const walletFromUrl = getWalletQueryParam();
+    const targetWallet = walletFromUrl || currentWallet;
+    const account = await getActiveWalletAccount(targetWallet);
     if (account) {
-        const url = new URL(window.location.href);
-        url.searchParams.set('wallet', account);
-        window.history.replaceState({}, '', url.toString());
-        await loadProfile(account, 1);
+        const profileWallet = targetWallet || account;
+        localStorage.setItem('qma_connected_wallet', account);
+        currentWallet = profileWallet;
+        try {
+            await unlockWalletProfile(profileWallet, { updateRoute: true });
+            setPrivacyNotice('Private profile unlocked for this browser session.');
+        } catch (err) {
+            setPrivacyNotice(err.message || 'Could not unlock private snapshots.');
+            showToast(err.message || 'Connected. Private snapshots can be unlocked later in Profile.', 'warning');
+        }
+        await loadProfile(currentWallet, 1);
     }
 }
 
 connectBtn.addEventListener('click', connectWallet);
+if (unlockBtn) unlockBtn.addEventListener('click', connectWallet);
 prevBtn.addEventListener('click', () => {
     if (currentPage > 1) loadProfile(currentWallet, currentPage - 1);
 });
@@ -783,7 +1167,19 @@ nextBtn.addEventListener('click', () => {
 
 (async function init() {
     await loadHealth();
+    refreshRouteMode();
+    currentWallet = getWalletQueryParam() || currentWallet;
     if (currentWallet) {
         await loadProfile(currentWallet, 1);
+    } else if (isPublicProfile) {
+        connectBtn.textContent = 'Unlock Private';
+        paymentsBody.innerHTML = '<tr class="empty-row"><td colspan="8">No wallet address supplied.</td></tr>';
+        eventsBody.innerHTML = '<tr class="empty-row"><td colspan="4">Public profile needs a wallet query.</td></tr>';
+        setPrivacyNotice('Open /user?wallet=0x... for public history, or connect wallet for your private profile.');
+        updateAccessUi('');
+    } else {
+        connectBtn.textContent = 'Connect Wallet';
+        setPrivacyNotice('Connect wallet to view your private QMA profile.');
+        updateAccessUi('');
     }
 })();

@@ -62,13 +62,24 @@
     font-family: var(--sans);
     font-size: 0.82rem;
     font-weight: 800;
+    transition: all 0.2s ease;
+}
+
+.profile-nav .wallet-button.needs-unlock {
+    background: #f59e0b;
+    border-color: rgba(245, 158, 11, 0.4);
+    color: #0d0600;
+}
+
+.profile-nav .wallet-button.needs-unlock:hover {
+    background: #d97706;
+    border-color: rgba(217, 119, 6, 0.6);
 }
 
 .profile-hero {
     display: block;
-    padding: 56px 0 40px;
-    border-bottom: 1px solid var(--bdr);
-    margin: 34px 0 40px;
+    padding: 56px 0 26px;
+    margin: 34px 0 20px;
 }
 
 .flow-step-num {
@@ -105,6 +116,239 @@
     font-size: var(--text-md);
     line-height: 1.6;
     max-width: 540px;
+}
+
+/* ===== UNIFIED ACCESS CARD DESIGN (USER PROFILE) ===== */
+.profile-access-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 0 0 28px;
+    padding: 16px 20px;
+    border-radius: 12px;
+    position: relative;
+    overflow: hidden;
+    backdrop-filter: blur(12px);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.profile-access-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    opacity: 0.1;
+    background: linear-gradient(135deg, rgba(255,255,255,0.1), transparent);
+    pointer-events: none;
+}
+
+.profile-access-copy {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-width: 0;
+    position: relative;
+    z-index: 1;
+}
+
+.profile-access-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    font-size: 1.1rem;
+    position: relative;
+    z-index: 1;
+}
+
+.profile-access-icon::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: 14px;
+    filter: blur(8px);
+    opacity: 0.35;
+    z-index: -1;
+}
+
+.profile-access-title {
+    color: var(--t1);
+    font-size: 0.95rem;
+    font-weight: 750;
+    letter-spacing: 0.2px;
+}
+
+.profile-access-desc {
+    color: var(--t3);
+    font-size: 0.78rem;
+    line-height: 1.5;
+    margin-top: 4px;
+    font-family: var(--mono);
+    letter-spacing: -0.2px;
+}
+
+.profile-access-desc strong, 
+.profile-access-desc b {
+    color: var(--t1);
+    font-family: var(--mono);
+}
+
+.profile-access-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 0 0 auto;
+    position: relative;
+    z-index: 1;
+}
+
+.profile-access-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 20px;
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    font-weight: 800;
+    letter-spacing: 0.6px;
+    padding: 5px 12px;
+    text-transform: uppercase;
+}
+
+.profile-access-button {
+    border: 1px solid transparent;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: var(--sans);
+    font-size: 0.8rem;
+    font-weight: 750;
+    padding: 8px 14px;
+    transition: all 0.2s ease;
+}
+
+/* ── DEFAULT / PUBLIC (Purple) ── */
+.profile-access-card,
+.profile-access-card.is-public {
+    border: 1px solid rgba(124, 111, 255, 0.3);
+    background: linear-gradient(145deg, rgba(124, 111, 255, 0.08) 0%, rgba(10, 13, 24, 0.6) 100%);
+}
+.profile-access-card.is-public .profile-access-icon,
+.profile-access-card .profile-access-icon {
+    border: 1px solid rgba(124, 111, 255, 0.4);
+    background: rgba(124, 111, 255, 0.15);
+    color: var(--purple);
+}
+.profile-access-card.is-public .profile-access-icon::after,
+.profile-access-card .profile-access-icon::after {
+    background: var(--purple);
+}
+.profile-access-card.is-public .profile-access-pill,
+.profile-access-card .profile-access-pill {
+    border: 1px solid rgba(124, 111, 255, 0.4);
+    background: rgba(124, 111, 255, 0.15);
+    color: var(--purple);
+}
+.profile-access-button {
+    border-color: rgba(124, 111, 255, 0.4);
+    background: rgba(124, 111, 255, 0.12);
+    color: var(--t1);
+}
+.profile-access-button:hover {
+    border-color: rgba(34, 211, 160, 0.45);
+    background: rgba(34, 211, 160, 0.1);
+    color: var(--green);
+}
+
+/* ── LOCKED (Amber) ── */
+.profile-access-card.is-locked {
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    background: linear-gradient(145deg, rgba(245, 158, 11, 0.08) 0%, rgba(10, 13, 24, 0.6) 100%);
+}
+.profile-access-card.is-locked .profile-access-icon {
+    border: 1px solid rgba(245, 158, 11, 0.4);
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--amber);
+}
+.profile-access-card.is-locked .profile-access-icon::after {
+    background: var(--amber);
+}
+.profile-access-card.is-locked .profile-access-pill {
+    border: 1px solid rgba(245, 158, 11, 0.4);
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--amber);
+}
+
+/* ── UNLOCKED (Green & Animated) ── */
+@keyframes border-rotate-user {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.profile-access-card.is-unlocked {
+    border: 1px solid rgba(34, 211, 160, 0.35);
+    background: linear-gradient(145deg, rgba(34, 211, 160, 0.08) 0%, rgba(10, 13, 24, 0.6) 100%);
+}
+
+/* Animated active border */
+.profile-access-card.is-unlocked::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: conic-gradient(from 0deg, transparent 70%, rgba(34, 211, 160, 0.5) 100%);
+    animation: border-rotate-user 3.5s linear infinite;
+    z-index: 0;
+    opacity: 0.6;
+}
+.profile-access-card.is-unlocked::after {
+    content: '';
+    position: absolute;
+    inset: 1px;
+    background: rgba(6, 8, 15, 0.95);
+    border-radius: 11px;
+    z-index: 0;
+}
+
+.profile-access-card.is-unlocked .profile-access-icon {
+    border: 1px solid rgba(34, 211, 160, 0.4);
+    background: rgba(34, 211, 160, 0.15);
+    color: var(--green);
+}
+.profile-access-card.is-unlocked .profile-access-icon::after {
+    background: var(--green);
+}
+.profile-access-card.is-unlocked .profile-access-pill {
+    border: 1px solid rgba(34, 211, 160, 0.4);
+    background: rgba(34, 211, 160, 0.15);
+    color: var(--green);
+}
+
+/* Pulse countdown indicator in the pill */
+@keyframes pulse-countdown {
+    0% { transform: scale(0.75); opacity: 0.5; box-shadow: 0 0 0 0 rgba(34, 211, 160, 0.7); }
+    70% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 6px rgba(34, 211, 160, 0); }
+    100% { transform: scale(0.75); opacity: 0.5; box-shadow: 0 0 0 0 rgba(34, 211, 160, 0); }
+}
+
+.profile-access-card.is-unlocked .profile-access-pill::before {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: pulse-countdown 2s infinite;
+}
+
+.profile-access-card.is-unlocked .profile-access-button {
+    display: none;
 }
 
 .profile-section {
@@ -210,7 +454,18 @@
 
     .profile-hero {
         padding: 34px 0 26px;
-        margin-bottom: 24px;
+        margin-bottom: 18px;
+    }
+
+    .profile-access-card,
+    .profile-access-actions {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .profile-access-actions,
+    .profile-access-button {
+        width: 100%;
     }
 
     .profile-pager {

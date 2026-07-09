@@ -13,6 +13,7 @@
         rel="stylesheet">
     <link rel="stylesheet" href="/public/styles.css">
     <link rel="stylesheet" href="/public/app.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
     <script>
         (() => {
             const isLocal = ["localhost", "127.0.0.1", "0.0.0.0"].includes(window.location.hostname);
@@ -890,6 +891,22 @@
                     <div class="modal-subtitle" id="wallet-profile-address">Not connected</div>
                 </div>
                 <button class="icon-button" id="wallet-profile-close" type="button" title="Close">✕</button>
+            </div>
+            <div class="quick-profile-access is-locked" id="quick-profile-access">
+                <div class="quick-profile-access-copy">
+                    <div class="quick-profile-access-icon" id="quick-profile-access-icon">
+                        <i class="ti ti-lock" style="font-size: 20px;" aria-hidden="true"></i>
+                    </div>
+                    <div>
+                        <div class="quick-profile-access-title" id="quick-profile-access-title">Private snapshots locked
+                        </div>
+                        <div class="quick-profile-access-desc" id="quick-profile-access-desc">Sign once to unlock saved
+                            report snapshots for this browser session.</div>
+                    </div>
+                </div>
+                <div class="quick-profile-access-actions">
+                    <span class="quick-profile-access-pill" id="quick-profile-access-pill">locked</span>
+                </div>
             </div>
             <div class="profile-grid">
                 <div class="profile-tile">

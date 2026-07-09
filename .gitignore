@@ -19,3 +19,5 @@ data/full_*.csv
 *.key
 .qma-test-wallets*.json
 exports/
+.qma-test-wallets.json
+data/cache/
