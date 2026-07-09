@@ -157,6 +157,10 @@ function walletTokenCacheKey(account) {
     return `qma_wallet_profile_token_${String(account || '').toLowerCase()}`;
 }
 
+function walletProfilePageUrl(account) {
+    return account ? `/user?wallet=${encodeURIComponent(account)}` : '/user';
+}
+
 function clearWalletProfileSession(account) {
     if (!account) return;
     sessionStorage.removeItem(walletTokenCacheKey(account));
@@ -210,7 +214,7 @@ function renderQuickProfileAccess(account) {
     if (quickProfileAccessTitle) quickProfileAccessTitle.textContent = cached ? 'Private snapshots unlocked' : 'Private snapshots locked';
     if (quickProfileAccessDesc) {
         quickProfileAccessDesc.textContent = cached
-            ? `Using the same sessionStorage token as /profile${ttl ? ` - ${ttl}` : ''}.`
+            ? `Using the same sessionStorage token as the wallet profile page${ttl ? ` - ${ttl}` : ''}.`
             : 'Sign once to unlock saved report snapshots. Opening this modal will not request a signature by itself.';
     }
     if (quickProfileAccessPill) quickProfileAccessPill.textContent = cached ? 'active' : 'locked';
@@ -2285,7 +2289,7 @@ async function openWalletProfile() {
     walletProfileModal.classList.add('open');
     walletProfileModal.setAttribute('aria-hidden', 'false');
     walletProfileAddress.textContent = account;
-    if (profilePageLink) profilePageLink.href = '/profile';
+    if (profilePageLink) profilePageLink.href = walletProfilePageUrl(account);
     renderQuickProfileAccess(account);
     profileGatewayBalance.textContent = 'loading...';
     profileChainBalance.textContent = 'loading...';
@@ -2340,7 +2344,7 @@ async function openWalletProfilePage() {
             showToast('Profile page will open locked. Sign there to unlock paid snapshots.', 'warning');
         }
     }
-    window.location.href = '/profile';
+    window.location.href = walletProfilePageUrl(account);
 }
 
 function setLiveRefreshState(label, tone = '') {

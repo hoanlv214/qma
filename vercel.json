@@ -45,10 +45,6 @@
       "dest": "/user.html"
     },
     {
-      "src": "/profile",
-      "dest": "/user.html"
-    },
-    {
       "src": "/marketplace",
       "dest": "/marketplace.html"
     },
