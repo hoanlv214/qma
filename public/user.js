@@ -896,7 +896,6 @@ function renderPayments(events, entitlements = []) {
                 ? `<span class="mono-td" title="${escapeHtml(event.settlement_id)}">${shortAddress(event.settlement_id)}</span>`
                 : '<span class="badge badge-muted">n/a</span>';
         const hasLegs = event.is_group && event.legs && event.legs.length > 0;
-        const expandBtn = hasLegs ? `<div style="margin-top:4px; font-size:0.75rem; color:var(--primary); cursor:pointer;" onclick="event.stopPropagation(); document.querySelectorAll('.legs-for-${escapeHtml(rowId)}').forEach(e => e.style.display = e.style.display === 'none' ? 'table-row' : 'none');">[expand ▾]</div>` : '';
 
         let legsHtml = '';
         if (hasLegs) {
@@ -929,7 +928,7 @@ function renderPayments(events, entitlements = []) {
         }
 
         return `
-            <tr class="${hasReport ? 'user-payment-row is-clickable' : 'user-payment-row'}" data-row-id="${escapeHtml(rowId)}" data-entitlement-id="${escapeHtml(entitlementIdValue)}" title="${escapeHtml(formatDateTime(event.paid_at))}">
+            <tr class="${hasReport || hasLegs ? 'user-payment-row is-clickable' : 'user-payment-row'}" data-row-id="${escapeHtml(rowId)}" data-entitlement-id="${escapeHtml(entitlementIdValue)}" data-has-report="${hasReport ? '1' : '0'}" data-has-legs="${hasLegs ? '1' : '0'}" title="${escapeHtml(formatDateTime(event.paid_at))}">
                 <td class="signal-cell">
                     <strong class="signal-symbol">${escapeHtml(event.symbol || query.symbol || 'n/a')}</strong>
                 </td>
@@ -945,7 +944,6 @@ function renderPayments(events, entitlements = []) {
                 </td>
                 <td>
                     <strong class="payment-amount">${Number(event.amount_usdc || 0).toFixed(3)} USDC</strong>
-                    ${expandBtn}
                 </td>
                 <td>${gatewayStatusBadge(event.gateway_status)}</td>
                 <td>
@@ -960,7 +958,12 @@ function renderPayments(events, entitlements = []) {
     paymentsBody.querySelectorAll('.user-payment-row.is-clickable').forEach((row) => {
         row.addEventListener('click', (event) => {
             if (event.target.closest('a, button')) return;
-            togglePaymentDetail(row.dataset.rowId, null, row.dataset.entitlementId);
+            if (row.dataset.hasLegs === '1') {
+                toggleSplitLegRows(row.dataset.rowId);
+            }
+            if (row.dataset.hasReport === '1') {
+                togglePaymentDetail(row.dataset.rowId, null, row.dataset.entitlementId);
+            }
         });
     });
     paymentsBody.querySelectorAll('.receipt-detail-close').forEach((button) => {
@@ -968,6 +971,17 @@ function renderPayments(events, entitlements = []) {
             event.stopPropagation();
             togglePaymentDetail(button.dataset.rowId, false);
         });
+    });
+}
+
+function toggleSplitLegRows(rowId, forceOpen = null) {
+    if (!rowId) return;
+    const rows = paymentsBody.querySelectorAll(`.legs-for-${rowId}`);
+    if (!rows.length) return;
+    const first = rows[0];
+    const shouldOpen = forceOpen === null ? first.style.display === 'none' || !first.style.display : forceOpen;
+    rows.forEach((item) => {
+        item.style.display = shouldOpen ? 'table-row' : 'none';
     });
 }
 

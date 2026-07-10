@@ -189,6 +189,99 @@ function normalizeInvoiceAccounting(invoice = {}, settlement = normalizeInvoiceS
     };
 }
 
+function pendingInvoiceStoreKey(account = connectedWallet) {
+    const owner = String(account || connectedWallet || localStorage.getItem('qma_connected_wallet') || 'browser').toLowerCase();
+    return `qma_pending_invoices_${owner}`;
+}
+
+function pendingInvoiceMatchKey(query = activeQuery, providerId = currentProviderId, tier = currentInvoiceTier) {
+    if (!query) return '';
+    return `${providerId || 'funding_memory'}:${normalizeTier(tier || 'full')}:${signalFingerprint(query)}`;
+}
+
+function readPendingInvoiceStore(account = connectedWallet) {
+    try {
+        const raw = localStorage.getItem(pendingInvoiceStoreKey(account));
+        const parsed = raw ? JSON.parse(raw) : {};
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+function writePendingInvoiceStore(store, account = connectedWallet) {
+    try {
+        localStorage.setItem(pendingInvoiceStoreKey(account), JSON.stringify(store || {}));
+    } catch (err) {
+        console.warn('Could not persist pending invoice state', err);
+    }
+}
+
+function rememberPendingInvoice(invoiceData, query = activeQuery, account = connectedWallet) {
+    if (!invoiceData?.invoice_id || !invoiceData?.invoice_secret || !query) return;
+    const key = pendingInvoiceMatchKey(query, invoiceData.provider_id || currentProviderId, invoiceData.tier || currentInvoiceTier);
+    if (!key) return;
+    const store = readPendingInvoiceStore(account);
+    store[key] = {
+        saved_at: Date.now(),
+        query,
+        invoice: {
+            ...invoiceData,
+            invoice_secret: invoiceData.invoice_secret,
+            arc_gateway_url: invoiceData.arc_gateway_url || currentArcGatewayUrl,
+            split_legs: Array.isArray(invoiceData.split_legs) ? invoiceData.split_legs : currentInvoiceSplitLegs,
+        },
+    };
+    store.__last_key = key;
+    writePendingInvoiceStore(store, account);
+}
+
+function clearPendingInvoice(query = activeQuery, providerId = currentProviderId, tier = currentInvoiceTier, account = connectedWallet) {
+    const key = pendingInvoiceMatchKey(query, providerId, tier);
+    if (!key) return;
+    const store = readPendingInvoiceStore(account);
+    delete store[key];
+    if (store.__last_key === key) delete store.__last_key;
+    writePendingInvoiceStore(store, account);
+}
+
+async function refreshPendingInvoice(entry) {
+    const invoice = entry?.invoice || {};
+    if (!invoice.invoice_id || !invoice.invoice_secret) return null;
+    const resp = await fetch(apiUrl(`/api/v1/payment/invoices/${encodeURIComponent(invoice.invoice_id)}/status?invoice_secret=${encodeURIComponent(invoice.invoice_secret)}`));
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+        if (resp.status === 400 || resp.status === 402 || resp.status === 403 || resp.status === 404) return null;
+        throw new Error(apiErrorMessage(data, 'Could not refresh pending invoice.'));
+    }
+    return {
+        ...invoice,
+        ...data,
+        invoice_secret: invoice.invoice_secret,
+        arc_gateway_url: invoice.arc_gateway_url || data.arc_gateway_url,
+        split_legs: Array.isArray(data.split_legs) ? data.split_legs : invoice.split_legs,
+    };
+}
+
+function currentInvoiceDataSnapshot(overrides = {}) {
+    return {
+        invoice_id: currentInvoiceId,
+        invoice_secret: currentInvoiceSecret,
+        arc_gateway_url: currentArcGatewayUrl,
+        split_legs: currentInvoiceSplitLegs,
+        amount: currentInvoiceAmount,
+        amount_usdc: currentInvoiceAmount,
+        tier: currentInvoiceTier,
+        provider_id: currentProviderId,
+        buyer_type: currentInvoiceBuyerType,
+        settlement: currentInvoiceSettlement,
+        accounting: currentInvoiceAccounting,
+        wallet_address: currentSellerAddress,
+        settlement_id: currentSettlementId,
+        ...overrides,
+    };
+}
+
 function formatAssetAmount(amount, currency = 'USDC', decimals = 6) {
     const num = Number(amount);
     if (!Number.isFinite(num)) return `${amount || '0'} ${currency}`;
@@ -4428,6 +4521,144 @@ function lockViewport() {
     document.getElementById('payment-flow-panel').style.display = 'none';
 }
 
+async function applyInvoiceDataToPaymentPanel(invoiceData, invoiceBuyerType = 'human') {
+    currentInvoiceId = invoiceData.invoice_id;
+    currentInvoiceSecret = invoiceData.invoice_secret;
+    currentArcGatewayUrl = invoiceData.arc_gateway_url;
+    currentInvoiceSplitLegs = Array.isArray(invoiceData.split_legs) ? invoiceData.split_legs : [];
+    currentInvoiceSplitSettlements = currentInvoiceSplitLegs
+        .filter((leg) => leg.status === 'paid' && leg.settlement_id)
+        .map((leg) => ({
+            leg_id: leg.leg_id,
+            settlement_id: leg.settlement_id,
+            pay_to: leg.pay_to,
+            amount_raw: String(leg.amount_raw),
+            sidecar_receipt: leg.sidecar_receipt
+        }));
+    currentInvoiceSettlement = normalizeInvoiceSettlement(invoiceData);
+    currentInvoiceAccounting = normalizeInvoiceAccounting(invoiceData, currentInvoiceSettlement);
+    currentInvoiceAmount = Number(currentInvoiceSettlement.amount ?? invoiceData.amount);
+    currentInvoiceTier = normalizeTier(invoiceData.tier || currentInvoiceTier);
+    currentProviderId = invoiceData.provider_id || currentProviderId;
+    currentInvoiceBuyerType = invoiceData.buyer_type || invoiceBuyerType;
+    currentSellerAddress = invoiceData.wallet_address || invoiceData.seller_wallet || currentSellerAddress;
+    currentSettlementId = invoiceData.settlement_id || currentSettlementId;
+    currentAccessToken = invoiceData.access_token || currentAccessToken;
+
+    if (currentInvoiceBuyerType === 'agent') {
+        appendAgentRunTrace(`Invoice ${shortAddress(currentInvoiceId)} ready: ${formatAssetAmount(currentInvoiceSettlement.amount, currentInvoiceSettlement.currency, currentInvoiceSettlement.decimals)} via ${invoiceData.provider_id}.`, 'success');
+        appendAgentRunTrace(agentRunModal?.classList.contains('open')
+            ? 'Payment panel is ready behind this modal. Close the modal to sign x402 with the connected wallet.'
+            : 'Payment panel is ready. Review the split and click Pay to sign x402 with the connected wallet.');
+        appendAgentRunTrace('CLI live mode can run the same payment loop fully autonomously with AGENT_PRIVATE_KEY.');
+        if (agentRunDismiss) agentRunDismiss.textContent = 'Continue to Payment';
+    }
+
+    setPaymentDetailValue('inv-id-display', currentInvoiceId);
+    document.getElementById('inv-id-row').style.display = 'grid';
+    invoiceSignalDisplay.textContent = displaySignalLabel(activeQuery);
+    paywallTitle.textContent = `${tierLabel(currentInvoiceTier)} Payment Required`;
+    if (isBasicView()) {
+        paywallDesc.textContent = currentInvoiceTier === 'preview'
+            ? `Unlock a short summary for ${activeQuery?.symbol || 'this token'} showing how similar past events performed.`
+            : `Unlock the full historical comparison for ${activeQuery?.symbol || 'this token'}. Each new live snapshot needs its own purchase.`;
+    } else {
+        paywallDesc.textContent = currentInvoiceTier === 'preview'
+            ? `Unlock a lightweight ${invoiceData.provider_name || 'QMA'} preview for this exact live signal. Upgrade to the full report for all analogs, percentiles, and diagnostics.`
+            : `Unlock this exact full ${invoiceData.provider_name || 'QMA'} signal snapshot. If the token changes later, QMA treats that as a new signal and requires a new paid report.`;
+    }
+    if (invoiceData.access_status === 'partial_paid') {
+        const missing = (invoiceData.missing_legs || []).map((leg) => leg.role || leg.leg_id).join(', ');
+        paywallDesc.textContent += ` Resuming partially paid invoice; remaining leg(s): ${missing || 'unknown'}.`;
+    }
+    document.getElementById('invoice-amount-display').textContent = formatAssetAmount(currentInvoiceSettlement.amount, currentInvoiceSettlement.currency, currentInvoiceSettlement.decimals);
+    document.getElementById('invoice-tier-display').textContent = invoiceData.tier_label || tierLabel(currentInvoiceTier);
+    document.getElementById('invoice-network-display').textContent = currentInvoiceSettlement.network || invoiceData.network_name || invoiceData.network;
+    payButton.innerHTML = `<span>Pay ${formatAssetAmount(currentInvoiceSettlement.amount, currentInvoiceSettlement.currency, currentInvoiceSettlement.decimals)}</span>`;
+
+    const pfPanel = document.getElementById('payment-flow-panel');
+    if (pfPanel) pfPanel.style.display = 'block';
+    setPaymentDetailValue('pf-seller-wallet-addr', invoiceData.wallet_address || invoiceData.seller_wallet);
+    setPaymentDetailValue('pf-settlement-asset', `${currentInvoiceSettlement.currency} via ${currentInvoiceSettlement.rail}`);
+    setPaymentDetailValue('pf-accounting-asset', `${currentInvoiceAccounting.currency} (${currentInvoiceAccounting.amount_usdc} USDC)`);
+    if (currentInvoiceSplitLegs.length) {
+        const splitText = currentInvoiceSplitLegs
+            .map((leg) => `${leg.role}: ${formatAssetAmount(leg.amount_usdc, currentInvoiceSettlement.currency, currentInvoiceSettlement.decimals)} -> ${shortAddress(leg.pay_to)}${leg.status === 'paid' ? ' paid' : ''}`)
+            .join(' | ');
+        setPaymentDetailValue('pf-accounting-asset', splitText);
+        paywallDesc.textContent += ` Direct split: ${splitText}. Human wallets sign once per split leg.`;
+    }
+    setPaymentDetailValue('pf-funding-visibility', 'EURC/cirBTC funding visibility only, not Gateway settlement yet');
+    setPaymentDetailValue('pf-gateway-contract', gatewayContractAddress || 'Circle Gateway Contract (fetching...)');
+    setPaymentDetailValue('pf-wallet-address', connectedWallet);
+
+    let currentWalletBal = null;
+    let currentGwBal = null;
+    if (connectedWallet) {
+        try {
+            const [status, gw] = await Promise.all([
+                getWalletStatus(connectedWallet),
+                checkGatewayBalance(connectedWallet)
+            ]);
+            currentWalletBal = getOnChainUsdcBalance(status);
+            currentGwBal = gw;
+        } catch (e) {
+            console.warn('Could not pre-fetch balances', e);
+        }
+    }
+    updatePaymentFlowPanel({
+        stage: invoiceData.access_status === 'partial_paid' ? 'received' : 'created',
+        settlementId: invoiceData.settlement_id,
+        gatewayStatus: invoiceData.gateway_status,
+        buyerWalletBal: currentWalletBal,
+        buyerGatewayBal: currentGwBal
+    });
+    rememberPendingInvoice(invoiceData, activeQuery, connectedWallet);
+}
+
+async function tryResumePendingInvoice(invoiceBuyerType = 'human') {
+    const key = pendingInvoiceMatchKey(activeQuery, currentProviderId, currentInvoiceTier);
+    if (!key) return false;
+    const store = readPendingInvoiceStore(connectedWallet);
+    const entry = store[key];
+    if (!entry?.invoice) return false;
+    const refreshed = await refreshPendingInvoice(entry);
+    if (!refreshed || refreshed.status === 'expired' || refreshed.access_status === 'expired' || refreshed.access_status === 'disputed') {
+        clearPendingInvoice(activeQuery, currentProviderId, currentInvoiceTier, connectedWallet);
+        return false;
+    }
+    lockViewport();
+    await applyInvoiceDataToPaymentPanel(refreshed, invoiceBuyerType);
+    if (refreshed.status === 'paid' && refreshed.access_token) {
+        currentAccessToken = refreshed.access_token;
+        sessionStorage.setItem(`qma_accessToken_${refreshed.invoice_id}`, refreshed.access_token);
+        showPaymentUnlockingState();
+        const outputEndpoint = currentInvoiceTier === 'preview'
+            ? `/api/v1/providers/${encodeURIComponent(currentProviderId)}/preview`
+            : `/api/v1/providers/${encodeURIComponent(currentProviderId)}/full-report`;
+        const analyzeResp = await fetch(apiUrl(`${outputEndpoint}?invoice_id=${currentInvoiceId}`), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-QMA-Access-Token': currentAccessToken,
+            },
+            body: JSON.stringify(activeQuery)
+        });
+        const reportData = await analyzeResp.json();
+        if (!analyzeResp.ok) {
+            throw new Error(reportData.detail?.message || reportData.detail || 'Analysis request failed.');
+        }
+        if (currentInvoiceTier === 'preview') renderPreviewReport(reportData);
+        else renderReport(reportData);
+        showPaymentSuccessState();
+        updateAnomalyPaidState(activeQuery);
+        clearPendingInvoice(activeQuery, currentProviderId, currentInvoiceTier, connectedWallet);
+    } else {
+        showToast(`Resumed invoice ${shortAddress(refreshed.invoice_id)}. Continue with the remaining split leg.`, 'info');
+    }
+    return true;
+}
+
 // Trigger retrieval (Creates payment invoice)
 queryForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -4452,6 +4683,15 @@ queryForm.addEventListener('submit', async (e) => {
         }
         showToast(`Loaded paid ${tierLabel(currentInvoiceTier)} ${activeQuery.symbol} signal from ${formatDateTime(cachedEntry.saved_at)}.`, 'success');
         return;
+    }
+
+    try {
+        if (await tryResumePendingInvoice(invoiceBuyerType)) {
+            return;
+        }
+    } catch (resumeErr) {
+        console.warn('Pending invoice resume failed; creating a fresh invoice.', resumeErr);
+        showToast(resumeErr.message || 'Could not resume pending invoice. Creating a fresh invoice.', 'warning');
     }
 
     lockViewport();
@@ -4561,6 +4801,7 @@ queryForm.addEventListener('submit', async (e) => {
             buyerWalletBal: currentWalletBal,
             buyerGatewayBal: currentGwBal
         });
+        rememberPendingInvoice(invoiceData, activeQuery, connectedWallet);
     } catch (err) {
         if (invoiceBuyerType === 'agent') {
             appendAgentRunTrace(`Invoice creation failed: ${err.message || err}`, 'error');
@@ -4814,6 +5055,17 @@ payButton.addEventListener('click', async () => {
                     amount_raw: String(paidData.amount_raw || leg.amount_raw),
                     sidecar_receipt: paidData.sidecar_receipt
                 });
+                currentInvoiceSplitLegs = currentInvoiceSplitLegs.map((item) => {
+                    if (item.leg_id !== (paidData.leg_id || leg.leg_id)) return item;
+                    return {
+                        ...item,
+                        status: 'paid',
+                        settlement_id: paidData.settlement_id || paidData.settlementId,
+                        sidecar_receipt: paidData.sidecar_receipt,
+                        gateway_status: paidData.gateway_status || paidData.status || item.gateway_status,
+                    };
+                });
+                rememberPendingInvoice(currentInvoiceDataSnapshot(), activeQuery, account);
                 saveWalletEvent(account, {
                     type: 'x402_split_leg',
                     amount_usdc: paidData.amount_usdc || leg.amount_usdc,
@@ -4887,6 +5139,7 @@ payButton.addEventListener('click', async () => {
             }
             showPaymentSuccessState();
             updateAnomalyPaidState(activeQuery);
+            clearPendingInvoice(activeQuery, currentProviderId, currentInvoiceTier, account);
             return;
         }
 
@@ -5086,6 +5339,7 @@ payButton.addEventListener('click', async () => {
             }
             showPaymentSuccessState();
             updateAnomalyPaidState(activeQuery);
+            clearPendingInvoice(activeQuery, currentProviderId, currentInvoiceTier, account);
         } else {
             alert("Payment was not accepted by QMA.");
         }

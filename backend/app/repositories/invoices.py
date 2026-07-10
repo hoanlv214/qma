@@ -1,0 +1,2 @@
+"""Invoice repository migration target."""
+
