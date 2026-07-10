@@ -290,11 +290,30 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
             <a className="landing-secondary" href="https://github.com/hoanlv214/qma/blob/main/examples/README.md" target="_blank" rel="noopener noreferrer">View Agent Example</a>
           </div>
         </div>
-        <pre className="agent-terminal" aria-label="Agent buyer flow example"><code><span className="t-prompt">$</span> <span className="t-cmd">npm run agent:dry</span>
-<span className="t-key">pick:</span>    <span className="t-val">H</span>  score=<span className="t-num">41</span>  tier=<span className="t-badge">preview</span>
-<span className="t-key">invoice:</span> <span className="t-dim">inv_...</span>  amount=<span className="t-green">0.001 USDC</span>
-<span className="t-key">pay:</span>     x402 authorization <span className="t-green">accepted</span>
-<span className="t-key">result:</span>  JSON report <span className="t-accent">unlocked ok</span></code></pre>
+        <pre className="agent-terminal" aria-label="Agent buyer flow example">
+          <code>
+            <span className="terminal-line terminal-command">
+              <span className="t-prompt">$</span>
+              <span className="t-cmd">npm run agent:dry</span>
+            </span>
+            <span className="terminal-line">
+              <span className="t-key">pick:</span>
+              <span><span className="t-val">H</span> score=<span className="t-num">41</span> tier=<span className="t-badge">preview</span></span>
+            </span>
+            <span className="terminal-line">
+              <span className="t-key">invoice:</span>
+              <span><span className="t-dim">inv_...</span> amount=<span className="t-green">0.001 USDC</span></span>
+            </span>
+            <span className="terminal-line">
+              <span className="t-key">pay:</span>
+              <span>x402 authorization <span className="t-green">accepted</span></span>
+            </span>
+            <span className="terminal-line">
+              <span className="t-key">result:</span>
+              <span>JSON report <span className="t-accent">unlocked ok</span></span>
+            </span>
+          </code>
+        </pre>
       </section>
 
       <section className="landing-builders">

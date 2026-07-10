@@ -3,6 +3,7 @@ import { API_BASE_URL } from "../../services/api";
 import { getInjectedWallet, shortAddress } from "../../services/wallet";
 import { clearAllWalletProfileSessions, clearWalletProfileSession, requestWalletProfileSession } from "../../services/walletProfileSession";
 import { payX402Resource } from "../../services/x402";
+import { getInvoiceStatus } from "../../services/invoices";
 
 interface Provider {
   provider_id: string;
@@ -44,14 +45,26 @@ interface Anomaly {
 interface Recommendation {
   symbol: string;
   score: number;
-  tier: string;
+  tier?: string;
+  suggested_tier?: string;
+  suggested_price_usdc?: number;
   provider_id: string;
   reason?: string;
+  reasons?: string[];
   query?: Record<string, any>;
 }
 
 type PaymentStatus = "waiting" | "active" | "completed" | "failed";
 type PaymentStepKey = "wallet" | "gateway" | "settlement" | "report";
+type AgentSessionStage =
+  | "idle"
+  | "scanning"
+  | "selected"
+  | "invoicing"
+  | "awaiting_signature"
+  | "verifying"
+  | "unlocked"
+  | "error";
 
 export function AppPage({
   onNavigate,
@@ -95,6 +108,7 @@ export function AppPage({
   const [lastUpdatedTime, setLastUpdatedTime] = useState<Date | null>(null);
   const [anomaliesLoading, setAnomaliesLoading] = useState(false);
   const [anomaliesError, setAnomaliesError] = useState("");
+  const [cacheRevision, setCacheRevision] = useState(0);
 
   // Current Selection
   const [selectedProviderId, setSelectedProviderId] = useState("funding_memory");
@@ -151,6 +165,11 @@ export function AppPage({
   const [agentPrompt, setAgentPrompt] = useState("");
   const [agentTrace, setAgentTrace] = useState<{ text: string; tone?: string }[]>([]);
   const [agentRunning, setAgentRunning] = useState(false);
+  const [showAgentBuyerModal, setShowAgentBuyerModal] = useState(false);
+  const [agentSessionStage, setAgentSessionStage] = useState<AgentSessionStage>("idle");
+  const [agentSelectedPick, setAgentSelectedPick] = useState<any>(null);
+  const [agentSessionInvoice, setAgentSessionInvoice] = useState<any>(null);
+  const [agentVerifyResult, setAgentVerifyResult] = useState<any>(null);
 
   // Config addresses
   const [sellerAddress, setSellerAddress] = useState("");
@@ -518,10 +537,153 @@ export function AppPage({
     setShowProfileModal(true);
   };
 
+  const normalizeSignalPayload = (source: Record<string, any> = {}) => {
+    const numberOrNull = (value: any) => {
+      if (value === undefined || value === null || value === "") return null;
+      const num = Number(value);
+      return Number.isFinite(num) ? Number(num.toFixed(12)) : null;
+    };
+    return {
+      symbol: String(source.symbol || "").trim().toUpperCase(),
+      fundingRate: numberOrNull(source.fundingRate ?? source.funding_rate),
+      marketCap: numberOrNull(source.marketCap ?? source.market_cap),
+      FDV: numberOrNull(source.FDV ?? source.fdv),
+      circRatio: numberOrNull(source.circRatio ?? source.circ_ratio),
+      fromATH: numberOrNull(source.fromATH ?? source.fromATHPercent ?? source["fromATH(%)"]),
+      volume24h: numberOrNull(source.volume24h ?? source.volume_24h),
+      amount: numberOrNull(source.amount ?? source.openInterest ?? source.open_interest),
+      openInterest: numberOrNull(source.openInterest ?? source.open_interest ?? source.amount),
+      openInterestChange24h: numberOrNull(source.openInterestChange24h ?? source.open_interest_change_24h),
+      longShortRatio: numberOrNull(source.longShortRatio ?? source.long_short_ratio),
+      price: numberOrNull(source.price),
+    };
+  };
+
+  const normalizeTierForCache = (tier: any): "preview" | "full" => {
+    return String(tier || "").toLowerCase() === "preview" ? "preview" : "full";
+  };
+
+  const signalFingerprint = (source: Record<string, any> = {}) => {
+    return b64encode(normalizeSignalPayload(source));
+  };
+
+  const signalCacheKey = (
+    signal: Record<string, any>,
+    tier: "preview" | "full" = "full",
+    providerId: string = selectedProviderId,
+    account = wallet
+  ) => {
+    const normalized = normalizeSignalPayload(signal);
+    const normalizedWallet = String(account || "").toLowerCase();
+    if (!normalizedWallet || !normalized.symbol) return "";
+    return `qma_paid_signal_v5_${normalizedWallet}_${providerId}_${tier}_${normalized.symbol}_${signalFingerprint(normalized)}`;
+  };
+
+  const pendingInvoiceStoreKey = (account = wallet) => {
+    return `qma_pending_invoices_${String(account || "browser").toLowerCase()}`;
+  };
+
+  const pendingInvoiceMatchKey = (
+    signal: Record<string, any>,
+    tier: "preview" | "full",
+    providerId: string = selectedProviderId
+  ) => {
+    const normalized = normalizeSignalPayload(signal);
+    if (!normalized.symbol) return "";
+    return `${providerId || "funding_memory"}:${tier}:${signalFingerprint(normalized)}`;
+  };
+
+  const readPendingInvoiceStore = (account = wallet) => {
+    try {
+      return JSON.parse(localStorage.getItem(pendingInvoiceStoreKey(account)) || "{}") || {};
+    } catch {
+      return {};
+    }
+  };
+
+  const writePendingInvoiceStore = (store: Record<string, any>, account = wallet) => {
+    try {
+      localStorage.setItem(pendingInvoiceStoreKey(account), JSON.stringify(store || {}));
+    } catch (err) {
+      console.warn("Could not persist pending invoice", err);
+    }
+  };
+
+  const rememberPendingInvoice = (
+    invoice: any,
+    signal: Record<string, any> = activeQuery,
+    tier: "preview" | "full" = normalizeTierForCache(invoice?.tier || "full"),
+    providerId: string = invoice?.provider_id || selectedProviderId,
+    account = wallet
+  ) => {
+    if (!invoice?.invoice_id || !invoice?.invoice_secret || !signal) return;
+    const key = pendingInvoiceMatchKey(signal, tier, providerId);
+    if (!key) return;
+    const store = readPendingInvoiceStore(account);
+    store[key] = {
+      saved_at: Date.now(),
+      signal: normalizeSignalPayload(signal),
+      invoice: {
+        ...invoice,
+        invoice_secret: invoice.invoice_secret,
+        split_legs: Array.isArray(invoice.split_legs) ? invoice.split_legs : [],
+      },
+    };
+    store.__last_key = key;
+    writePendingInvoiceStore(store, account);
+  };
+
+  const clearPendingInvoice = (
+    signal: Record<string, any> = activeQuery,
+    tier: "preview" | "full" = "full",
+    providerId: string = selectedProviderId,
+    account = wallet
+  ) => {
+    const key = pendingInvoiceMatchKey(signal, tier, providerId);
+    if (!key) return;
+    const store = readPendingInvoiceStore(account);
+    delete store[key];
+    if (store.__last_key === key) delete store.__last_key;
+    writePendingInvoiceStore(store, account);
+  };
+
+  const refreshPendingInvoice = async (
+    signal: Record<string, any>,
+    tier: "preview" | "full",
+    providerId: string = selectedProviderId,
+    account = wallet
+  ) => {
+    const key = pendingInvoiceMatchKey(signal, tier, providerId);
+    const entry = key ? readPendingInvoiceStore(account)[key] : null;
+    const invoice = entry?.invoice;
+    if (!invoice?.invoice_id || !invoice?.invoice_secret) return null;
+    try {
+      const state = await getInvoiceStatus(invoice.invoice_id, invoice.invoice_secret);
+      return {
+        ...invoice,
+        ...state,
+        invoice_secret: invoice.invoice_secret,
+        arc_gateway_url: invoice.arc_gateway_url || state.arc_gateway_url,
+        split_legs: Array.isArray(state.split_legs) ? state.split_legs : invoice.split_legs,
+      };
+    } catch (err) {
+      console.warn("Pending invoice status check failed", err);
+      return null;
+    }
+  };
+
   const getCachedReport = (signal: any, tier: "preview" | "full" = "full", providerId: string = selectedProviderId) => {
     if (!wallet) return null;
-    const key = `qma_paid_signal_v5_${wallet.toLowerCase()}_${providerId}_${tier}_${signal.symbol}_${b64encode(signal)}`;
-    const raw = localStorage.getItem(key);
+    const normalized = normalizeSignalPayload(signal);
+    const keys = [
+      signalCacheKey(normalized, tier, providerId),
+      `qma_paid_signal_v5_${wallet.toLowerCase()}_${providerId}_${tier}_${normalized.symbol}_${b64encode(signal)}`,
+    ].filter(Boolean);
+    if (tier === "preview") {
+      keys.push(signalCacheKey(normalized, "full", providerId));
+      keys.push(`qma_paid_signal_v5_${wallet.toLowerCase()}_${providerId}_full_${normalized.symbol}_${b64encode(signal)}`);
+    }
+    const raw = keys.map((key) => localStorage.getItem(key)).find(Boolean);
     if (!raw) return null;
     try {
       return JSON.parse(raw);
@@ -530,16 +692,27 @@ export function AppPage({
     }
   };
 
-  const getCachedReportsForSymbol = (symbol: string, providerId: string = selectedProviderId) => {
+  const getCachedReportsForSymbol = (symbol: string, providerId?: string) => {
     if (!wallet) return [];
-    const prefix = `qma_paid_signal_v5_${wallet.toLowerCase()}_${providerId}_`;
+    const normalizedSymbol = String(symbol || "").trim().toUpperCase();
+    const prefix = `qma_paid_signal_v5_${wallet.toLowerCase()}_`;
     const found: any[] = [];
+    const seen = new Set<string>();
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && key.startsWith(prefix)) {
+      if (key && key.startsWith(prefix) && key.includes(`_${normalizedSymbol}_`)) {
         try {
           const entry = JSON.parse(localStorage.getItem(key) || "{}");
-          if (entry && (entry.signal?.symbol === symbol || entry.report?.query_symbol === symbol)) {
+          const entryProvider = entry.provider_id || entry.report?.provider_id || entry.report?.invoice?.provider_id;
+          const entrySymbol = String(entry.signal?.symbol || entry.report?.query_symbol || "").toUpperCase();
+          const cacheId = entry.report?.query_hash || entry.report?.invoice?.settlement_id || key;
+          if (
+            entry?.report &&
+            entrySymbol === normalizedSymbol &&
+            (!providerId || !entryProvider || entryProvider === providerId) &&
+            !seen.has(cacheId)
+          ) {
+            seen.add(cacheId);
             found.push(entry);
           }
         } catch {}
@@ -548,8 +721,55 @@ export function AppPage({
     return found.sort((a, b) => (b.saved_at || 0) - (a.saved_at || 0));
   };
 
+  const paidBadgeText = (entry: any) => {
+    const tier = normalizeTierForCache(entry?.tier || entry?.report?.tier || entry?.report?.invoice?.tier || "full");
+    return tier === "preview" ? "Paid Preview" : "Paid Full";
+  };
+
+  const entitlementBadgeForSignal = (signal: Record<string, any>, providerId: string = selectedProviderId) => {
+    void cacheRevision;
+    const normalized = normalizeSignalPayload(signal);
+    const cachedEntry = getCachedReport(normalized, "full", providerId) || getCachedReport(normalized, "preview", providerId);
+    const historyEntries = cachedEntry ? [] : getCachedReportsForSymbol(normalized.symbol, providerId);
+    if (cachedEntry?.report) {
+      return {
+        className: "paid",
+        text: paidBadgeText(cachedEntry),
+        meta: cachedEntry.saved_at ? `Bought ${formatDateTime(cachedEntry.saved_at)}` : "Paid snapshot",
+        entry: cachedEntry,
+      };
+    }
+    if (historyEntries.length) {
+      return {
+        className: "history",
+        text: "Paid History",
+        meta: historyEntries[0].saved_at ? `Last paid ${formatDateTime(historyEntries[0].saved_at)}` : "Previous snapshot",
+        entry: historyEntries[0],
+      };
+    }
+    return { className: "unpaid", text: "Pay to Unlock", meta: "Live scan", entry: null };
+  };
+
+  const openCachedReportEntry = (entry: any, fallbackSignal: Record<string, any>, providerId = selectedProviderId) => {
+    if (!entry?.report) return false;
+    const reportSignal = normalizeSignalPayload(entry.signal || entry.report?.query || fallbackSignal || { symbol: entry.report?.query_symbol });
+    setSelectedProviderId(entry.provider_id || entry.report?.provider_id || entry.report?.invoice?.provider_id || providerId);
+    setActiveQuery(reportSignal);
+    setUnlockedReport({
+      ...entry.report,
+      query: entry.report?.query || reportSignal,
+      tier: entry.report?.tier || entry.tier,
+      provider_id: entry.report?.provider_id || entry.provider_id || providerId,
+    });
+    setCurrentInvoice(entry.report?.invoice || entry.invoice || null);
+    setPaywallOpen(false);
+    setReportCollapsed(false);
+    refreshPlatformTables(1, 1).catch((err) => console.warn("Platform analytics refresh for cached report failed", err));
+    return true;
+  };
+
   const loadAnomalyIntoQuery = (anom: Anomaly) => {
-    const signal = {
+    const signal = normalizeSignalPayload({
       symbol: anom.symbol,
       fundingRate: anom.fundingRate,
       marketCap: anom.marketCap,
@@ -562,31 +782,19 @@ export function AppPage({
       openInterestChange24h: anom.openInterestChange24h,
       longShortRatio: anom.longShortRatio,
       price: anom.price,
-    };
+    });
     setActiveQuery(signal);
 
     const cachedFull = getCachedReport(signal, "full");
-    if (cachedFull?.report) {
-      setUnlockedReport(cachedFull.report);
-      setPaywallOpen(false);
-      setReportCollapsed(false);
-      return;
-    }
+    if (openCachedReportEntry(cachedFull, signal)) return;
 
     const cachedPreview = getCachedReport(signal, "preview");
-    if (cachedPreview?.report) {
-      setUnlockedReport(cachedPreview.report);
-      setPaywallOpen(false);
-      setReportCollapsed(false);
-      return;
-    }
+    if (openCachedReportEntry(cachedPreview, signal)) return;
 
     const previousReports = getCachedReportsForSymbol(signal.symbol);
     if (previousReports.length) {
       const prev = previousReports[0];
-      setUnlockedReport(prev.report);
-      setPaywallOpen(false);
-      setReportCollapsed(false);
+      openCachedReportEntry(prev, signal);
       showToast(`Showing previous paid ${signal.symbol} report from ${new Date(prev.saved_at).toLocaleString()}. The current live snapshot still needs a new purchase.`, "info");
     } else {
       setUnlockedReport(null);
@@ -823,6 +1031,11 @@ export function AppPage({
     return pricing[baseKey] || (tier === "preview" ? 0.001 : 0.005);
   };
 
+  const recommendationTier = (pick: any): "preview" | "full" => {
+    const tier = String(pick?.tier || pick?.suggested_tier || "").toLowerCase();
+    return tier === "full" ? "full" : "preview";
+  };
+
   const agentPendingInvoiceFor = (signal: any, tier: string) => {
     if (currentInvoice && currentInvoice.tier === tier && currentInvoice.symbol === signal.symbol) {
       return currentInvoice;
@@ -838,7 +1051,7 @@ export function AppPage({
   const agentPolicyPick = (recommendationsList: any[] = [], budget = 0.01, maxPrice = 0.005, pricing = {}) => {
     const audit: any[] = [];
     const candidates = recommendationsList.map((pick) => {
-      let tier = pick.suggested_tier || "preview";
+      let tier = recommendationTier(pick);
       const signal = pick.query || { symbol: pick.symbol };
       const providerId = pick.provider_id || selectedProviderId || "funding_memory";
       
@@ -1064,21 +1277,47 @@ export function AppPage({
       }));
       setPaymentStep("gateway");
 
-      // 2. Fetch Invoice from Backend
-      setPayStatusText("Creating payment invoice...");
-      const invoiceResp = await fetch(`${API_BASE_URL}/api/v1/payment/invoice`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...activeQuery,
-          provider_id: selectedProviderId,
-          tier,
-        }),
-      });
+      // 2. Resume an unfinished invoice first; invoice_secret only exists client-side.
+      setPayStatusText("Checking pending invoice state...");
+      let invoiceData = await refreshPendingInvoice(activeQuery, tier, selectedProviderId, wallet);
+      if (invoiceData?.access_status === "expired" || invoiceData?.access_status === "disputed") {
+        clearPendingInvoice(activeQuery, tier, selectedProviderId, wallet);
+        invoiceData = null;
+      }
+      if (invoiceData?.status === "paid" && invoiceData.access_token) {
+        setCurrentInvoice(invoiceData);
+        sessionStorage.setItem(`qma_accessToken_${invoiceData.invoice_id}`, invoiceData.access_token);
+        setPaymentStepStatus((prev) => ({
+          ...prev,
+          gateway: { status: "completed", label: "Funded" },
+          settlement: { status: "completed", label: "Accepted" },
+          report: { status: "active", label: "Opening" },
+        }));
+        setPayStatusText("Recovered paid invoice. Opening report...");
+        await fetchReportContent(invoiceData.invoice_id, invoiceData.access_token, invoiceData, activeQuery, selectedProviderId);
+        clearPendingInvoice(activeQuery, tier, selectedProviderId, wallet);
+        return;
+      }
 
-      const invoiceData = await invoiceResp.json();
-      if (!invoiceResp.ok) throw new Error(invoiceData.detail || "Failed to create invoice");
+      if (!invoiceData) {
+        setPayStatusText("Creating payment invoice...");
+        const invoiceResp = await fetch(`${API_BASE_URL}/api/v1/payment/invoice`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...activeQuery,
+            provider_id: selectedProviderId,
+            tier,
+          }),
+        });
+
+        invoiceData = await invoiceResp.json();
+        if (!invoiceResp.ok) throw new Error(invoiceData.detail || "Failed to create invoice");
+      } else {
+        showToast(`Resumed invoice ${shortAddress(invoiceData.invoice_id)}. Continue with remaining split leg.`, "info");
+      }
       setCurrentInvoice(invoiceData);
+      rememberPendingInvoice(invoiceData, activeQuery, tier, selectedProviderId, wallet);
 
       // Check user's Gateway balance via Arc Gateway (port 3000)
       // arcGatewayUrl = "http://127.0.0.1:3000" from /api/v1/config
@@ -1279,6 +1518,7 @@ export function AppPage({
       let paidAmountUsdc: number | undefined;
 
       if (splitLegs.length) {
+        let workingSplitLegs = splitLegs;
         const paidLegIds = new Set(splitSettlements.map((item) => item.leg_id));
         const pendingLegs = splitLegs.filter((leg: any) => !paidLegIds.has(leg.leg_id) && leg.status !== "paid");
         for (const leg of pendingLegs) {
@@ -1295,6 +1535,29 @@ export function AppPage({
             amount_raw: String(paidLeg.amount_raw || leg.amount_raw),
             sidecar_receipt: paidLeg.sidecar_receipt,
           });
+          workingSplitLegs = workingSplitLegs.map((item: any) => (
+            item.leg_id === (paidLeg.leg_id || leg.leg_id)
+              ? {
+                  ...item,
+                  status: "paid",
+                  settlement_id: legSettlementId,
+                  sidecar_receipt: paidLeg.sidecar_receipt,
+                  gateway_status: paidLeg.gateway_status || paidLeg.status || item.gateway_status,
+                }
+              : item
+          ));
+          const updatedInvoice = {
+            ...currentInvoice,
+            split_legs: workingSplitLegs,
+          };
+          setCurrentInvoice(updatedInvoice);
+          rememberPendingInvoice(
+            updatedInvoice,
+            activeQuery,
+            normalizeTierForCache(updatedInvoice.tier),
+            updatedInvoice.provider_id || selectedProviderId,
+            wallet
+          );
           saveLocalAction("x402_split_leg", String(paidLeg.amount_usdc || leg.amount_usdc || currentInvoice.amount), legSettlementId);
         }
       } else {
@@ -1358,6 +1621,12 @@ export function AppPage({
       sessionStorage.setItem(`qma_accessToken_${currentInvoice.invoice_id}`, verifyData.access_token);
 
       await fetchReportContent(currentInvoice.invoice_id, verifyData.access_token, currentInvoice);
+      clearPendingInvoice(
+        activeQuery,
+        normalizeTierForCache(currentInvoice.tier),
+        currentInvoice.provider_id || selectedProviderId,
+        wallet
+      );
     } catch (err: any) {
       setPayErrorText(err.message || "Settlement signature cancelled or failed.");
       setPaymentStepStatus((prev) => ({
@@ -1366,13 +1635,21 @@ export function AppPage({
       }));
     }
   };
-  const fetchReportContent = async (invoiceId: string, accessToken: string, invoiceOverride?: any) => {
+  const fetchReportContent = async (
+    invoiceId: string,
+    accessToken: string,
+    invoiceOverride?: any,
+    queryOverride?: Record<string, any>,
+    providerOverride?: string
+  ) => {
     try {
       const invoiceForReport = invoiceOverride || currentInvoice;
+      const reportQuery = queryOverride || activeQuery;
+      const providerForReport = invoiceForReport?.provider_id || providerOverride || selectedProviderId;
       const endpoint =
         invoiceForReport?.tier === "preview"
-          ? `/api/v1/providers/${encodeURIComponent(selectedProviderId)}/preview`
-          : `/api/v1/providers/${encodeURIComponent(selectedProviderId)}/full-report`;
+          ? `/api/v1/providers/${encodeURIComponent(providerForReport)}/preview`
+          : `/api/v1/providers/${encodeURIComponent(providerForReport)}/full-report`;
 
       const resp = await fetch(`${API_BASE_URL}${endpoint}?invoice_id=${encodeURIComponent(invoiceId)}`, {
         method: "POST",
@@ -1380,29 +1657,41 @@ export function AppPage({
           "Content-Type": "application/json",
           "X-QMA-Access-Token": accessToken,
         },
-        body: JSON.stringify(activeQuery),
+        body: JSON.stringify(reportQuery),
       });
 
       const reportData = await resp.json();
       if (!resp.ok) throw new Error(reportData.detail || "Could not read report data");
 
-      setUnlockedReport(reportData);
+      const normalizedReportQuery = normalizeSignalPayload(reportQuery);
+      const reportTier = normalizeTierForCache(invoiceForReport.tier);
+      const cachedReportData = {
+        ...reportData,
+        invoice: reportData.invoice || invoiceForReport,
+        provider_id: reportData.provider_id || providerForReport,
+        tier: reportData.tier || reportTier,
+        query: reportData.query || normalizedReportQuery,
+      };
+
+      setUnlockedReport(cachedReportData);
+      setPaywallOpen(false);
       setReportCollapsed(false);
 
       // Cache report locally for wallet
-      const key = `qma_paid_signal_v5_${wallet.toLowerCase()}_${selectedProviderId}_${invoiceForReport.tier}_${activeQuery.symbol
-        }_${b64encode(activeQuery)}`;
+      const key = signalCacheKey(normalizedReportQuery, reportTier, providerForReport);
       localStorage.setItem(
         key,
         JSON.stringify({
           saved_at: Date.now(),
-          signal: activeQuery,
-          tier: invoiceForReport.tier,
-          provider_id: selectedProviderId,
+          signal: normalizedReportQuery,
+          tier: reportTier,
+          provider_id: providerForReport,
           payer_address: wallet,
-          report: reportData,
+          invoice: invoiceForReport,
+          report: cachedReportData,
         })
       );
+      setCacheRevision((value) => value + 1);
     } catch (err: any) {
       showToast("Failed to load report contents: " + err.message, "error");
     }
@@ -1421,7 +1710,12 @@ export function AppPage({
   const handleAgentRun = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!agentPrompt.trim()) return;
+    setShowAgentBuyerModal(true);
     setAgentRunning(true);
+    setAgentSessionStage("scanning");
+    setAgentSelectedPick(null);
+    setAgentSessionInvoice(null);
+    setAgentVerifyResult(null);
     setAgentTrace([{ text: "Initiating Buyer Agent...", tone: "t-key" }]);
 
     try {
@@ -1431,6 +1725,7 @@ export function AppPage({
       const pick = data.recommendations?.[0];
 
       if (!pick) {
+        setAgentSessionStage("error");
         setAgentTrace((prev) => [
           ...prev,
           { text: "No anomalies found meeting parameters.", tone: "t-error" },
@@ -1439,44 +1734,84 @@ export function AppPage({
         return;
       }
 
+      const pickTier = recommendationTier(pick);
+      const pickProviderId = pick.provider_id || "funding_memory";
+      const pickQuery = pick.query || { symbol: pick.symbol };
+      setAgentSessionStage("selected");
+      setAgentSelectedPick({ ...pick, agent_tier: pickTier, agent_query: pickQuery });
+
       setAgentTrace((prev) => [
         ...prev,
-        { text: `pick:   ${pick.symbol}  score=${pick.score}  tier=${pick.tier}`, tone: "t-val" },
+        { text: `pick:   ${pick.symbol}  score=${pick.score}  tier=${pickTier}`, tone: "t-val" },
       ]);
 
       // Connect check
       if (!wallet) {
+        setAgentSessionStage("error");
         setAgentTrace((prev) => [...prev, { text: "No wallet address provided. Run cancelled.", tone: "t-error" }]);
         setAgentRunning(false);
         return;
       }
 
       // Form agent invoice quote
-      const invResp = await fetch(`${API_BASE_URL}/api/v1/payment/invoice`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...pick.query,
-          provider_id: pick.provider_id || "funding_memory",
-          tier: pick.tier || "preview",
-          buyer_type: "agent",
-          synthetic: true,
-          agent_label: "copilot",
-        }),
-      });
+      setAgentSessionStage("invoicing");
+      setAgentTrace((prev) => [...prev, { text: "invoice: checking resumable payment state...", tone: "t-dim" }]);
+      let invData = await refreshPendingInvoice(pickQuery, pickTier, pickProviderId, wallet);
+      if (invData?.access_status === "expired" || invData?.access_status === "disputed") {
+        clearPendingInvoice(pickQuery, pickTier, pickProviderId, wallet);
+        invData = null;
+      }
+      if (!invData) {
+        setAgentTrace((prev) => [...prev, { text: "invoice: requesting provider-bound payment terms...", tone: "t-dim" }]);
+        const invResp = await fetch(`${API_BASE_URL}/api/v1/payment/invoice`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...pickQuery,
+            provider_id: pickProviderId,
+            tier: pickTier,
+            buyer_type: "agent",
+            synthetic: true,
+            agent_label: "copilot",
+          }),
+        });
 
-      const invData = await invResp.json();
+        invData = await invResp.json();
+        if (!invResp.ok) {
+          const detail = typeof invData.detail === "object" ? JSON.stringify(invData.detail) : invData.detail;
+          throw new Error(detail || "Invoice creation failed");
+        }
+      } else {
+        setAgentTrace((prev) => [...prev, { text: `invoice: resumed ${invData.invoice_id.slice(0, 10)}...`, tone: "t-green" }]);
+      }
+      rememberPendingInvoice(invData, pickQuery, pickTier, pickProviderId, wallet);
+      setAgentSessionInvoice(invData);
       setAgentTrace((prev) => [
         ...prev,
         { text: `invoice: ${invData.invoice_id.slice(0, 10)}...  amount=${invData.amount} USDC`, tone: "t-dim" },
       ]);
+
+      if (invData.status === "paid" && invData.access_token) {
+        setAgentVerifyResult(invData);
+        setSelectedProviderId(pickProviderId);
+        setActiveQuery(pickQuery);
+        setCurrentInvoice(invData);
+        await fetchReportContent(invData.invoice_id, invData.access_token, invData, pickQuery, pickProviderId);
+        clearPendingInvoice(pickQuery, pickTier, pickProviderId, wallet);
+        setAgentTrace((prev) => [...prev, { text: "result:  recovered paid report ok", tone: "t-accent" }]);
+        setAgentSessionStage("unlocked");
+        return;
+      }
 
       const splitLegs = Array.isArray(invData.split_legs) ? invData.split_legs : [];
       const splitSettlements: any[] = [];
       let settlementId = "";
       let paidAmountUsdc: number | undefined;
 
+      setAgentSessionStage("awaiting_signature");
+      setAgentTrace((prev) => [...prev, { text: "signature: wallet prompt opened for x402 authorization", tone: "t-val" }]);
       if (splitLegs.length) {
+        let workingSplitLegs = splitLegs;
         for (const leg of splitLegs.filter((item: any) => item.status !== "paid")) {
           const paidLeg = await payX402Resource(leg.resource, wallet);
           const legSettlementId = paidLeg.settlement_id || paidLeg.settlementId;
@@ -1490,6 +1825,20 @@ export function AppPage({
             amount_raw: String(paidLeg.amount_raw || leg.amount_raw),
             sidecar_receipt: paidLeg.sidecar_receipt,
           });
+          workingSplitLegs = workingSplitLegs.map((item: any) => (
+            item.leg_id === (paidLeg.leg_id || leg.leg_id)
+              ? {
+                  ...item,
+                  status: "paid",
+                  settlement_id: legSettlementId,
+                  sidecar_receipt: paidLeg.sidecar_receipt,
+                  gateway_status: paidLeg.gateway_status || paidLeg.status || item.gateway_status,
+                }
+              : item
+          ));
+          invData = { ...invData, split_legs: workingSplitLegs };
+          setAgentSessionInvoice(invData);
+          rememberPendingInvoice(invData, pickQuery, pickTier, pickProviderId, wallet);
         }
       } else {
         const paidData = await payX402Resource(invData.arc_gateway_url, wallet);
@@ -1500,6 +1849,7 @@ export function AppPage({
       setAgentTrace((prev) => [...prev, { text: "pay:     x402 authorization accepted", tone: "t-green" }]);
 
       // Verify tokens split Leg on backend
+      setAgentSessionStage("verifying");
       const verifyResp = await fetch(`${API_BASE_URL}/api/v1/payment/verify?invoice_id=${encodeURIComponent(
         invData.invoice_id
       )}`, {
@@ -1518,18 +1868,25 @@ export function AppPage({
         const detail = typeof verifyData.detail === "object" ? JSON.stringify(verifyData.detail) : verifyData.detail;
         throw new Error(detail || "Verification failed");
       }
+      setAgentVerifyResult(verifyData);
       setAgentTrace((prev) => [
         ...prev,
         { text: "result:  JSON report unlocked ok", tone: "t-accent" },
       ]);
 
       // Load report
-      setSelectedProviderId(pick.provider_id || "funding_memory");
-      setActiveQuery(pick.query);
+      setSelectedProviderId(pickProviderId);
+      setActiveQuery(pickQuery);
       setCurrentInvoice(invData);
-      await fetchReportContent(invData.invoice_id, verifyData.access_token, invData);
+      await fetchReportContent(invData.invoice_id, verifyData.access_token, invData, pickQuery, pickProviderId);
+      clearPendingInvoice(pickQuery, pickTier, pickProviderId, wallet);
+      await refreshPlatformTables(1, 1).catch((err) => {
+        console.warn("Platform analytics refresh after Copilot payment failed", err);
+      });
       setReportCollapsed(false);
+      setAgentSessionStage("unlocked");
     } catch (err: any) {
+      setAgentSessionStage("error");
       setAgentTrace((prev) => [...prev, { text: `Error: ${err.message || err}`, tone: "t-error" }]);
     } finally {
       setAgentRunning(false);
@@ -1866,25 +2223,42 @@ export function AppPage({
               {recommendations.length === 0 ? (
                 <div className="agent-empty">Ranking live signals...</div>
               ) : (
-                recommendations.map((item, idx) => (
-                  <div
-                    className="agent-pick-card"
-                    key={idx}
-                    onClick={() => {
-                      setSelectedProviderId(item.provider_id || "funding_memory");
-                      if (item.query) setActiveQuery(item.query);
-                    }}
-                  >
-                    <div className="card-header">
-                      <span className="card-symbol">{item.symbol}</span>
-                      <span className="card-score">Score: {item.score}</span>
+                recommendations.map((item, idx) => {
+                  const providerId = item.provider_id || "funding_memory";
+                  const signal = normalizeSignalPayload(item.query || { symbol: item.symbol });
+                  const entitlement = entitlementBadgeForSignal(signal, providerId);
+                  return (
+                    <div
+                      className="agent-pick-card"
+                      key={idx}
+                      onClick={() => {
+                        setSelectedProviderId(providerId);
+                        setActiveQuery(signal);
+                        const exact = getCachedReport(signal, "full", providerId) || getCachedReport(signal, "preview", providerId);
+                        if (openCachedReportEntry(exact, signal, providerId)) return;
+                        const history = getCachedReportsForSymbol(signal.symbol, providerId);
+                        if (history[0] && openCachedReportEntry(history[0], signal, providerId)) {
+                          showToast(`Showing previous paid ${signal.symbol} report from ${new Date(history[0].saved_at).toLocaleString()}.`, "info");
+                          return;
+                        }
+                        setUnlockedReport(null);
+                        setReportCollapsed(true);
+                      }}
+                    >
+                      <div className="card-header">
+                        <span className="card-symbol">{item.symbol}</span>
+                        <span className="card-score">Score: {item.score}</span>
+                      </div>
+                      {item.reason && <p className="pick-reason" style={{ fontSize: "0.68rem", color: "var(--t2)", marginTop: 4 }}>{item.reason}</p>}
+                      <div className="card-meta-row" style={{ marginTop: 6 }}>
+                        <span>{entitlement.meta || `Tier: ${recommendationTier(item)}`}</span>
+                        <span className={`signal-badge ${entitlement.className}`}>
+                          {entitlement.className === "unpaid" ? `Tier: ${recommendationTier(item)}` : entitlement.text}
+                        </span>
+                      </div>
                     </div>
-                    {item.reason && <p className="pick-reason" style={{ fontSize: "0.68rem", color: "var(--t2)", marginTop: 4 }}>{item.reason}</p>}
-                    <div className="card-meta-row" style={{ marginTop: 6 }}>
-                      <span className="signal-badge unpaid">Tier: {item.tier}</span>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
@@ -1908,6 +2282,21 @@ export function AppPage({
             ) : (
               anomalies.map((item, idx) => {
                 const isActive = activeQuery?.symbol === item.symbol;
+                const signal = normalizeSignalPayload({
+                  symbol: item.symbol,
+                  fundingRate: item.fundingRate,
+                  marketCap: item.marketCap,
+                  FDV: item.fromATH ? item.marketCap / (1 + item.fromATH / 100) : item.marketCap,
+                  circRatio: item.circRatio,
+                  fromATH: item.fromATH,
+                  volume24h: item.volume24h,
+                  amount: item.amount || item.openInterest,
+                  openInterest: item.openInterest || item.amount,
+                  openInterestChange24h: item.openInterestChange24h,
+                  longShortRatio: item.longShortRatio,
+                  price: item.price,
+                });
+                const entitlement = entitlementBadgeForSignal(signal);
                 return (
                   <div
                     className={`anomaly-card ${isActive ? "active" : ""}`}
@@ -1925,8 +2314,8 @@ export function AppPage({
                       <div>ATH Dist: <span className="card-stat-val">{item.fromATH.toFixed(2)}%</span></div>
                     </div>
                     <div className="card-meta-row">
-                      <span>Live scan</span>
-                      <span className="signal-badge unpaid">Pay to Unlock</span>
+                      <span>{entitlement.meta}</span>
+                      <span className={`signal-badge ${entitlement.className}`}>{entitlement.text}</span>
                     </div>
                   </div>
                 );
@@ -1940,7 +2329,7 @@ export function AppPage({
           {/* Agent Control Bar */}
           <div className="agent-control-bar">
             <div className="agent-bar-info">
-              <span className="agent-bar-title">🤖 Agent Buyer</span>
+              <span className="agent-bar-title">Agent Buyer</span>
               <span className={`agent-status-indicator ${agentRunning ? "active" : "idle"}`}>
                 {agentRunning ? "Running" : "Idle"}
               </span>
@@ -1974,19 +2363,6 @@ export function AppPage({
               </button>
             </div>
           </div>
-
-          {/* Copilot Terminal Logs */}
-          {agentTrace.length > 0 && (
-            <pre className="agent-terminal" style={{ margin: "8px 0 16px" }}>
-              <code>
-                {agentTrace.map((line, idx) => (
-                  <div className={line.tone || ""} key={idx}>
-                    {line.text}
-                  </div>
-                ))}
-              </code>
-            </pre>
-          )}
 
           {/* Form / Selected signal card */}
           <div className="query-card-container">
@@ -2760,6 +3136,167 @@ export function AppPage({
       </div>
 
       {/* Render Modals */}
+      {showAgentBuyerModal && (
+        <div className="modal-backdrop open agent-buyer-backdrop" style={{ display: "flex" }}>
+          <div className="agent-buyer-modal" role="dialog" aria-modal="true" aria-labelledby="agent-buyer-title">
+            <div className="agent-buyer-header">
+              <div>
+                <div className="agent-buyer-eyebrow">QMA Buyer Agent</div>
+                <div className="agent-buyer-title" id="agent-buyer-title">Live report purchase session</div>
+                <div className="agent-buyer-subtitle">
+                  The agent ranks opportunities, creates an invoice, then asks your wallet to authorize x402 payment.
+                </div>
+              </div>
+              <button
+                className="icon-button"
+                type="button"
+                title="Close"
+                onClick={() => setShowAgentBuyerModal(false)}
+              >
+                x
+              </button>
+            </div>
+
+            <div className={`agent-session-stage stage-${agentSessionStage}`}>
+              {[
+                ["scanning", "Scan"],
+                ["selected", "Pick"],
+                ["invoicing", "Invoice"],
+                ["awaiting_signature", "Signature"],
+                ["verifying", "Verify"],
+                ["unlocked", "Unlocked"],
+              ].map(([stage, label]) => {
+                const order = ["scanning", "selected", "invoicing", "awaiting_signature", "verifying", "unlocked"];
+                const current = order.indexOf(agentSessionStage);
+                const index = order.indexOf(stage);
+                const isDone = current > index || agentSessionStage === "unlocked";
+                const isActive = agentSessionStage === stage;
+                return (
+                  <div className={`agent-stage-dot ${isDone ? "done" : ""} ${isActive ? "active" : ""}`} key={stage}>
+                    <span />
+                    {label}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="agent-buyer-grid">
+              <section className="agent-chat-panel">
+                <div className="agent-chat-topline">
+                  <span className={`agent-live-pill ${agentRunning ? "active" : agentSessionStage === "error" ? "error" : ""}`}>
+                    {agentRunning ? "agent running" : agentSessionStage === "error" ? "needs attention" : "session ready"}
+                  </span>
+                  <span className="agent-chat-wallet">{wallet ? shortAddress(wallet) : "wallet not connected"}</span>
+                </div>
+                <div className="agent-chat-log" role="log" aria-live="polite">
+                  {agentTrace.length ? (
+                    agentTrace.map((line, idx) => (
+                      <div className={`agent-chat-message ${line.tone || ""}`} key={idx}>
+                        <span className="agent-message-speaker">{line.tone === "t-error" ? "System" : "Agent"}</span>
+                        <span>{line.text}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="agent-chat-message t-dim">
+                      <span className="agent-message-speaker">Agent</span>
+                      <span>Ready to scan live opportunities.</span>
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <aside className="agent-decision-panel">
+                <div className="agent-panel-label">Decision packet</div>
+                {agentSelectedPick ? (
+                  <div className="agent-pick-card">
+                    <div>
+                      <span className="agent-card-kicker">Selected signal</span>
+                      <strong>{agentSelectedPick.symbol}</strong>
+                    </div>
+                    <div className="agent-score-orb">{Number(agentSelectedPick.score || 0).toFixed(1)}</div>
+                    <div className="agent-pick-meta">
+                      <span>{recommendationTier(agentSelectedPick)} report</span>
+                      <span>{agentSelectedPick.provider_id || "funding_memory"}</span>
+                    </div>
+                    <p>{(agentSelectedPick.reasons || ["fresh live anomaly"]).join(" | ")}</p>
+                  </div>
+                ) : (
+                  <div className="agent-empty-card">Waiting for the agent to pick a report.</div>
+                )}
+
+                {agentSessionInvoice ? (
+                  <div className="agent-invoice-card">
+                    <div className="agent-invoice-shine" />
+                    <div className="agent-invoice-head">
+                      <span>Invoice ready</span>
+                      <strong>{formatUsdc(agentSessionInvoice.amount, 6)}</strong>
+                    </div>
+                    <div className="agent-invoice-row">
+                      <span>Invoice</span>
+                      <strong>{shortAddress(agentSessionInvoice.invoice_id)}</strong>
+                    </div>
+                    <div className="agent-invoice-row">
+                      <span>Tier</span>
+                      <strong>{tierLabel(agentSessionInvoice.tier)}</strong>
+                    </div>
+                    <div className="agent-invoice-row">
+                      <span>Provider</span>
+                      <strong>{agentSessionInvoice.provider_id || "funding_memory"}</strong>
+                    </div>
+                    <div className="agent-invoice-row">
+                      <span>Buyer</span>
+                      <strong>{wallet ? shortAddress(wallet) : "n/a"}</strong>
+                    </div>
+                    {Array.isArray(agentSessionInvoice.split_legs) && agentSessionInvoice.split_legs.length ? (
+                      <div className="agent-split-note">
+                        {agentSessionInvoice.split_legs.length} split payment legs will be signed.
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="agent-empty-card">Invoice appears here after selection.</div>
+                )}
+
+                <div className={`agent-signature-card ${agentSessionStage}`}>
+                  <span className="agent-signature-dot" />
+                  {agentSessionStage === "awaiting_signature"
+                    ? "Wallet signature requested. Confirm in your wallet."
+                    : agentSessionStage === "verifying"
+                      ? "Payment accepted. Verifying report access."
+                      : agentSessionStage === "unlocked"
+                        ? "Report unlocked and analytics refreshed."
+                        : agentSessionStage === "error"
+                          ? "Session stopped before unlock."
+                          : "Signature step will start after invoice creation."}
+                </div>
+
+                <div className="agent-modal-actions">
+                  {agentSessionStage === "unlocked" ? (
+                    <button
+                      type="button"
+                      className="agent-modal-primary"
+                      onClick={() => {
+                        setShowAgentBuyerModal(false);
+                        handleOpenUnlockedReport();
+                      }}
+                    >
+                      Open Report
+                    </button>
+                  ) : (
+                    <button type="button" className="agent-modal-secondary" onClick={() => setShowAgentBuyerModal(false)}>
+                      Keep Running in Background
+                    </button>
+                  )}
+                  {agentVerifyResult?.settlement_id ? (
+                    <span className="agent-settlement-ref">{shortAddress(agentVerifyResult.settlement_id)}</span>
+                  ) : null}
+                </div>
+              </aside>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showProfileModal && (
         <div className="modal-backdrop open" style={{ display: "flex" }}>
           <div className="wallet-profile-modal" role="dialog" aria-modal="true" aria-labelledby="wallet-profile-title" style={{ display: "block" }}>

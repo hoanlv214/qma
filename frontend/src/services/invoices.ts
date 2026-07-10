@@ -15,6 +15,12 @@ export function verifyPayment(invoiceId: string, payload: PaymentVerifyRequest) 
   });
 }
 
+export function getInvoiceStatus(invoiceId: string, invoiceSecret: string) {
+  return requestJson<any>(
+    `/api/v1/payment/invoices/${encodeURIComponent(invoiceId)}/status?invoice_secret=${encodeURIComponent(invoiceSecret)}`
+  );
+}
+
 export function getSettlement(settlementId: string) {
   return requestJson<Record<string, unknown>>(`/api/v1/payment/settlement/${encodeURIComponent(settlementId)}`);
 }

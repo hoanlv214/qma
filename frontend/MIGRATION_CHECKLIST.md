@@ -2,7 +2,7 @@
 
 Branch: `frontend/vite-react-rebuild`
 
-Rule of the branch: only add or edit files under `qma-web/` until React reaches feature parity. Do not modify `main.py`, `storage.py`, `providers.py`, `arc_gateway/`, Supabase scripts, invoice verification, x402 settlement, entitlement rules, or database schema.
+Rule of the branch: only add or edit files under `frontend/` until React reaches feature parity. Do not modify `main.py`, `storage.py`, `providers.py`, `arc_gateway/`, Supabase scripts, invoice verification, x402 settlement, entitlement rules, or database schema.
 
 ## Runtime Contract
 

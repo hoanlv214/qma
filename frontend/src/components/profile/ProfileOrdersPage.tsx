@@ -64,8 +64,7 @@ export function ProfileOrdersPage() {
   const isPublicProfile = window.location.pathname.replace(/\/$/, "").startsWith("/user");
   const [wallet, setWallet] = useState(() => {
     const urlParams = new URLSearchParams(window.location.search);
-    if (isPublicProfile) return urlParams.get("wallet") || "";
-    return localStorage.getItem("qma_connected_wallet") || "";
+    return urlParams.get("wallet") || localStorage.getItem("qma_connected_wallet") || "";
   });
   const [walletToken, setWalletToken] = useState("");
   const [privateProfileUnlocked, setPrivateProfileUnlocked] = useState(false);
@@ -226,7 +225,6 @@ export function ProfileOrdersPage() {
 
 
   const loadWalletStatus = async (account: string) => {
-    if (isPublicProfile) return null;
     if (!arcGatewayBaseUrl) return null;
     try {
       const cleanUrl = arcGatewayBaseUrl.replace(/\/$/, "");
@@ -298,8 +296,8 @@ export function ProfileOrdersPage() {
       // Process balances
       const gatewayBal = sumData?.gateway_balance?.available_usdc;
       const chainBal = walletStatus?.usdc?.formatted ?? walletStatus?.usdcBalance?.formatted ?? null;
-      setChainBalance(isPublicProfile ? "Private" : chainBal ? `${Number(chainBal).toFixed(6)} USDC` : "n/a");
-      setGatewayBalance(isPublicProfile ? "Private" : gatewayBal == null ? "n/a" : `${Number(gatewayBal).toFixed(6)} USDC`);
+      setChainBalance(chainBal ? `${Number(chainBal).toFixed(6)} USDC` : "n/a");
+      setGatewayBalance(gatewayBal == null ? "n/a" : `${Number(gatewayBal).toFixed(6)} USDC`);
 
       // Merge wallet events
       const groupedPayments = groupPaymentsByInvoice(rawPayments);
@@ -516,6 +514,22 @@ export function ProfileOrdersPage() {
     }
   };
 
+  const handlePaymentRowClick = (
+    event: React.MouseEvent<HTMLTableRowElement>,
+    rowId: string,
+    hasLegs: boolean,
+    hasReport: boolean,
+    entitlementId?: string
+  ) => {
+    if ((event.target as HTMLElement).closest("a, button")) return;
+    if (hasLegs) {
+      setExpandedLegs((prev) => ({ ...prev, [rowId]: !prev[rowId] }));
+    }
+    if (hasReport) {
+      toggleRow(rowId, entitlementId);
+    }
+  };
+
   const formatDateTime = (timestamp?: number) => {
     if (!timestamp) return "n/a";
     const ms = timestamp > 10_000_000_000 ? timestamp : timestamp * 1000;
@@ -726,8 +740,8 @@ export function ProfileOrdersPage() {
                       <>
                         <tr
                           key={rowId}
-                          className={`user-payment-row ${hasReport ? "is-clickable" : ""} ${isExpanded ? "is-expanded" : ""}`}
-                          onClick={() => hasReport && toggleRow(rowId, entitlementIdVal)}
+                          className={`user-payment-row ${hasReport || hasLegs ? "is-clickable" : ""} ${isExpanded ? "is-expanded" : ""}`}
+                          onClick={(e) => handlePaymentRowClick(e, rowId, Boolean(hasLegs), hasReport, entitlementIdVal)}
                         >
                           <td className="signal-cell">
                             <strong className="signal-symbol">{event.symbol || "n/a"}</strong>
@@ -746,27 +760,6 @@ export function ProfileOrdersPage() {
                           </td>
                           <td>
                             <strong className="payment-amount">{Number(event.amount_usdc || 0).toFixed(3)} USDC</strong>
-                            {hasLegs && (
-                              <button
-                                type="button"
-                                className="text-btn expand-legs-btn"
-                                style={{
-                                  marginTop: 4,
-                                  fontSize: "0.75rem",
-                                  color: "var(--accent)",
-                                  display: "block",
-                                  border: "none",
-                                  background: "none",
-                                  cursor: "pointer",
-                                }}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setExpandedLegs({ ...expandedLegs, [rowId]: !showLegs });
-                                }}
-                              >
-                                {showLegs ? "[collapse ▴]" : "[expand ▾]"}
-                              </button>
-                            )}
                           </td>
                           <td>{gatewayStatusBadge(event.gateway_status)}</td>
                           <td>
@@ -819,12 +812,12 @@ export function ProfileOrdersPage() {
                                   colSpan={5}
                                   style={{ paddingLeft: "2rem", borderTop: "none", borderBottom: "none" }}
                                 >
-                                  <span style={{ color: "var(--t3)" }}>└─ {roleStr} leg</span>
+                                  <span style={{ color: "var(--t3)" }}>- {roleStr} leg</span>
                                   <span style={{ marginLeft: "1rem", fontWeight: 600 }}>
                                     {Number(leg.amount_usdc || 0).toFixed(3)} USDC
                                   </span>
                                   <span style={{ marginLeft: "0.5rem", color: "var(--t3)" }}>
-                                    → {shortAddress(payToStr)}
+                                    to {shortAddress(payToStr)}
                                   </span>
                                 </td>
                                 <td style={{ borderTop: "none", borderBottom: "none" }}></td>
