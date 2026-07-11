@@ -574,7 +574,7 @@ const walletMenuAddress = document.getElementById('wallet-menu-address');
 const walletRoleLabel = document.getElementById('wallet-role-label');
 const walletProfileBtn = document.getElementById('wallet-profile-btn');
 const walletQuickProfileBtn = document.getElementById('wallet-quick-profile-btn');
-const walletAgentRunBtn = document.getElementById('wallet-agent-run-btn');
+const openCopilotBtn = document.getElementById('open-copilot-btn');
 const walletFundArcBtn = document.getElementById('wallet-fund-arc-btn');
 const walletFundArcLabel = document.getElementById('wallet-fund-arc-label');
 const walletRelayerToolsBtn = document.getElementById('wallet-relayer-tools-btn');
@@ -5863,7 +5863,7 @@ walletButton.addEventListener('click', async (event) => {
 walletProfileBtn.addEventListener('click', openWalletProfilePage);
 if (walletQuickProfileBtn) walletQuickProfileBtn.addEventListener('click', openWalletProfile);
 if (quickProfileUnlockBtn) quickProfileUnlockBtn.addEventListener('click', unlockQuickWalletProfile);
-if (walletAgentRunBtn) walletAgentRunBtn.addEventListener('click', openAgentRunModal);
+if (openCopilotBtn) openCopilotBtn.addEventListener('click', openAgentRunModal);
 if (walletFundArcBtn) walletFundArcBtn.addEventListener('click', openFundArcModal);
 walletDisconnectBtn.addEventListener('click', disconnectWallet);
 paywallClose.addEventListener('click', () => {
@@ -6209,7 +6209,6 @@ async function handleAgentPromptSubmit() {
             } else {
                 renderReport(cachedEntry.report, cachedEntry);
             }
-            closeAgentRunModal();
             return;
         }
 
@@ -6225,10 +6224,7 @@ async function handleAgentPromptSubmit() {
         }
     } finally {
         agentPromptSubmitBtn.disabled = false;
-        if (agentStatusIndicator) {
-            agentStatusIndicator.textContent = 'Idle';
-            agentStatusIndicator.className = 'agent-status-indicator idle';
-        }
+        agentPromptInput.value = '';
     }
 }
 
@@ -6247,4 +6243,12 @@ document.querySelectorAll('.preset-btn').forEach((btn) => {
 
 if (agentPromptSubmitBtn) {
     agentPromptSubmitBtn.addEventListener('click', handleAgentPromptSubmit);
+}
+if (agentPromptInput) {
+    agentPromptInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            handleAgentPromptSubmit();
+        }
+    });
 }

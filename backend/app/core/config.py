@@ -1,4 +1,4 @@
-"""Configuration anchors for the staged backend refactor."""
+"""Configuration anchors for the QMA backend."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -6,6 +6,24 @@ import os
 
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
+
+
+def load_local_env(env_path: Path | None = None) -> None:
+    """Load root .env values without overriding real environment variables."""
+    target = env_path or ROOT_DIR / ".env"
+    if not target.exists():
+        return
+    with target.open("r", encoding="utf-8") as env_file:
+        for raw_line in env_file:
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+# Load env FIRST so all os.getenv() calls below see .env values
+load_local_env()
 
 
 @dataclass(frozen=True)
@@ -33,15 +51,88 @@ class Settings:
 settings = Settings()
 
 
-def load_local_env(env_path: Path | None = None) -> None:
-    """Load root .env values without overriding real environment variables."""
-    target = env_path or settings.root_dir / ".env"
-    if not target.exists():
-        return
-    with target.open("r", encoding="utf-8") as env_file:
-        for raw_line in env_file:
-            line = raw_line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+# ---------------------------------------------------------------------------
+# Payment / pricing constants
+# ---------------------------------------------------------------------------
+PAYMENT_AMOUNT_USDC = float(os.getenv("QMA_PAYMENT_AMOUNT_USDC", os.getenv("QMA_PRICE_FULL_USDC", "0.005")))
+PAYMENT_RESOURCE_TYPE = os.getenv("QMA_PAYMENT_RESOURCE_TYPE", "qma_signal_report")
+PAYMENT_NETWORK = os.getenv("QMA_PAYMENT_NETWORK", "eip155:5042002")
+PAYMENT_NETWORK_NAME = os.getenv("QMA_PAYMENT_NETWORK_NAME", "Arc Testnet")
+PAYMENT_WALLET_ADDRESS = os.getenv("QMA_ARC_SELLER_ADDRESS", "0x933a2405f84c224be1ef373ba16e992e1f459682")
+PLATFORM_TREASURY_ADDRESS = os.getenv("QMA_PLATFORM_TREASURY_ADDRESS", PAYMENT_WALLET_ADDRESS)
+
+# ---------------------------------------------------------------------------
+# Arc / Circle Gateway
+# ---------------------------------------------------------------------------
+ARC_GATEWAY_BASE_URL = os.getenv("QMA_ARC_GATEWAY_URL", "http://127.0.0.1:3000")
+ARC_GATEWAY_API = os.getenv("QMA_CIRCLE_GATEWAY_API", "https://gateway-api-testnet.circle.com")
+ARC_EXPLORER = os.getenv("QMA_ARC_EXPLORER", "https://testnet.arcscan.app")
+ARC_GATEWAY_WALLET = os.getenv("QMA_ARC_GATEWAY_WALLET", "0x0077777d7EBA4688BDeF3E311b846F25870A19B9")
+ARC_TESTNET_USDC = os.getenv("QMA_ARC_USDC_ADDRESS", "0x3600000000000000000000000000000000000000")
+ARC_GATEWAY_MINTER = os.getenv("QMA_ARC_GATEWAY_MINTER", "0x0022222ABE238Cc2C7Bb1f21003F0a260052475B")
+ARC_GATEWAY_INTERNAL_SECRET = os.getenv("QMA_ARC_GATEWAY_INTERNAL_SECRET", "")
+
+# ---------------------------------------------------------------------------
+# Withdraw
+# ---------------------------------------------------------------------------
+WITHDRAW_MODE = os.getenv("QMA_WITHDRAW_MODE", "seller_wallet").strip().lower()
+WITHDRAW_RELAYER_ADDRESS = os.getenv("QMA_WITHDRAW_RELAYER_ADDRESS", "")
+WITHDRAW_MIN_USDC = float(os.getenv("QMA_MIN_PROVIDER_WITHDRAW_USDC", "0"))
+WITHDRAW_RELAY_DAILY_LIMIT = int(os.getenv("QMA_PROVIDER_WITHDRAW_DAILY_LIMIT", "1"))
+
+# ---------------------------------------------------------------------------
+# Creator claims
+# ---------------------------------------------------------------------------
+CREATOR_CLAIM_MIN_USDC = float(os.getenv("QMA_CREATOR_CLAIM_MIN_USDC", "0"))
+CREATOR_CLAIM_INTENT_TTL_SECONDS = int(os.getenv("QMA_CREATOR_CLAIM_INTENT_TTL_SECONDS", "600"))
+
+# ---------------------------------------------------------------------------
+# Settlement
+# ---------------------------------------------------------------------------
+import paid_intelligence_kit as paid_kit  # noqa: E402 — needed for DEFAULT_SETTLEMENT_RAIL
+
+DEFAULT_SETTLEMENT_MODE = os.getenv("QMA_DEFAULT_SETTLEMENT_MODE", "x402_direct_split").strip().lower()
+SPLIT_INVOICE_TTL_SECONDS = int(os.getenv("QMA_SPLIT_INVOICE_TTL_SECONDS", "1800"))
+SETTLEMENT_RAIL = os.getenv("QMA_SETTLEMENT_RAIL", paid_kit.DEFAULT_SETTLEMENT_RAIL)
+SETTLEMENT_CURRENCY = "USDC"
+SUPPORTED_SETTLEMENT_ASSETS = ["USDC"]
+INVOICE_TTL_SECONDS = int(os.getenv("QMA_INVOICE_TTL_SECONDS", "900"))
+
+# ---------------------------------------------------------------------------
+# Access tokens
+# ---------------------------------------------------------------------------
+ACCESS_TOKEN_TTL_SECONDS = int(os.getenv("QMA_ACCESS_TOKEN_TTL_SECONDS", "300"))
+WALLET_PROFILE_TOKEN_TTL_SECONDS = int(os.getenv("QMA_WALLET_PROFILE_TOKEN_TTL_SECONDS", "3600"))
+ACCESS_TOKEN_SECRET = os.getenv("QMA_ACCESS_TOKEN_SECRET") or os.getenv("QMA_SESSION_SECRET") or "qma-local-demo-secret-change-me"
+SPLIT_LEG_URL_SECRET = os.getenv("QMA_SPLIT_LEG_URL_SECRET") or f"split-url:{ACCESS_TOKEN_SECRET}"
+SPLIT_RECEIPT_SECRET = os.getenv("QMA_SPLIT_RECEIPT_SECRET") or f"split-receipt:{ACCESS_TOKEN_SECRET}"
+
+# ---------------------------------------------------------------------------
+# Admin
+# ---------------------------------------------------------------------------
+ADMIN_TOKEN = os.getenv("QMA_ADMIN_TOKEN", "")
+ADMIN_WALLET_ADDRESS = os.getenv("QMA_ADMIN_WALLET", PAYMENT_WALLET_ADDRESS)
+
+# ---------------------------------------------------------------------------
+# Rate limiting
+# ---------------------------------------------------------------------------
+RATE_LIMIT_ENABLED = os.getenv("QMA_RATE_LIMIT_ENABLED", "true").lower() not in ("false", "0", "no")
+RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("QMA_RATE_LIMIT_WINDOW_SECONDS", "60"))
+
+# ---------------------------------------------------------------------------
+# Settlement verification
+# ---------------------------------------------------------------------------
+REQUIRE_COMPLETED_SETTLEMENT = os.getenv("QMA_REQUIRE_COMPLETED_SETTLEMENT", "false").lower() in ("true", "1", "yes")
+
+# ---------------------------------------------------------------------------
+# Gateway deposit / batch
+# ---------------------------------------------------------------------------
+GATEWAY_DEFAULT_DEPOSIT_USDC = float(os.getenv("QMA_ARC_DEFAULT_DEPOSIT_USDC", "1.00"))
+GATEWAY_DEFAULT_APPROVE_USDC = float(os.getenv("QMA_ARC_DEFAULT_APPROVE_USDC", "10.00"))
+ARC_BATCH_TX_CACHE_TTL_SECONDS = int(os.getenv("QMA_ARC_BATCH_TX_CACHE_TTL_SECONDS", "60"))
+PAYMENT_EVENT_REFRESH_TTL_SECONDS = int(os.getenv("QMA_PAYMENT_EVENT_REFRESH_TTL_SECONDS", "90"))
+
+# ---------------------------------------------------------------------------
+# Cache
+# ---------------------------------------------------------------------------
+CACHE_TTL_SECONDS = 30.0

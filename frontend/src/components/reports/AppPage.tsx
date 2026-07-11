@@ -551,8 +551,8 @@ export function AppPage({
       circRatio: numberOrNull(source.circRatio ?? source.circ_ratio),
       fromATH: numberOrNull(source.fromATH ?? source.fromATHPercent ?? source["fromATH(%)"]),
       volume24h: numberOrNull(source.volume24h ?? source.volume_24h),
-      amount: numberOrNull(source.amount ?? source.openInterest ?? source.open_interest),
-      openInterest: numberOrNull(source.openInterest ?? source.open_interest ?? source.amount),
+      amount: numberOrNull(source.amount),
+      openInterest: numberOrNull(source.openInterest ?? source.open_interest),
       openInterestChange24h: numberOrNull(source.openInterestChange24h ?? source.open_interest_change_24h),
       longShortRatio: numberOrNull(source.longShortRatio ?? source.long_short_ratio),
       price: numberOrNull(source.price),
@@ -715,7 +715,7 @@ export function AppPage({
             seen.add(cacheId);
             found.push(entry);
           }
-        } catch {}
+        } catch { }
       }
     }
     return found.sort((a, b) => (b.saved_at || 0) - (a.saved_at || 0));
@@ -1048,26 +1048,32 @@ export function AppPage({
     return list.find((entry) => entry.tier === tier) || null;
   };
 
-  const agentPolicyPick = (recommendationsList: any[] = [], budget = 0.01, maxPrice = 0.005, pricing = {}) => {
+  const agentPolicyPick = (
+    recommendationsList: any[] = [],
+    budget = 0.01,
+    maxPrice = 0.005,
+    pricing = {},
+    preferredTier: "preview" | "full" | null = null,
+  ) => {
     const audit: any[] = [];
     const candidates = recommendationsList.map((pick) => {
-      let tier = recommendationTier(pick);
+      let tier = preferredTier || recommendationTier(pick);
       const signal = pick.query || { symbol: pick.symbol };
       const providerId = pick.provider_id || selectedProviderId || "funding_memory";
-      
+
       const fullEntry = getCachedReport(signal, "full", providerId);
       const exactPreviewEntry = fullEntry ? null : getCachedReport(signal, "preview", providerId);
       const symbolPreviewEntry = exactPreviewEntry || getLatestCachedReportForSymbolTier(signal.symbol, "preview", providerId);
-      
-      const shouldUpgrade = tier === "preview" && symbolPreviewEntry?.report && !fullEntry?.report;
+
+      const shouldUpgrade = !preferredTier && tier === "preview" && symbolPreviewEntry?.report && !fullEntry?.report;
       if (shouldUpgrade) {
         tier = "full";
       }
-      
+
       const price = recommendationTierPrice(pick, tier, pricing);
       const pendingInvoice = agentPendingInvoiceFor(signal, tier);
       let skippedReason = "";
-      
+
       if (price <= 0) {
         skippedReason = "missing price";
       } else if (fullEntry?.report) {
@@ -1079,7 +1085,7 @@ export function AppPage({
       } else if (price > maxPrice) {
         skippedReason = `over max/report (${price.toFixed(3)} > ${maxPrice.toFixed(3)})`;
       }
-      
+
       return {
         ...pick,
         agent_tier: tier,
@@ -1139,12 +1145,12 @@ export function AppPage({
       if (!resp.ok) throw new Error(`Agent endpoint returned ${resp.status}`);
       const data = await resp.json();
       const picks = data.recommendations || [];
-      
+
       setAgentRunTraceLines(prev => [...prev, { text: `Scanned ${picks.length} ranked opportunities.`, tone: "" }]);
 
       const pricing = data.pricing || {};
       const { selected, audit } = agentPolicyPick(picks, budget, maxPrice, pricing);
-      
+
       audit.forEach((line: any) => {
         setAgentRunTraceLines(prev => [...prev, { text: line.text, tone: line.tone }]);
       });
@@ -1168,9 +1174,9 @@ export function AppPage({
       }
 
       setAgentRunTraceLines(prev => [...prev,
-        { text: "Decision rule: complete paid Preview snapshots first, then choose highest value density under budget.", tone: "" },
-        { text: `Reasoning: ${(selected.reasons || ["fresh live anomaly"]).join(" | ")}`, tone: "" },
-        { text: "Creating provider-bound invoice with buyer_type=agent...", tone: "" }
+      { text: "Decision rule: complete paid Preview snapshots first, then choose highest value density under budget.", tone: "" },
+      { text: `Reasoning: ${(selected.reasons || ["fresh live anomaly"]).join(" | ")}`, tone: "" },
+      { text: "Creating provider-bound invoice with buyer_type=agent...", tone: "" }
       ]);
 
       if (!wallet) {
@@ -1538,12 +1544,12 @@ export function AppPage({
           workingSplitLegs = workingSplitLegs.map((item: any) => (
             item.leg_id === (paidLeg.leg_id || leg.leg_id)
               ? {
-                  ...item,
-                  status: "paid",
-                  settlement_id: legSettlementId,
-                  sidecar_receipt: paidLeg.sidecar_receipt,
-                  gateway_status: paidLeg.gateway_status || paidLeg.status || item.gateway_status,
-                }
+                ...item,
+                status: "paid",
+                settlement_id: legSettlementId,
+                sidecar_receipt: paidLeg.sidecar_receipt,
+                gateway_status: paidLeg.gateway_status || paidLeg.status || item.gateway_status,
+              }
               : item
           ));
           const updatedInvoice = {
@@ -1719,30 +1725,73 @@ export function AppPage({
     setAgentTrace([{ text: "Initiating Buyer Agent...", tone: "t-key" }]);
 
     try {
-      // Form recommendation invoice payload
-      const resp = await fetch(`${API_BASE_URL}/api/v1/agent/recommendations`);
+      // Parse prompt parameters
+      const promptLower = agentPrompt.toLowerCase();
+      const budgetMatch = promptLower.match(/(?:budget|under|limit|max|price|of)\s*(?:[\$]?)\s*([0-9\.]+)/i);
+      const budgetVal = budgetMatch ? parseFloat(budgetMatch[1]) : 0.010;
+
+      let providerFilter: string | null = null;
+      if (promptLower.includes("oi_memory") || promptLower.includes("open_interest") || promptLower.includes("oi")) {
+        providerFilter = "oi_memory";
+      } else if (promptLower.includes("funding_memory") || promptLower.includes("funding")) {
+        providerFilter = "funding_memory";
+      }
+
+      let tierFilter: string | null = null;
+      if (promptLower.includes("preview")) {
+        tierFilter = "preview";
+      } else if (promptLower.includes("full")) {
+        tierFilter = "full";
+      }
+
+      setAgentTrace((prev) => [
+        ...prev,
+        { text: `Agent goal received: "${agentPrompt}"`, tone: "active" },
+        { text: `Parsing details: Target Budget limit is set to ${budgetVal} USDC. Preferred provider: ${providerFilter || 'any'}. Preferred tier: ${tierFilter || 'any'}.`, tone: "t-dim" }
+      ]);
+
+      const resp = await fetch(`${API_BASE_URL}/api/v1/agent/recommendations?limit=8`);
+      if (!resp.ok) throw new Error(`Agent API returned status ${resp.status}`);
       const data = await resp.json();
-      const pick = data.recommendations?.[0];
+      let picks = data.recommendations || [];
+
+      if (providerFilter) {
+        picks = picks.filter((p: any) => p.provider_id === providerFilter);
+      }
+
+      const pricing = data.pricing || {};
+      const maxPrice = Math.min(budgetVal, 0.005);
+      const { selected: pick, audit } = agentPolicyPick(
+        picks,
+        budgetVal,
+        maxPrice,
+        pricing,
+        tierFilter as "preview" | "full" | null,
+      );
+
+      audit.forEach((line: any) => {
+        setAgentTrace((prev) => [...prev, { text: line.text, tone: line.tone }]);
+      });
 
       if (!pick) {
         setAgentSessionStage("error");
         setAgentTrace((prev) => [
           ...prev,
-          { text: "No anomalies found meeting parameters.", tone: "t-error" },
+          { text: "Copilot: No anomalies found meeting parameters under budget.", tone: "t-error" },
         ]);
         setAgentRunning(false);
         return;
       }
 
-      const pickTier = recommendationTier(pick);
+      const pickTier = pick.agent_tier || recommendationTier(pick);
       const pickProviderId = pick.provider_id || "funding_memory";
-      const pickQuery = pick.query || { symbol: pick.symbol };
+      const pickQuery = pick.agent_signal || pick.query || { symbol: pick.symbol };
       setAgentSessionStage("selected");
       setAgentSelectedPick({ ...pick, agent_tier: pickTier, agent_query: pickQuery });
 
       setAgentTrace((prev) => [
         ...prev,
-        { text: `pick:   ${pick.symbol}  score=${pick.score}  tier=${pickTier}`, tone: "t-val" },
+        { text: `Copilot found best deal: ${pick.symbol} (Score: ${Number(pick.score || 0).toFixed(1)}, Price: ${pick.agent_price?.toFixed(3) || "0.000"} USDC, Tier: ${pickTier})`, tone: "t-green" },
       ]);
 
       // Connect check
@@ -1828,12 +1877,12 @@ export function AppPage({
           workingSplitLegs = workingSplitLegs.map((item: any) => (
             item.leg_id === (paidLeg.leg_id || leg.leg_id)
               ? {
-                  ...item,
-                  status: "paid",
-                  settlement_id: legSettlementId,
-                  sidecar_receipt: paidLeg.sidecar_receipt,
-                  gateway_status: paidLeg.gateway_status || paidLeg.status || item.gateway_status,
-                }
+                ...item,
+                status: "paid",
+                settlement_id: legSettlementId,
+                sidecar_receipt: paidLeg.sidecar_receipt,
+                gateway_status: paidLeg.gateway_status || paidLeg.status || item.gateway_status,
+              }
               : item
           ));
           invData = { ...invData, split_legs: workingSplitLegs };
@@ -1890,6 +1939,7 @@ export function AppPage({
       setAgentTrace((prev) => [...prev, { text: `Error: ${err.message || err}`, tone: "t-error" }]);
     } finally {
       setAgentRunning(false);
+      setAgentPrompt("");
     }
   };
 
@@ -2163,7 +2213,7 @@ export function AppPage({
                   </svg>
                   <span>Quick Profile Modal</span>
                 </button>
-                <button type="button" className="wallet-menu-item" onClick={() => { setWalletDropdownOpen(false); setShowAgentRunModal(true); setAgentRunTraceLines([]); }}>
+                {/* <button type="button" className="wallet-menu-item" onClick={() => { setWalletDropdownOpen(false); setShowAgentRunModal(true); setAgentRunTraceLines([]); }}>
                   <svg className="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M12 8V4H8"></path>
                     <rect x="4" y="8" width="16" height="12" rx="2"></rect>
@@ -2173,7 +2223,7 @@ export function AppPage({
                     <path d="M15 13h.01"></path>
                   </svg>
                   <span>Agent Run / Judge Mode</span>
-                </button>
+                </button> */}
                 <button type="button" className="wallet-menu-item" onClick={() => { setWalletDropdownOpen(false); setShowFundArcModal(true); refreshFundingReadiness(); }}>
                   <svg className="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M12 2v20"></path>
@@ -2326,44 +2376,7 @@ export function AppPage({
 
         {/* Right main panel */}
         <div className="main-panel">
-          {/* Agent Control Bar */}
-          <div className="agent-control-bar">
-            <div className="agent-bar-info">
-              <span className="agent-bar-title">Agent Buyer</span>
-              <span className={`agent-status-indicator ${agentRunning ? "active" : "idle"}`}>
-                {agentRunning ? "Running" : "Idle"}
-              </span>
-            </div>
-            <form onSubmit={handleAgentRun} className="agent-bar-input-wrap" style={{ display: "flex", flex: 1, gap: 8 }}>
-              <input
-                type="text"
-                className="agent-bar-input"
-                value={agentPrompt}
-                onChange={(e) => setAgentPrompt(e.target.value)}
-                placeholder="e.g. find best funding_memory signal under 0.010 USDC budget"
-              />
-              <button type="submit" className="agent-bar-submit" disabled={agentRunning}>
-                Run Copilot
-              </button>
-            </form>
-            <div className="agent-bar-presets">
-              <button
-                type="button"
-                className="preset-btn"
-                onClick={() => setAgentPrompt("find best funding_memory signal under 0.010 USDC")}
-              >
-                Best Funding
-              </button>
-              <button
-                type="button"
-                className="preset-btn"
-                onClick={() => setAgentPrompt("find best oi_memory signal under 0.005 USDC")}
-              >
-                Best OI
-              </button>
-            </div>
-          </div>
-
+          {/* Removed Agent Control Bar */}
           {/* Form / Selected signal card */}
           <div className="query-card-container">
             {viewMode === "basic" ? (
@@ -2455,6 +2468,20 @@ export function AppPage({
                 onClick={() => openPaywall("full")}
               >
                 <span>Full Report - {quotedPrices.full ? `${quotedPrices.full.toFixed(3)} USDC` : "0.005 USDC"}</span>
+              </button>
+              <button
+                type="button"
+                className="submit-btn copilot-btn"
+                id="open-copilot-btn"
+                style={{ background: "var(--surface)", color: "var(--t1)", border: "1px solid var(--border-color)" }}
+                onClick={() => {
+                  setShowAgentBuyerModal(true);
+                  if (!agentRunning) {
+                    setAgentTrace([]);
+                  }
+                }}
+              >
+                <span>🤖 Run Copilot</span>
               </button>
             </div>
           </div>
@@ -3203,6 +3230,35 @@ export function AppPage({
                     </div>
                   )}
                 </div>
+                <form onSubmit={handleAgentRun} className="agent-bar-input-wrap" style={{ display: "flex", gap: 8, marginTop: "12px", borderTop: "1px solid var(--border-color)", paddingTop: "12px" }}>
+                  <input
+                    type="text"
+                    className="agent-bar-input"
+                    value={agentPrompt}
+                    onChange={(e) => setAgentPrompt(e.target.value)}
+                    placeholder="e.g. find best funding_memory signal under 0.010 USDC budget"
+                    style={{ flexGrow: 1, padding: "12px", borderRadius: "6px", border: "1px solid var(--border-color)", background: "var(--surface)", color: "var(--t1)", fontSize: "14px" }}
+                  />
+                  <button type="submit" className="submit-btn" disabled={agentRunning} style={{ padding: "0 16px" }}>
+                    Send
+                  </button>
+                </form>
+                <div className="agent-bar-presets" style={{ display: "flex", gap: 8, marginTop: "8px" }}>
+                  <button
+                    type="button"
+                    className="preset-btn"
+                    onClick={() => setAgentPrompt("find best funding_memory signal under 0.010 USDC")}
+                  >
+                    Best Funding
+                  </button>
+                  <button
+                    type="button"
+                    className="preset-btn"
+                    onClick={() => setAgentPrompt("find best oi_memory signal under 0.005 USDC")}
+                  >
+                    Best OI
+                  </button>
+                </div>
               </section>
 
               <aside className="agent-decision-panel">
@@ -3373,36 +3429,36 @@ export function AppPage({
                       const txHash = payment.transaction_hash || payment.tx_hash || payment.settlement_tx_hash;
                       const settlementLabel = txHash || payment.settlement_id || payment.invoice_id;
                       return (
-                      <tr key={payment.entitlement_id || payment.settlement_id || payment.invoice_id || idx}>
-                        <td>{payment.symbol || payment.query_symbol || "n/a"}</td>
-                        <td className="mono-td">{amount != null ? `${Number(amount).toFixed(3)} USDC` : "-"}</td>
-                        <td>
-                          <span className={`pnl-badge ${status === "completed" || status === "received" ? "win" : "loss"}`}>
-                            {status}
-                          </span>
-                        </td>
-                        <td className="mono-td" style={{ fontSize: "0.66rem" }}>
-                          {txHash ? (
-                            <a href={payment.explorer_url || `https://testnet.arcscan.app/tx/${txHash}`} target="_blank" rel="noopener noreferrer">
-                              {shortAddress(txHash)}
-                            </a>
-                          ) : settlementLabel ? shortAddress(settlementLabel) : "n/a"}
-                        </td>
-                        <td>
-                          {payment.has_report || status === "completed" || status === "received" ? (
-                            <button type="button" className="refresh-btn" onClick={() => {
-                              setShowProfileModal(false);
-                              setSelectedProviderId(payment.provider_id || "funding_memory");
-                              setActiveQuery(payment.query || { symbol: payment.symbol || payment.query_symbol });
-                              setUnlockedReport(payment.report || payment);
-                              setReportCollapsed(false);
-                              setPaywallOpen(false);
-                            }}>
-                              Open
-                            </button>
-                          ) : "n/a"}
-                        </td>
-                      </tr>
+                        <tr key={payment.entitlement_id || payment.settlement_id || payment.invoice_id || idx}>
+                          <td>{payment.symbol || payment.query_symbol || "n/a"}</td>
+                          <td className="mono-td">{amount != null ? `${Number(amount).toFixed(3)} USDC` : "-"}</td>
+                          <td>
+                            <span className={`pnl-badge ${status === "completed" || status === "received" ? "win" : "loss"}`}>
+                              {status}
+                            </span>
+                          </td>
+                          <td className="mono-td" style={{ fontSize: "0.66rem" }}>
+                            {txHash ? (
+                              <a href={payment.explorer_url || `https://testnet.arcscan.app/tx/${txHash}`} target="_blank" rel="noopener noreferrer">
+                                {shortAddress(txHash)}
+                              </a>
+                            ) : settlementLabel ? shortAddress(settlementLabel) : "n/a"}
+                          </td>
+                          <td>
+                            {payment.has_report || status === "completed" || status === "received" ? (
+                              <button type="button" className="refresh-btn" onClick={() => {
+                                setShowProfileModal(false);
+                                setSelectedProviderId(payment.provider_id || "funding_memory");
+                                setActiveQuery(payment.query || { symbol: payment.symbol || payment.query_symbol });
+                                setUnlockedReport(payment.report || payment);
+                                setReportCollapsed(false);
+                                setPaywallOpen(false);
+                              }}>
+                                Open
+                              </button>
+                            ) : "n/a"}
+                          </td>
+                        </tr>
                       );
                     })
                   )}
@@ -3422,7 +3478,7 @@ export function AppPage({
         </div>
       )}
 
-      {showAgentRunModal && (
+      {/* {showAgentRunModal && (
         <div className="modal-backdrop open" style={{ display: "flex" }}>
           <div className="wallet-profile-modal agent-run-modal" role="dialog" aria-modal="true" aria-labelledby="agent-run-title" style={{ display: "block" }}>
             <div className="modal-header">
@@ -3484,7 +3540,7 @@ export function AppPage({
             </div>
           </div>
         </div>
-      )}
+      )} */}
 
       {showFundArcModal && (
         <div className="modal-backdrop open" style={{ display: "flex" }}>

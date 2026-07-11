@@ -166,19 +166,7 @@
                         </svg>
                         <span>Quick Profile Modal</span>
                     </button>
-                    <button type="button" id="wallet-agent-run-btn" class="wallet-menu-item">
-                        <svg class="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                            aria-hidden="true">
-                            <path d="M12 8V4H8"></path>
-                            <rect x="4" y="8" width="16" height="12" rx="2"></rect>
-                            <path d="M2 14h2"></path>
-                            <path d="M20 14h2"></path>
-                            <path d="M9 13h.01"></path>
-                            <path d="M15 13h.01"></path>
-                        </svg>
-                        <span>Agent Run / Judge Mode</span>
-                    </button>
+
                     <button type="button" id="wallet-fund-arc-btn" class="wallet-menu-item">
                         <svg class="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
@@ -283,25 +271,7 @@
         <!-- ── RIGHT: QUERY + REPORT ── -->
         <div class="main-panel">
 
-            <!-- Agent Buyer Horizontal Bar -->
-            <div class="agent-control-bar">
-                <div class="agent-bar-info">
-                    <span class="agent-bar-title">🤖 Agent Buyer</span>
-                    <span class="agent-status-indicator idle" id="agent-status-indicator">Idle</span>
-                </div>
-                <div class="agent-bar-input-wrap">
-                    <input type="text" id="agent-prompt-input" class="agent-bar-input"
-                        placeholder="e.g. find best funding_memory signal under 0.010 USDC budget">
-                    <button type="button" class="agent-bar-submit" id="agent-prompt-submit-btn">Run Copilot</button>
-                </div>
-                <div class="agent-bar-presets">
-                    <button type="button" class="preset-btn"
-                        data-preset="find best funding_memory signal under 0.010 USDC">Best Funding</button>
-                    <button type="button" class="preset-btn"
-                        data-preset="find best oi_memory signal under 0.005 USDC">Best OI</button>
-                    <button type="button" class="preset-btn" data-preset="trigger judge mode">⚙ Settings</button>
-                </div>
-            </div>
+
 
             <!-- Query Card (Responsive Grid Layout) -->
             <div class="query-card-container">
@@ -342,12 +312,16 @@
                             </select>
                         </div>
                     </div>
-                    <div class="query-actions-row">
+                    <div class="query-actions-row" style="display:flex; flex-wrap:wrap; gap:8px;">
                         <button type="submit" class="submit-btn tier-btn preview-tier" data-tier="preview">
                             <span>Preview Report · $0.001</span>
                         </button>
                         <button type="submit" class="submit-btn tier-btn full-tier" data-tier="full">
                             <span>Full Report · $0.005</span>
+                        </button>
+                        <button type="button" class="submit-btn copilot-btn" id="open-copilot-btn"
+                            style="background: var(--surface); color: var(--t1); border: 1px solid var(--border-color);">
+                            <span>🤖 Run Copilot</span>
                         </button>
                     </div>
                 </form>
