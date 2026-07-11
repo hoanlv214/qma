@@ -20,11 +20,11 @@ backend/
 tests/
 
 # Legacy static pages are retained as reference, not deployed by Vercel.
-index.html
-app.html
-user.html
-marketplace.html
-docs.html
+/index.html
+/app.html
+/user.html
+/marketplace.html
+/docs.html
 
 # Vite reads shared assets from root public/ during the build.
 
