@@ -1,64 +1,26 @@
 {
-  "version": 2,
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "installCommand": "cd frontend && npm ci",
+  "buildCommand": "cd frontend && npm run build",
+  "outputDirectory": "frontend/dist",
   "cleanUrls": true,
-  "builds": [
+  "rewrites": [
     {
-      "src": "index.html",
-      "use": "@vercel/static"
+      "source": "/api/:path*",
+      "destination": "https://qma-api.onrender.com/api/:path*"
     },
     {
-      "src": "app.html",
-      "use": "@vercel/static"
+      "source": "/docs",
+      "destination": "https://qma-api.onrender.com/docs"
     },
     {
-      "src": "user.html",
-      "use": "@vercel/static"
+      "source": "/openapi.json",
+      "destination": "https://qma-api.onrender.com/openapi.json"
     },
     {
-      "src": "marketplace.html",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "docs.html",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "public/**/*",
-      "use": "@vercel/static"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "https://qma-api.onrender.com/api/$1"
-    },
-    {
-      "src": "/",
-      "dest": "/index.html"
-    },
-    {
-      "src": "/app",
-      "dest": "/app.html"
-    },
-    {
-      "src": "/user",
-      "dest": "/user.html"
-    },
-    {
-      "src": "/profile",
-      "dest": "/user.html"
-    },
-    {
-      "src": "/marketplace",
-      "dest": "/marketplace.html"
-    },
-    {
-      "src": "/docs",
-      "dest": "/docs.html"
-    },
-    {
-      "src": "/public/(.*)",
-      "dest": "/public/$1"
+      "source": "/:path*",
+      "destination": "/index.html"
     }
   ]
 }
