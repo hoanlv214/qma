@@ -36,9 +36,33 @@ def refresh_split_invoice_status(invoice: dict) -> str:
     if invoice_split_mode(invoice) != "x402_direct_split":
         return invoice.get("status", "pending")
     legs = invoice_required_split_legs(invoice)
-    settled_count = sum(1 for leg in legs if leg.get("status") == "paid" and leg.get("settlement_id"))
+    paid_legs = [
+        leg for leg in legs
+        if leg.get("status") == "paid" and leg.get("settlement_id")
+    ]
+    settled_count = len(paid_legs)
     if settled_count == len(legs) and legs:
         invoice["status"] = "paid"
+        invoice_id = invoice.get("invoice_id")
+        if invoice_id and not invoice.get("settlement_id"):
+            invoice["settlement_id"] = f"split:{invoice_id}"
+        invoice["split_settlement_ids"] = [leg.get("settlement_id") for leg in legs if leg.get("settlement_id")]
+        paid_times = [float(leg.get("paid_at") or 0) for leg in legs if leg.get("paid_at")]
+        if paid_times and not invoice.get("paid_at"):
+            invoice["paid_at"] = max(paid_times)
+        payer_addresses = {
+            str(leg.get("payer_address") or "").lower()
+            for leg in paid_legs
+            if leg.get("payer_address")
+        }
+        if len(payer_addresses) == 1 and not invoice.get("payer_address"):
+            invoice["payer_address"] = next(iter(payer_addresses))
+        split = invoice.get("split") or {}
+        if split.get("total_amount_raw") and not invoice.get("amount_raw"):
+            invoice["amount_raw"] = split.get("total_amount_raw")
+        if not invoice.get("verification_mode"):
+            invoice["verification_mode"] = "circle-gateway-x402-direct-split"
+        invoice["gateway_status"] = aggregate_split_gateway_status(invoice)
     elif settled_count > 0:
         invoice["status"] = "partial_paid"
     elif time.time() > float(invoice.get("expires_at") or 0):

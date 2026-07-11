@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { API_BASE_URL } from "../../services/api";
 import { clearAllWalletProfileSessions, requestWalletProfileSession } from "../../services/walletProfileSession";
+import { Loader } from "../ui/Loader";
 
 interface Provider {
   provider_id: string;
@@ -71,11 +72,14 @@ export function MarketplaceReview({
   const [formWallet, setFormWallet] = useState(wallet);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [formStatus, setFormStatus] = useState({ text: "", type: "" });
+  const [formSubmitting, setFormSubmitting] = useState(false);
 
   // Admin Section state
   const [adminConfig, setAdminConfig] = useState<AdminPublicConfig | null>(null);
   const [adminToken, setAdminToken] = useState(() => sessionStorage.getItem("qma_admin_token") || "");
   const [adminStatus, setAdminStatus] = useState({ text: "", type: "" });
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminActionKey, setAdminActionKey] = useState("");
   const [adminProviders, setAdminProviders] = useState<Provider[]>([]);
   const [adminApplications, setAdminApplications] = useState<Application[]>([]);
   const [adminNotes, setAdminNotes] = useState<Record<string, string>>({});
@@ -252,6 +256,7 @@ export function MarketplaceReview({
     if (adminToken) {
       sessionStorage.setItem("qma_admin_token", adminToken);
     }
+    setAdminLoading(true);
     setAdminStatus({ text: "Loading admin data...", type: "" });
     try {
       const headers: Record<string, string> = adminToken ? { "X-QMA-Admin-Token": adminToken } : {};
@@ -289,6 +294,8 @@ export function MarketplaceReview({
       });
     } catch (err: any) {
       setAdminStatus({ text: `Admin load failed: ${err.message || err}`, type: "error" });
+    } finally {
+      setAdminLoading(false);
     }
   };
 
@@ -343,6 +350,7 @@ export function MarketplaceReview({
     }
 
     try {
+      setFormSubmitting(true);
       const resp = await fetch(`${API_BASE_URL}/api/v1/creators/apply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -368,11 +376,14 @@ export function MarketplaceReview({
       loadCreatorApplications();
     } catch (err: any) {
       setFormStatus({ text: `Submission failed: ${err.message || err}`, type: "error" });
+    } finally {
+      setFormSubmitting(false);
     }
   };
 
   const handleToggleProvider = async (providerId: string, nextEnabled: boolean) => {
     const admin_note = adminNotes[providerId] || null;
+    setAdminActionKey(`provider:${providerId}`);
     try {
       const resp = await fetch(`${API_BASE_URL}/api/v1/providers/${encodeURIComponent(providerId)}/toggle`, {
         method: "POST",
@@ -389,11 +400,14 @@ export function MarketplaceReview({
       loadAdminData();
     } catch (err: any) {
       setAdminStatus({ text: `Toggle failed: ${err.message || err}`, type: "error" });
+    } finally {
+      setAdminActionKey("");
     }
   };
 
   const handleReviewApplication = async (applicationId: string, status: string) => {
     const admin_note = adminNotes[applicationId] || null;
+    setAdminActionKey(`application:${applicationId}:${status}`);
     try {
       const resp = await fetch(`${API_BASE_URL}/api/v1/creators/applications/${encodeURIComponent(applicationId)}/review`, {
         method: "POST",
@@ -409,6 +423,8 @@ export function MarketplaceReview({
       loadAdminData();
     } catch (err: any) {
       setAdminStatus({ text: `Review failed: ${err.message || err}`, type: "error" });
+    } finally {
+      setAdminActionKey("");
     }
   };
 
@@ -587,7 +603,7 @@ export function MarketplaceReview({
             </div>
             <div className="marketplace-provider-grid" id="marketplace-provider-list">
               {loadingProviders ? (
-                <div className="agent-empty">Loading providers...</div>
+                <Loader label="Loading providers..." variant="progress" />
               ) : providersError ? (
                 <div className="agent-empty">{providersError}</div>
               ) : providers.length === 0 ? (
@@ -802,8 +818,12 @@ export function MarketplaceReview({
                     <option value="9000">90% creator / 10% platform</option>
                   </select>
                 </label>
-                <button type="submit" className="submit-btn">
-                  Submit for Review
+                <button type="submit" className="submit-btn" disabled={formSubmitting}>
+                  {formSubmitting ? (
+                    <Loader label="Submitting" compact variant="spinner" size="xs" className="button-loader" />
+                  ) : (
+                    "Submit for Review"
+                  )}
                 </button>
                 {formStatus.text && (
                   <div className={`creator-form-status ${formStatus.type === "error" ? "error" : formStatus.type === "success" ? "success" : ""}`}>
@@ -836,8 +856,13 @@ export function MarketplaceReview({
                     type="button"
                     className="landing-secondary text-btn"
                     onClick={loadCreatorApplications}
+                    disabled={loadingApps}
                   >
-                    Refresh
+                    {loadingApps ? (
+                      <Loader label="Refreshing" compact variant="spinner" size="xs" className="button-loader" />
+                    ) : (
+                      "Refresh"
+                    )}
                   </button>
                   <button type="button" className="modal-close-button" onClick={() => setShowAppsModal(false)}>
                     x
@@ -848,7 +873,7 @@ export function MarketplaceReview({
                 {!wallet ? (
                   <div className="agent-empty">Connect wallet to view your creator applications.</div>
                 ) : loadingApps ? (
-                  <div className="agent-empty">Loading applications...</div>
+                  <Loader label="Loading applications..." compact size="sm" />
                 ) : applications.length === 0 ? (
                   <div className="agent-empty">No creator applications for this wallet yet.</div>
                 ) : (
@@ -910,8 +935,12 @@ export function MarketplaceReview({
                   the admin token.
                 </p>
               </div>
-              <button type="button" className="landing-secondary text-btn" onClick={loadAdminData}>
-                Refresh
+              <button type="button" className="landing-secondary text-btn" onClick={loadAdminData} disabled={adminLoading}>
+                {adminLoading ? (
+                  <Loader label="Refreshing" compact variant="spinner" size="xs" className="button-loader" />
+                ) : (
+                  "Refresh"
+                )}
               </button>
             </div>
             <div className="admin-auth-row">
@@ -925,8 +954,12 @@ export function MarketplaceReview({
                   placeholder="QMA_ADMIN_TOKEN"
                 />
               </label>
-              <button type="button" className="submit-btn admin-load-btn" onClick={loadAdminData}>
-                Load Admin Data
+              <button type="button" className="submit-btn admin-load-btn" onClick={loadAdminData} disabled={adminLoading}>
+                {adminLoading ? (
+                  <Loader label="Loading" compact variant="spinner" size="xs" className="button-loader" />
+                ) : (
+                  "Load Admin Data"
+                )}
               </button>
             </div>
             {adminStatus.text && (
@@ -971,9 +1004,11 @@ export function MarketplaceReview({
                               type="button"
                               className={`admin-action-btn ${enabled ? "danger" : "success"}`}
                               onClick={() => handleToggleProvider(p.provider_id, !enabled)}
-                              disabled={!hasAdminWrite()}
+                              disabled={!hasAdminWrite() || adminActionKey === `provider:${p.provider_id}`}
                             >
-                              {enabled ? "Disable plugin" : "Enable plugin"}
+                              {adminActionKey === `provider:${p.provider_id}` ? (
+                                <Loader label="Saving" compact variant="spinner" size="xs" className="button-loader" />
+                              ) : enabled ? "Disable plugin" : "Enable plugin"}
                             </button>
                           </div>
                         </article>
@@ -1028,25 +1063,31 @@ export function MarketplaceReview({
                               type="button"
                               className="admin-action-btn success"
                               onClick={() => handleReviewApplication(app.application_id, "approved")}
-                              disabled={!hasAdminWrite()}
+                              disabled={!hasAdminWrite() || adminActionKey === `application:${app.application_id}:approved`}
                             >
-                              Approve
+                              {adminActionKey === `application:${app.application_id}:approved` ? (
+                                <Loader label="Approving" compact variant="spinner" size="xs" className="button-loader" />
+                              ) : "Approve"}
                             </button>
                             <button
                               type="button"
                               className="admin-action-btn"
                               onClick={() => handleReviewApplication(app.application_id, "needs_changes")}
-                              disabled={!hasAdminWrite()}
+                              disabled={!hasAdminWrite() || adminActionKey === `application:${app.application_id}:needs_changes`}
                             >
-                              Needs changes
+                              {adminActionKey === `application:${app.application_id}:needs_changes` ? (
+                                <Loader label="Saving" compact variant="spinner" size="xs" className="button-loader" />
+                              ) : "Needs changes"}
                             </button>
                             <button
                               type="button"
                               className="admin-action-btn danger"
                               onClick={() => handleReviewApplication(app.application_id, "rejected")}
-                              disabled={!hasAdminWrite()}
+                              disabled={!hasAdminWrite() || adminActionKey === `application:${app.application_id}:rejected`}
                             >
-                              Reject
+                              {adminActionKey === `application:${app.application_id}:rejected` ? (
+                                <Loader label="Rejecting" compact variant="spinner" size="xs" className="button-loader" />
+                              ) : "Reject"}
                             </button>
                           </div>
                         </article>

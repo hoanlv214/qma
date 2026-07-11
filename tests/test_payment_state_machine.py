@@ -177,8 +177,52 @@ class PaymentStateMachineTests(unittest.TestCase):
         self.assertEqual(first["status"], "paid")
         self.assertEqual(first["access_status"], "access_issued_pending_batch")
         self.assertTrue(first["access_token"])
+        self.assertEqual(first["settlement_id"], f"split:{invoice['invoice_id']}")
+        self.assertEqual(first["split_settlement_ids"], ["settle_creator", "settle_platform"])
+        self.assertEqual(first["payer_address"], PAYER)
+        self.assertEqual(first["verification_mode"], "circle-gateway-x402-direct-split")
         self.assertEqual(second["status"], "paid")
         self.assertEqual({leg["settlement_id"] for leg in invoice["split"]["legs"]}, {"settle_creator", "settle_platform"})
+
+    def test_verify_backfills_split_invoice_aggregate_when_legs_were_recorded_first(self):
+        invoice = make_split_invoice("inv_recorded_first")
+        invoice.update({
+            "settlement_id": None,
+            "split_settlement_ids": None,
+            "payer_address": None,
+            "amount_raw": None,
+            "verification_mode": None,
+        })
+        for leg in invoice["split"]["legs"]:
+            settlement_id = f"settle_{leg['leg_id']}"
+            leg.update({
+                "status": "paid",
+                "settlement_id": settlement_id,
+                "payer_address": PAYER,
+                "gateway_status": "received",
+                "paid_at": time.time(),
+                "sidecar_receipt": split_receipt(invoice["invoice_id"], leg, settlement_id),
+            })
+        main.invoices_db = {invoice["invoice_id"]: invoice}
+
+        proof = main.PaymentVerifyRequest(
+            invoice_secret=invoice["invoice_secret"],
+            payer_address=PAYER,
+        )
+        patchers = self.no_storage_patches(invoice)
+        patchers.extend([
+            patch.object(main, "refresh_split_leg_batch_txs", lambda _invoice: False),
+        ])
+        with patchers[0], patchers[1], patchers[2], patchers[3], patchers[4]:
+            state = main.verify_payment(invoice["invoice_id"], proof)
+
+        self.assertEqual(state["status"], "paid")
+        self.assertEqual(state["settlement_id"], f"split:{invoice['invoice_id']}")
+        self.assertEqual(state["split_settlement_ids"], ["settle_creator", "settle_platform"])
+        self.assertEqual(state["payer_address"], PAYER)
+        self.assertEqual(state["amount_raw"], "1000")
+        self.assertEqual(state["verification_mode"], "circle-gateway-x402-direct-split")
+        self.assertTrue(state["access_token"])
 
     def test_replay_guard_rejects_settlement_id_claimed_by_other_invoice(self):
         current = make_split_invoice("inv_current")

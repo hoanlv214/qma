@@ -5,6 +5,7 @@ import {
   getCachedWalletProfileToken,
   requestWalletProfileSession,
 } from "../../services/walletProfileSession";
+import { Loader } from "../ui/Loader";
 
 interface Payment {
   symbol?: string;
@@ -81,6 +82,7 @@ export function ProfileOrdersPage() {
   const [chainBalance, setChainBalance] = useState("n/a");
   const [gatewayBalance, setGatewayBalance] = useState("n/a");
   const [summary, setSummary] = useState<WalletSummary | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
 
   // Data Lists
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -250,6 +252,7 @@ export function ProfileOrdersPage() {
   const loadProfile = async (account: string, page = 1, tokenOverride = "") => {
     if (!account) return;
 
+    setProfileLoading(true);
     try {
       let token = tokenOverride || cachedWalletToken(account);
       const privateHeaders = token ? { "X-QMA-Wallet-Token": token } : undefined;
@@ -319,6 +322,8 @@ export function ProfileOrdersPage() {
       setTotalPages(pageInfo.total_pages);
     } catch (err) {
       console.warn("Failed to load profile data", err);
+    } finally {
+      setProfileLoading(false);
     }
   };
 
@@ -618,7 +623,7 @@ export function ProfileOrdersPage() {
                 {privateProfileUnlocked
                   ? "Private Snapshots Unlocked"
                   : unlockingProfile
-                    ? "Unlocking..."
+                    ? <Loader label="Unlocking" compact variant="spinner" size="xs" className="button-loader" />
                     : "Unlock Private Snapshots"}
               </button>
             </div>
@@ -629,29 +634,41 @@ export function ProfileOrdersPage() {
           <div className="profile-tile">
             <span className="profile-label">On-chain USDC</span>
             <span className="profile-value" id="user-chain-balance">
-              {chainBalance}
+              {profileLoading && chainBalance === "n/a" ? (
+                <Loader compact variant="spinner" size="xs" className="inline" />
+              ) : (
+                chainBalance
+              )}
             </span>
           </div>
           <div className="profile-tile">
             <span className="profile-label">Gateway Balance</span>
             <span className="profile-value" id="user-gateway-balance">
-              {gatewayBalance}
+              {profileLoading && gatewayBalance === "n/a" ? (
+                <Loader compact variant="spinner" size="xs" className="inline" />
+              ) : (
+                gatewayBalance
+              )}
             </span>
           </div>
           <div className="profile-tile">
             <span className="profile-label">Reports Bought</span>
             <span className="profile-value profile-value-highlight" id="user-payment-count">
               {summary
-                ? `${summary.current_payments ?? summary.payments ?? 0} (P:${summary.tier_counts?.preview || 0} F:${
-                    summary.tier_counts?.full || 0
-                  }${summary.tier_counts?.legacy ? ` L:${summary.tier_counts.legacy}` : ""})`
-                : "0"}
+                ? `${summary.current_payments ?? summary.payments ?? 0} (P:${summary.tier_counts?.preview || 0} F:${summary.tier_counts?.full || 0}${summary.tier_counts?.legacy ? ` L:${summary.tier_counts.legacy}` : ""})`
+                : profileLoading
+                  ? <Loader compact variant="spinner" size="xs" className="inline" />
+                  : "0"}
             </span>
           </div>
           <div className="profile-tile">
             <span className="profile-label">Total Spent</span>
             <span className="profile-value" id="user-spent">
-              {summary ? `${Number(summary.spent_usdc || 0).toFixed(3)} USDC` : "0.000 USDC"}
+              {summary
+                ? `${Number(summary.spent_usdc || 0).toFixed(3)} USDC`
+                : profileLoading
+                  ? <Loader compact variant="spinner" size="xs" className="inline" />
+                  : "0.000 USDC"}
             </span>
           </div>
         </section>
@@ -659,7 +676,9 @@ export function ProfileOrdersPage() {
         <section className="profile-section">
           <div className="section-header">Purchased Signals</div>
           <div className="token-list" id="user-token-list">
-            {summary && summary.purchased_symbols && summary.purchased_symbols.length > 0 ? (
+            {profileLoading && !summary ? (
+              <Loader label="Loading purchased signals..." compact size="sm" />
+            ) : summary && summary.purchased_symbols && summary.purchased_symbols.length > 0 ? (
               summary.purchased_symbols.map((sym, idx) => (
                 <span className="token-chip" key={idx}>
                   {sym}
@@ -701,6 +720,12 @@ export function ProfileOrdersPage() {
                 {!wallet ? (
                   <tr className="empty-row">
                     <td colSpan={8}>Connect a wallet to load payment history.</td>
+                  </tr>
+                ) : profileLoading ? (
+                  <tr className="empty-row">
+                    <td colSpan={8}>
+                      <Loader label="Loading payment history..." compact size="sm" className="table-loader" />
+                    </td>
                   </tr>
                 ) : payments.length === 0 ? (
                   <tr className="empty-row">
@@ -858,7 +883,7 @@ export function ProfileOrdersPage() {
                                 </div>
 
                                 {isDetailLoading ? (
-                                  <div className="receipt-detail-empty">Loading report snapshot...</div>
+                                  <Loader label="Loading report snapshot..." compact size="sm" />
                                 ) : !detailData ? (
                                   <div className="receipt-detail-empty">Could not load report snapshot.</div>
                                 ) : (
@@ -979,7 +1004,7 @@ export function ProfileOrdersPage() {
                 type="button"
                 className="refresh-btn"
                 onClick={() => currentPage > 1 && setCurrentPage(currentPage - 1)}
-                disabled={currentPage <= 1}
+                disabled={profileLoading || currentPage <= 1}
               >
                 Prev
               </button>
@@ -994,7 +1019,7 @@ export function ProfileOrdersPage() {
                 type="button"
                 className="refresh-btn"
                 onClick={() => currentPage < totalPages && setCurrentPage(currentPage + 1)}
-                disabled={!!pageMeta.legacy || currentPage >= totalPages}
+                disabled={profileLoading || !!pageMeta.legacy || currentPage >= totalPages}
               >
                 Next
               </button>
@@ -1016,7 +1041,13 @@ export function ProfileOrdersPage() {
                 </tr>
               </thead>
               <tbody id="user-events-body">
-                {localEvents.length === 0 ? (
+                {profileLoading ? (
+                  <tr className="empty-row">
+                    <td colSpan={4}>
+                      <Loader label="Loading wallet actions..." compact size="sm" className="table-loader" />
+                    </td>
+                  </tr>
+                ) : localEvents.length === 0 ? (
                   <tr className="empty-row">
                     <td colSpan={4}>No local wallet actions recorded.</td>
                   </tr>

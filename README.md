@@ -79,7 +79,9 @@ qma/
 
 ## Money Roles And Settlement Model
 
-QMA intentionally separates money roles. In vNext, provider purchases use direct x402 split legs: creator revenue settles to the provider revenue wallet, and platform fees settle to the platform treasury. Legacy `treasury_ledger` providers can still settle first into the treasury wallet and pay creators through the claim flow.
+QMA intentionally separates money roles. The default settlement mode is `x402_direct_split`: every provider-bound purchase creates independent x402 legs. The creator leg has `pay_to=provider_revenue_wallet`, so creator revenue settles directly to the provider revenue wallet's Circle Gateway balance. The platform leg has `pay_to=platform_treasury`, so platform fees settle separately to treasury.
+
+Legacy `treasury_ledger` providers are different. They settle into treasury first, then the QMA creator ledger tracks provider-owner balances until the creator selects one or more providers and clicks Claim.
 
 | Role | Current address | Purpose |
 | --- | --- | --- |
@@ -90,38 +92,84 @@ QMA intentionally separates money roles. In vNext, provider purchases use direct
 
 ```mermaid
 flowchart LR
-    Buyer[Buyer wallet] -->|creator x402 leg| Gateway[Circle Gateway]
-    Buyer -->|platform x402 leg| Gateway
-    Gateway -->|creator leg| Provider[Provider owner / creator]
-    Gateway -->|platform leg| Treasury[Platform treasury / Gateway settlement wallet]
-
     Provider[Provider owner / creator] -->|submits provider application| Admin[Marketplace admin]
     Admin -->|approve / reject / enable / disable| Catalog[Provider catalog]
     Catalog -->|provider-bound invoice| Buyer
-    Treasury -->|legacy accounting source| Ledger[Creator ledger: pending / available]
-    Ledger -->|creator clicks Claim| Claim[POST /creator/claim]
-    Claim -->|ledger check + debit available| Treasury
-    Treasury -->|funds payout liquidity| Relayer[Claim payout executor]
-    Relayer -->|legacy creator receives USDC| Provider
+
+    subgraph direct["Default: x402_direct_split"]
+        Buyer[Buyer wallet] -->|"creator leg: pay_to=provider_revenue_wallet"| Gateway[Circle Gateway]
+        Buyer -->|"platform leg: pay_to=platform_treasury"| Gateway
+        Gateway -->|settles creator leg directly| Provider
+        Gateway -->|settles platform leg directly| Treasury[Platform treasury / Gateway settlement wallet]
+    end
+
+    subgraph legacy["Legacy treasury-ledger mode only"]
+        Buyer2[Buyer wallet] -->|single treasury-settled payment| Treasury
+        Treasury -->|accounting source| Ledger[Creator ledger: pending / available]
+        Ledger -->|creator selects one or many providers| Claim[POST /api/v1/creators/claim]
+        Claim -->|ownership check + reserve/debit available| Ledger
+        Treasury -->|funds payout liquidity| Relayer[Claim payout executor]
+        Relayer -->|legacy creator receives USDC| Provider
+    end
 ```
 
 Current behavior:
 
-- Buyers pay one x402 leg to the creator revenue wallet and one x402 leg to the platform treasury.
-- Provider owners can see direct-settled earnings for split providers. Legacy ledger providers still show pending/available claim balances.
-- The treasury wallet performs the real Gateway withdrawal because it is the current Gateway depositor.
-- The payout executor/relayer sends MVP creator claim transfers and sponsors gas for relayed withdrawals; it should hold a small operating USDC balance funded from treasury/platform fees.
-- Future versions can replace treasury payout execution with direct settlement or a revenue split contract without rewriting the creator dashboard.
+- Buyers normally sign/pay two independent x402 legs: creator and platform.
+- Direct-split creator earnings are not claimable ledger debt. They already belong to the provider revenue wallet as Gateway balance. The creator can select provider rows in the dashboard for accounting visibility, then withdraw the connected revenue wallet's Gateway balance.
+- Legacy ledger providers still show `pending`, `available`, `requested`, `paid`, and `failed` claim balances. The creator can select one or many providers and submit one batched claim.
+- Gateway withdrawal is wallet-level, not provider-level. If one revenue wallet owns three providers, selecting those providers filters the displayed accounting totals, but the signed Gateway `BurnIntent` withdraws from that connected wallet's Gateway balance.
+- A split invoice unlocks access only when all required legs are paid/final. If one leg succeeds and another later fails, QMA marks the invoice `disputed` and does not issue a new access token. Already-settled money cannot be revoked because x402 split legs are independent payments, not escrow.
+- The payout executor/relayer sends MVP legacy creator claim transfers and can sponsor gas for relayed withdrawals; it should hold a small operating USDC balance funded from treasury/platform fees.
 
-Recommended claim path for the current architecture:
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Buyer
+    participant Web as QMA Web/API
+    participant Gateway as Circle Gateway + x402
+    participant Creator as Provider revenue wallet
+    participant Treasury as Platform treasury
+    participant Ledger as QMA creator ledger
+    participant Relayer as Claim payout executor
 
-1. Keep buyer settlement centralized in the platform treasury.
-2. Track creator earnings in the QMA split ledger per provider owner wallet.
-3. Show creator balances as `pending` and `available` in the dashboard.
-4. Let the creator initiate payout with a Claim action.
-5. On claim, the backend verifies the ledger, debits available balance, and asks the configured payout executor hot wallet to transfer USDC on-chain to the creator. A later contract/meta-transaction version can split treasury signing from relayer gas sponsorship.
-6. Record claim status (`requested`, `paid`, `failed`), amount, provider, creator wallet, and transaction hash.
-7. Do not run automatic daily treasury transfers by default; creator-initiated claim keeps payout timing and transaction history visible to the creator.
+    Buyer->>Web: Select provider, tier, and query
+    Web->>Web: Create provider-bound invoice
+    Web->>Web: Build split legs from provider revenue_share_bps
+
+    par creator split leg
+        Buyer->>Gateway: Sign/pay x402 leg to provider_revenue_wallet
+        Gateway-->>Creator: Creator leg settles to Gateway balance
+    and platform split leg
+        Buyer->>Gateway: Sign/pay x402 leg to platform_treasury
+        Gateway-->>Treasury: Platform leg settles to Gateway balance
+    end
+
+    Gateway-->>Web: Return settlement receipts per leg
+    Web->>Web: Verify all required legs and issue report access
+
+    alt default direct split
+        Creator->>Web: Open Creator Earnings
+        Creator->>Web: Select one or many provider rows
+        Web-->>Creator: Show selected accounting totals and withdrawable Gateway balance
+        Creator->>Web: Sign Gateway BurnIntent
+        Web->>Gateway: POST /api/v1/payment/withdraw
+        Gateway-->>Creator: Mint/relay wallet USDC
+    else legacy treasury-ledger provider
+        Web->>Ledger: Move creator share from pending to available after final settlement
+        Creator->>Web: Select one or many providers and click Claim
+        Web->>Ledger: Verify ownership, amount, and signature
+        Web->>Ledger: Reserve/debit available claim balance
+        Web->>Relayer: Request USDC payout
+        Relayer-->>Creator: Transfer USDC to creator wallet
+        Web->>Ledger: Record claim status and tx hash
+    end
+
+    opt one split leg fails after another leg paid
+        Web->>Web: Mark invoice disputed and block new access token
+        Note over Creator,Treasury: Paid leg remains settled; it is not escrowed or reversible.
+    end
+```
 
 ## Agent Buyer Flow
 
