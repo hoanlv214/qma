@@ -1604,6 +1604,189 @@
     border-color: rgba(124, 111, 255, 0.28);
 }
 
+/* Fund Arc Wallet modal: compact balance-first layout */
+.funding-modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 24px 24px 16px;
+}
+
+.funding-close-btn {
+    width: 32px;
+    height: 32px;
+    flex: 0 0 auto;
+    border: 1px solid var(--bdr-md);
+    border-radius: 999px;
+    background: var(--bg-3);
+    color: var(--t3);
+    cursor: pointer;
+}
+
+.funding-close-btn:hover {
+    color: var(--t1);
+    border-color: var(--bdr-hi);
+}
+
+.funding-modal-body {
+    padding: 0 24px 24px;
+}
+
+.funding-balance-head,
+.funding-balance-values,
+.funding-wallet-identity {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.funding-balance-values {
+    align-items: baseline;
+    margin: 4px 0 10px;
+}
+
+.funding-balance-values strong {
+    color: var(--t1);
+    font-family: var(--mono);
+    font-size: 1.5rem;
+}
+
+.funding-balance-values span,
+.funding-wallet-identity span,
+.funding-details-toggle {
+    color: var(--t3);
+    font-size: 0.7rem;
+}
+
+.funding-progress {
+    height: 6px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--bdr);
+}
+
+.funding-progress span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: #f59e0b;
+    transition: width 0.2s ease;
+}
+
+.funding-progress.ready span {
+    background: var(--green);
+}
+
+.funding-wallet-identity {
+    justify-content: flex-start;
+    margin-top: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--bdr);
+    border-radius: 10px;
+    background: var(--bg-3);
+}
+
+.funding-wallet-icon,
+.funding-option-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    flex: 0 0 auto;
+    border-radius: 8px;
+    background: var(--bdr);
+    color: var(--t3);
+}
+
+.funding-wallet-identity > div {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+}
+
+.funding-wallet-identity strong {
+    overflow: hidden;
+    color: var(--t1);
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.funding-wallet-identity .funding-wallet-usdc {
+    margin-left: auto;
+    color: var(--t2);
+}
+
+.funding-ready-actions {
+    display: grid;
+    gap: 10px;
+}
+
+.funding-continue-btn {
+    width: 100%;
+    border: 0;
+    border-radius: 9px;
+    background: var(--accent);
+    color: #fff;
+    cursor: pointer;
+    font-size: 0.78rem;
+    font-weight: 800;
+    padding: 11px 14px;
+}
+
+.funding-continue-btn:hover {
+    opacity: 0.9;
+}
+
+.funding-details-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+}
+
+.funding-details-toggle span {
+    transition: transform 0.15s ease;
+}
+
+.funding-details-toggle span.expanded {
+    transform: rotate(180deg);
+}
+
+.funding-primary-action {
+    margin-top: 10px;
+}
+
+.funding-route-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+}
+
+.funding-route-card > span:last-child {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+}
+
+.funding-route-card strong {
+    color: var(--t1);
+    font-size: 0.76rem;
+}
+
+.funding-route-card-highlight {
+    border-color: rgba(124, 111, 255, 0.35);
+    background: rgba(124, 111, 255, 0.08);
+}
+
 .funding-route-card .funding-item-value {
     color: var(--t1);
     font-size: 0.76rem;
@@ -5914,8 +6097,7 @@ body.basic-view .platform-stats-section {
     }
 
     .split-table-col--settlements .activity-table,
-    .split-table-col--wallets .activity-table,
-    .activity-table {
+    .split-table-col--wallets .activity-table {
         min-width: 600px !important;
     }
 
@@ -5988,5 +6170,136 @@ body.basic-view .platform-stats-section {
 
     100% {
         box-shadow: 0 0 0 0 rgba(34, 211, 160, 0);
+    }
+}
+
+/* Responsive parity for the legacy dashboard layout. Keep wide data tables
+   horizontally scrollable instead of shrinking or clipping their columns. */
+.body .table-wrap,
+.body .split-table-col,
+.body .quick-profile-table-wrap,
+.body [style*="overflowX: auto"] {
+    min-width: 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.body .activity-table {
+    min-width: 640px;
+}
+
+@media (max-width: 900px) {
+    .body .header {
+        display: flex;
+        align-items: center;
+        min-height: 52px;
+        height: auto;
+        padding: 8px 16px;
+    }
+
+    .body .logo-section {
+        min-width: 0;
+    }
+
+    .body .logo-tag {
+        display: none;
+    }
+
+    .body .status-indicators {
+        min-width: 0;
+        gap: 6px;
+    }
+
+    .body .view-toggle-btn {
+        padding-inline: 7px;
+    }
+
+    .body .stats-dropdown-panel {
+        right: 0;
+        max-width: min(320px, calc(100vw - 24px));
+    }
+
+    .body .workspace {
+        min-height: calc(100vh - 52px);
+    }
+
+    .body .main-panel {
+        min-width: 0;
+    }
+}
+
+@media (max-width: 600px) {
+    .body .header {
+        min-height: 48px;
+        padding: 7px 12px;
+    }
+
+    .body .status-indicators {
+        flex: 1 1 auto;
+        justify-content: flex-end;
+    }
+
+    .body .view-toggle {
+        display: inline-flex;
+        flex: 0 0 auto;
+    }
+
+    .body .view-toggle-btn {
+        min-width: 29px;
+        padding: 0 5px;
+        font-size: 0.58rem;
+    }
+
+    .body .stats-dropdown-btn {
+        min-width: 30px;
+        padding-inline: 7px;
+    }
+
+    .body .stats-dropdown-btn .dropdown-btn-text {
+        display: none;
+    }
+
+    .body .stats-dropdown-btn .dropdown-btn-arrow {
+        display: none;
+    }
+
+    .body .workspace {
+        margin-top: 48px;
+    }
+
+    .body .table-wrap,
+    .body .split-table-col,
+    .body .quick-profile-table-wrap {
+        border-radius: 10px;
+    }
+
+    .body .activity-table {
+        min-width: 600px !important;
+    }
+
+    .body .platform-stats-section .activity-table,
+    .body .quick-profile-modal .activity-table {
+        min-width: 720px !important;
+    }
+
+    .body .query-actions-row {
+        flex-direction: column !important;
+        align-items: stretch;
+        gap: 8px !important;
+    }
+
+    .body .query-actions-row .submit-btn {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .body .query-fields-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 380px) {
+    .body .query-fields-grid {
+        grid-template-columns: 1fr;
     }
 }

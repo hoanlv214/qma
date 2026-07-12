@@ -3,7 +3,7 @@ import { API_BASE_URL } from "../../services/api";
 import { ensureArcTestnet, getInjectedWallet, shortAddress } from "../../services/wallet";
 import { clearAllWalletProfileSessions, clearWalletProfileSession, requestWalletProfileSession } from "../../services/walletProfileSession";
 import { payX402Resource } from "../../services/x402";
-import { getInvoiceStatus } from "../../services/invoices";
+import { createInvoice, getInvoiceStatus } from "../../services/invoices";
 import { Loader } from "../ui/Loader";
 
 const WITHDRAW_FEE_RESERVE_USDC = 0.0035;
@@ -82,6 +82,7 @@ export function AppPage({
   const [viewMode, setViewModeState] = useState<"basic" | "advanced">(() => {
     return (localStorage.getItem("qma_view_mode") as "basic" | "advanced") || "basic";
   });
+  const [mobileActiveView, setMobileActiveView] = useState<"live-feed-sidebar" | "main-panel">("live-feed-sidebar");
 
   // Time / Clock
   const [timeStr, setTimeStr] = useState("");
@@ -115,6 +116,7 @@ export function AppPage({
   const [lastUpdatedTime, setLastUpdatedTime] = useState<Date | null>(null);
   const [anomaliesLoading, setAnomaliesLoading] = useState(false);
   const [anomaliesError, setAnomaliesError] = useState("");
+  const [liveRefreshTone, setLiveRefreshTone] = useState<"" | "refreshing" | "error">("");
   const [cacheRevision, setCacheRevision] = useState(0);
 
   // Current Selection
@@ -149,6 +151,7 @@ export function AppPage({
   const [payStatusText, setPayStatusText] = useState("");
   const [payErrorText, setPayErrorText] = useState("");
   const [paymentSuccess, setPaymentSuccess] = useState(false);
+  const [paySubmitting, setPaySubmitting] = useState(false);
   const [paymentDetails, setPaymentDetails] = useState({
     buyerGatewayBalance: "",
     settlementId: "",
@@ -157,6 +160,7 @@ export function AppPage({
     txHash: "",
     explorerUrl: "",
   });
+  const [reportDetailsOpen, setReportDetailsOpen] = useState(true);
 
   // Deposit Assist Modal inside paywall
   const [showDepositModal, setShowDepositModal] = useState(false);
@@ -249,6 +253,7 @@ export function AppPage({
   const [fundRequiredAmount, setFundRequiredAmount] = useState("n/a");
   const [fundNextStep, setFundNextStep] = useState("Connect wallet first");
   const [fundPrimaryAction, setFundPrimaryAction] = useState({ action: "connect", label: "Connect wallet first" });
+  const [fundShowAdvanced, setFundShowAdvanced] = useState(false);
 
   const sameAddress = (a?: string, b?: string) => {
     return Boolean(a && b && String(a).toLowerCase() === String(b).toLowerCase());
@@ -455,6 +460,7 @@ export function AppPage({
   };
 
   const loadLiveAnomalies = async (silent = false) => {
+    setLiveRefreshTone("refreshing");
     if (!silent) setAnomaliesLoading(true);
     setAnomaliesError("");
     try {
@@ -462,7 +468,13 @@ export function AppPage({
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.detail || "Failed to load anomalies");
       setAnomalies(data.anomalies || []);
-      setLastUpdatedTime(data.last_updated ? new Date(data.last_updated) : new Date());
+      const rawUpdated = data.last_updated;
+      const numericUpdated = Number(rawUpdated);
+      const updatedAt = Number.isFinite(numericUpdated)
+        ? new Date(numericUpdated > 10_000_000_000 ? numericUpdated : numericUpdated * 1000)
+        : new Date(rawUpdated);
+      setLastUpdatedTime(Number.isNaN(updatedAt.getTime()) ? null : updatedAt);
+      setLiveRefreshTone("");
 
       // Auto select first anomaly on initial load if query is basic
       if (data.anomalies && data.anomalies.length > 0 && !silent) {
@@ -470,10 +482,19 @@ export function AppPage({
       }
     } catch (err: any) {
       setAnomaliesError(err.message || "Exchange scan error");
+      setLiveRefreshTone("error");
     } finally {
       setAnomaliesLoading(false);
     }
   };
+
+  const liveRefreshLabel = lastUpdatedTime
+    ? `Updated ${lastUpdatedTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}`
+    : liveRefreshTone === "refreshing"
+      ? "Refreshing"
+      : liveRefreshTone === "error"
+        ? "Refresh error"
+        : "Auto 30s";
 
   const loadAgentRecommendations = async () => {
     try {
@@ -1318,6 +1339,7 @@ export function AppPage({
 
     setPaywallOpen(true);
     setPaymentSuccess(false);
+    setPaySubmitting(false);
     setPayErrorText("");
     setUnlockedReport(null);
     setPaymentDetails({
@@ -1407,18 +1429,12 @@ export function AppPage({
 
       if (!invoiceData) {
         setPayStatusText("Creating payment invoice...");
-        const invoiceResp = await fetch(`${API_BASE_URL}/api/v1/payment/invoice`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...activeQuery,
-            provider_id: selectedProviderId,
-            tier,
-          }),
+        invoiceData = await createInvoice({
+          ...activeQuery,
+          symbol: String(activeQuery.symbol || ""),
+          provider_id: selectedProviderId,
+          tier,
         });
-
-        invoiceData = await invoiceResp.json();
-        if (!invoiceResp.ok) throw new Error(invoiceData.detail || "Failed to create invoice");
       } else {
         showToast(`Resumed invoice ${shortAddress(invoiceData.invoice_id)}. Continue with remaining split leg.`, "info");
       }
@@ -1891,6 +1907,8 @@ export function AppPage({
 
   const signAndSettleX402 = async () => {
     if (!currentInvoice || !wallet) return;
+    if (paySubmitting) return;
+    setPaySubmitting(true);
     setPayErrorText("");
     setPayStatusText("Requesting EIP-712 payment authorization signature...");
     setPaymentStep("settlement");
@@ -1901,6 +1919,14 @@ export function AppPage({
 
     try {
       const splitLegs = Array.isArray(currentInvoice.split_legs) ? currentInvoice.split_legs : [];
+      const selfRecipientLeg = splitLegs.find((leg: any) => sameAddress(wallet, leg.pay_to));
+      if (selfRecipientLeg) {
+        throw new Error(`Connected wallet is the ${selfRecipientLeg.role || selfRecipientLeg.leg_id} split recipient (${selfRecipientLeg.pay_to}). Use a separate buyer wallet from the provider or treasury wallet.`);
+      }
+      if (!splitLegs.length && sameAddress(wallet, sellerAddress)) {
+        throw new Error(`Connected wallet is the seller wallet (${sellerAddress}). Use a separate buyer wallet for report purchases.`);
+      }
+
       const splitSettlements: any[] = splitLegs
         .filter((leg: any) => leg.status === "paid" && leg.settlement_id && leg.sidecar_receipt)
         .map((leg: any) => ({
@@ -2030,6 +2056,8 @@ export function AppPage({
         ...prev,
         settlement: { status: "failed", label: "Failed" },
       }));
+    } finally {
+      setPaySubmitting(false);
     }
   };
   const fetchReportContent = async (
@@ -2310,24 +2338,15 @@ export function AppPage({
       }
       if (!invData) {
         setAgentTrace((prev) => [...prev, { text: "invoice: requesting provider-bound payment terms...", tone: "t-dim" }]);
-        const invResp = await fetch(`${API_BASE_URL}/api/v1/payment/invoice`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...pickQuery,
-            provider_id: pickProviderId,
-            tier: pickTier,
-            buyer_type: "agent",
-            synthetic: true,
-            agent_label: "copilot",
-          }),
+        invData = await createInvoice({
+          ...pickQuery,
+          symbol: String(pickQuery.symbol || ""),
+          provider_id: pickProviderId,
+          tier: pickTier,
+          buyer_type: "agent",
+          synthetic: true,
+          agent_label: "copilot",
         });
-
-        invData = await invResp.json();
-        if (!invResp.ok) {
-          const detail = typeof invData.detail === "object" ? JSON.stringify(invData.detail) : invData.detail;
-          throw new Error(detail || "Invoice creation failed");
-        }
       } else {
         setAgentTrace((prev) => [...prev, { text: `invoice: resumed ${invData.invoice_id.slice(0, 10)}...`, tone: "t-green" }]);
       }
@@ -2449,6 +2468,85 @@ export function AppPage({
   const formatRawPercent = (val?: number) => {
     if (val == null) return "+0.00%";
     return `${val >= 0 ? "+" : ""}${val.toFixed(2)}%`;
+  };
+
+  const formatCompactMoney = (val?: number) => {
+    const num = Number(val || 0);
+    if (!Number.isFinite(num)) return "n/a";
+    if (Math.abs(num) >= 1_000_000_000) return `$${(num / 1_000_000_000).toFixed(1)}B`;
+    if (Math.abs(num) >= 1_000_000) return `$${(num / 1_000_000).toFixed(1)}M`;
+    if (Math.abs(num) >= 1_000) return `$${(num / 1_000).toFixed(1)}K`;
+    return `$${num.toFixed(0)}`;
+  };
+
+  const normalizePercentPoint = (value: any) => {
+    const num = Number(value || 0);
+    if (!Number.isFinite(num)) return 0;
+    return Math.abs(num) <= 1 ? num * 100 : num;
+  };
+
+  const formatCiRange = (values: any, digits = 1, signed = false, normalizeUnit = false) => {
+    if (!Array.isArray(values) || values.length < 2) {
+      return signed ? "+0.0% - +0.0%" : "0.0% - 0.0%";
+    }
+    return values.slice(0, 2).map((item: any) => {
+      const val = normalizeUnit ? normalizePercentPoint(item) : Number(item || 0);
+      const prefix = signed && val >= 0 ? "+" : "";
+      return `${prefix}${val.toFixed(digits)}%`;
+    }).join(" - ");
+  };
+
+  const reportAnalogs = (report: any) => {
+    const rows = Array.isArray(report?.analogs) && report.analogs.length
+      ? report.analogs
+      : Array.isArray(report?.top_analogs)
+        ? report.top_analogs
+        : [];
+    return rows;
+  };
+
+  const isPreviewReport = (report: any) => normalizeTierForCache(report?.tier || report?.invoice?.tier) === "preview";
+
+  const reportWinRateValue = (report: any) => {
+    const source = isPreviewReport(report) ? report?.rough_win_rate : (report?.weighted_win_rate ?? report?.rough_win_rate);
+    return Number(source || 0);
+  };
+
+  const reportWinRateCiLabel = (report: any) => {
+    if (isPreviewReport(report)) return `Preview band: ${report?.win_rate_band || "n/a"}`;
+    const ci = report?.ci_win_rate_95 || report?.win_rate_confidence_interval;
+    return `95% CI: [${formatCiRange(ci, 1, false, Boolean(report?.win_rate_confidence_interval && !report?.ci_win_rate_95))}]`;
+  };
+
+  const reportAvgProfitLabel = (report: any) => {
+    if (isPreviewReport(report)) return "Upgrade";
+    return formatRawPercent(report?.weighted_avg_profit ?? report?.rough_avg_profit);
+  };
+
+  const reportAvgProfitCiLabel = (report: any) => {
+    if (isPreviewReport(report)) return "Full report unlocks weighted PnL and confidence intervals";
+    const ci = report?.ci_avg_profit_95 || report?.avg_profit_confidence_interval;
+    return `95% CI: [${formatCiRange(ci, 2, true)}]`;
+  };
+
+  const reportPercentileRows = (report: any) => {
+    const preview = isPreviewReport(report);
+    const percentiles = report?.percentiles || {};
+    return [
+      { key: "P90", label: "P90 Best", previewWidth: 8 },
+      { key: "P75", label: "P75", previewWidth: 8 },
+      { key: "P50_median", label: "P50 Med", previewWidth: 18 },
+      { key: "P25", label: "P25", previewWidth: 8 },
+      { key: "P10", label: "P10 Worst", previewWidth: 8 },
+    ].map((item) => {
+      const value = Number(percentiles[item.key] || 0);
+      return {
+        ...item,
+        value,
+        text: preview ? "Full" : `${value.toFixed(1)}%`,
+        width: preview ? item.previewWidth : Math.min(100, Math.max(0, Math.abs(value))),
+      };
+    });
   };
 
   const formatDateTime = (val?: number | string) => {
@@ -2869,24 +2967,6 @@ export function AppPage({
                   </svg>
                   <span>Quick Profile Modal</span>
                 </button>
-                {/* <button type="button" className="wallet-menu-item" onClick={() => { setWalletDropdownOpen(false); setShowAgentRunModal(true); setAgentRunTraceLines([]); }}>
-                  <svg className="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 8V4H8"></path>
-                    <rect x="4" y="8" width="16" height="12" rx="2"></rect>
-                    <path d="M2 14h2"></path>
-                    <path d="M20 14h2"></path>
-                    <path d="M9 13h.01"></path>
-                    <path d="M15 13h.01"></path>
-                  </svg>
-                  <span>Agent Run / Judge Mode</span>
-                </button> */}
-                <button type="button" className="wallet-menu-item" onClick={() => { setWalletDropdownOpen(false); setShowFundArcModal(true); refreshFundingReadiness(); }}>
-                  <svg className="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 2v20"></path>
-                    <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7H14a3.5 3.5 0 0 1 0 7H6"></path>
-                  </svg>
-                  <span>Fund Arc Wallet</span>
-                </button>
                 <button type="button" className="wallet-menu-item" onClick={() => { setWalletDropdownOpen(false); onNavigate("marketplace"); }}>
                   <svg className="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path>
@@ -2918,9 +2998,27 @@ export function AppPage({
         </div>
       </header>
 
+      <div className="mobile-view-tabs" role="tablist" aria-label="Dashboard sections">
+        {[
+          ["live-feed-sidebar", "Live Signals"],
+          ["main-panel", "Analysis Report"],
+        ].map(([target, label]) => (
+          <button
+            key={target}
+            type="button"
+            role="tab"
+            aria-selected={mobileActiveView === target}
+            className={`view-tab-btn ${mobileActiveView === target ? "active" : ""}`}
+            onClick={() => setMobileActiveView(target as "live-feed-sidebar" | "main-panel")}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       <div className="workspace">
         {/* Left Sidebar */}
-        <div className="live-feed-sidebar mobile-visible">
+        <div className={`live-feed-sidebar ${mobileActiveView === "live-feed-sidebar" ? "mobile-visible" : ""}`}>
           <div className="sidebar-header">
             <span className="sidebar-title">Live Signals</span>
             <button className="refresh-btn" onClick={() => loadLiveAnomalies()}>
@@ -2981,7 +3079,12 @@ export function AppPage({
           {/* All Live Signals */}
           <div className="sidebar-header anomalies-header">
             <span className="sidebar-title">All Live Signals</span>
-            <span className="anomalies-count-pill">Auto 30s</span>
+            <span
+              className={`anomalies-count-pill${liveRefreshTone ? ` is-${liveRefreshTone}` : ""}`}
+              title={lastUpdatedTime ? lastUpdatedTime.toLocaleString() : undefined}
+            >
+              {liveRefreshLabel}
+            </span>
           </div>
 
           <div className="anomalies-list">
@@ -3037,7 +3140,7 @@ export function AppPage({
         </div>
 
         {/* Right main panel */}
-        <div className="main-panel">
+        <div className={`main-panel ${mobileActiveView === "main-panel" ? "mobile-visible" : ""}`}>
           {/* Removed Agent Control Bar */}
           {/* Form / Selected signal card */}
           <div className="query-card-container">
@@ -3143,7 +3246,7 @@ export function AppPage({
                   }
                 }}
               >
-                <span>🤖 Run Copilot</span>
+                <span>💭✨</span>
               </button>
             </div>
           </div>
@@ -3342,13 +3445,15 @@ export function AppPage({
                       onClick={signAndSettleX402}
                       disabled={
                         paymentStepStatus.gateway.status !== "completed" ||
-                        paymentStepStatus.settlement.status === "active" ||
+                        paySubmitting ||
                         paymentStepStatus.report.status === "active"
                       }
                     >
                       <span>
-                        {paymentStepStatus.settlement.status === "active" || paymentStepStatus.report.status === "active" ? (
+                        {paySubmitting || paymentStepStatus.report.status === "active" ? (
                           <Loader label="Confirming settlement" compact variant="spinner" size="xs" className="button-loader" />
+                        ) : paymentStepStatus.settlement.status === "active" ? (
+                          "Sign Settlement"
                         ) : (
                           "Pay on Arc Testnet"
                         )}
@@ -3428,12 +3533,12 @@ export function AppPage({
                   </div>
                   <p className="plain-summary">
                     {unlockedReport.query_symbol || activeQuery.symbol} is being compared with{" "}
-                    {unlockedReport.matched_k || unlockedReport.analogs?.length || 0} similar historical events in a{" "}
+                    {unlockedReport.matched_k || reportAnalogs(unlockedReport).length || 0} similar historical events in a{" "}
                     {unlockedReport.regime_cluster || "regime cluster"} context. In those past cases, outcomes were{" "}
-                    {Number(unlockedReport.weighted_win_rate ?? unlockedReport.rough_win_rate) >= 60
+                    {reportWinRateValue(unlockedReport) >= 60
                       ? "mostly positive"
                       : "mixed"}{" "}
-                    with a {((unlockedReport.weighted_win_rate ?? unlockedReport.rough_win_rate) || 0).toFixed(1)}% win
+                    with a {reportWinRateValue(unlockedReport).toFixed(1)}% win
                     rate.
                   </p>
                   <div className="summary-card-grid">
@@ -3447,27 +3552,32 @@ export function AppPage({
                     <div className="summary-card">
                       <span className="summary-card-label">Similar events</span>
                       <strong className="summary-card-value">
-                        {(unlockedReport.matched_k ?? unlockedReport.analogs?.length) ?? 0}
+                        {(unlockedReport.matched_k ?? reportAnalogs(unlockedReport).length) ?? 0}
                       </strong>
                       <small className="summary-card-desc">Historical matches in QMA's dataset</small>
                     </div>
                     <div className="summary-card">
                       <span className="summary-card-label">Win rate</span>
                       <strong className="summary-card-value">
-                        {((unlockedReport.weighted_win_rate ?? unlockedReport.rough_win_rate) ?? 0).toFixed(1)}%
+                        {reportWinRateValue(unlockedReport).toFixed(1)}%
                       </strong>
                       <small className="summary-card-desc">How often similar cases finished positive</small>
                     </div>
                     <div className="summary-card">
                       <span className="summary-card-label">Typical outcome</span>
                       <strong className="summary-card-value">
-                        {unlockedReport.percentiles?.P50_median
+                        {isPreviewReport(unlockedReport)
+                          ? "Full"
+                          : unlockedReport.percentiles?.P50_median
                           ? `${unlockedReport.percentiles.P50_median.toFixed(2)}%`
                           : "n/a"}
                       </strong>
                       <small className="summary-card-desc">Median peak result in past analogs</small>
                     </div>
                   </div>
+                  <p className="plain-summary-disclaimer">
+                    Past performance does not guarantee future results. This is historical context, not trading advice.
+                  </p>
                 </div>
 
                 {/* Weighted outcome KPI */}
@@ -3477,28 +3587,16 @@ export function AppPage({
                     <div className="kpi-card">
                       <span className="kpi-title">Analog Win Rate</span>
                       <div className="kpi-value" style={{ color: "var(--green)" }}>
-                        {(unlockedReport.weighted_win_rate || 0).toFixed(1)}%
+                        {reportWinRateValue(unlockedReport).toFixed(1)}%
                       </div>
-                      <span className="kpi-sub">
-                        95% CI: [
-                        {unlockedReport.win_rate_confidence_interval
-                          ? unlockedReport.win_rate_confidence_interval.map((x: number) => (x * 100).toFixed(1)).join(" – ")
-                          : "0.0% – 0.0%"}
-                        ]%
-                      </span>
+                      <span className="kpi-sub">{reportWinRateCiLabel(unlockedReport)}</span>
                     </div>
                     <div className="kpi-card">
                       <span className="kpi-title">Avg Historical Peak PnL</span>
                       <div className="kpi-value" style={{ color: "var(--green)" }}>
-                        {formatRawPercent(unlockedReport.weighted_avg_profit)}
+                        {reportAvgProfitLabel(unlockedReport)}
                       </div>
-                      <span className="kpi-sub">
-                        95% CI: [
-                        {unlockedReport.avg_profit_confidence_interval
-                          ? unlockedReport.avg_profit_confidence_interval.map((x: number) => x.toFixed(2)).join("% – ")
-                          : "+0.0% – +0.0%"}
-                        ]%
-                      </span>
+                      <span className="kpi-sub">{reportAvgProfitCiLabel(unlockedReport)}</span>
                     </div>
                   </div>
                 </div>
@@ -3534,29 +3632,40 @@ export function AppPage({
 
                 {/* Advanced details toggler */}
                 <div className="advanced-only section-span-all advanced-dropdown-wrapper" style={{ marginTop: 12 }}>
+                  <button
+                    type="button"
+                    className={`advanced-dropdown-trigger ${reportDetailsOpen ? "expanded" : ""}`}
+                    onClick={() => setReportDetailsOpen((open) => !open)}
+                  >
+                    <span className="trigger-label">
+                      {reportDetailsOpen ? "Hide" : "Show"} Detailed Quant Diagnostics & Analogs
+                    </span>
+                    <svg className="trigger-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                  </button>
+                  <div className="advanced-dropdown-content" style={{ display: reportDetailsOpen ? "grid" : "none" }}>
                   <div className="report-section">
                     <div className="section-header">Historical Outcome Percentiles</div>
                     <div className="dist-chart">
-                      {["P90", "P75", "P50_median", "P25", "P10"].map((percentile) => {
-                        const val = unlockedReport.percentiles?.[percentile] || 0;
-                        const fillWidth = Math.min(Math.max((val + 50) * 1.5, 0), 100);
+                      {reportPercentileRows(unlockedReport).map((percentile) => {
                         return (
-                          <div className="dist-row" key={percentile}>
-                            <span className="dist-label">{percentile}</span>
+                          <div className="dist-row" key={percentile.key}>
+                            <span className="dist-label">{percentile.label}</span>
                             <div className="dist-bar-bg">
-                              <div className="dist-bar-fill" style={{ width: `${fillWidth}%` }}></div>
+                              <div className="dist-bar-fill" style={{ width: `${percentile.width}%` }}></div>
                             </div>
-                            <span className="dist-val">{val.toFixed(2)}%</span>
+                            <span className="dist-val">{percentile.text}</span>
                           </div>
                         );
                       })}
                     </div>
                   </div>
 
-                  <div className="report-section section-span-2" style={{ marginTop: 12 }}>
-                    <div className="section-header">Historical Analog Matches</div>
+                  <div className="report-section section-span-2">
+                    <div className="section-header">Closest Historical Funding Events</div>
                     <div className="table-wrap">
-                      <table className="activity-table">
+                      <table className="analogs-table">
                         <thead>
                           <tr>
                             <th>Asset</th>
@@ -3569,13 +3678,13 @@ export function AppPage({
                           </tr>
                         </thead>
                         <tbody>
-                          {unlockedReport.analogs?.map((analog: any, analogIdx: number) => (
+                          {reportAnalogs(unlockedReport).map((analog: any, analogIdx: number) => (
                             <tr key={analogIdx}>
-                              <td className="mono-td" style={{ fontWeight: 600 }}>{analog.symbol}</td>
+                              <td className="mono-td" style={{ fontWeight: 600 }}>{analog.symbol || "n/a"}</td>
                               <td className="mono-td">{analog.fundingRate != null ? `${(Number(analog.fundingRate) * 100).toFixed(3)}%` : "n/a"}</td>
-                              <td className="mono-td">{analog.marketCap != null ? `$${(Number(analog.marketCap) / 1_000_000).toFixed(1)}M` : "n/a"}</td>
-                              <td className="mono-td">{analog.age_days != null ? `${Math.round(Number(analog.age_days))}d ago` : formatDateTime(analog.timestamp || analog.time)}</td>
-                              <td className="mono-td">{analog.decay_weight != null ? Number(analog.decay_weight).toFixed(3) : "n/a"}</td>
+                              <td className="mono-td">{isPreviewReport(unlockedReport) ? "Preview" : analog.marketCap != null ? formatCompactMoney(Number(analog.marketCap)) : "n/a"}</td>
+                              <td className="mono-td">{isPreviewReport(unlockedReport) ? "Preview" : analog.age_days != null ? `${Math.round(Number(analog.age_days))}d ago` : formatDateTime(analog.timestamp || analog.time)}</td>
+                              <td className="mono-td">{isPreviewReport(unlockedReport) ? "Preview" : analog.decay_weight != null ? Number(analog.decay_weight).toFixed(3) : "n/a"}</td>
                               <td className="mono-td">{analog.similarity != null ? `${(Number(analog.similarity) * 100).toFixed(2)}%` : "n/a"}</td>
                               <td>
                                 <span className={`pnl-badge ${Number(analog.profit_pct ?? analog.peak_pnl ?? analog.pnl ?? 0) >= 0 ? "win" : "loss"}`}>
@@ -3584,6 +3693,11 @@ export function AppPage({
                               </td>
                             </tr>
                           ))}
+                          {!reportAnalogs(unlockedReport).length ? (
+                            <tr>
+                              <td className="mono-td" colSpan={7}>No historical analog rows returned for this report.</td>
+                            </tr>
+                          ) : null}
                         </tbody>
                       </table>
                     </div>
@@ -3640,6 +3754,7 @@ export function AppPage({
                         <div className="risk-item">No additional provider warnings for this report.</div>
                       ) : null}
                     </div>
+                  </div>
                   </div>
                 </div>
 
@@ -4407,17 +4522,11 @@ export function AppPage({
                 <span className="profile-value">
                   {profileChainUsdc === "loading..." ? <Loader compact variant="spinner" size="xs" className="inline" /> : profileChainUsdc}
                 </span>
-                <span style={{ fontSize: "0.62rem", color: "var(--t3)", marginTop: 4, display: "block", fontFamily: "var(--mono)" }}>
-                  MetaMask balance
-                </span>
               </div>
               <div className="profile-tile">
                 <span className="profile-label">Buyer Gateway Balance</span>
                 <span className="profile-value">
                   {profileGatewayUsdc === "loading..." ? <Loader compact variant="spinner" size="xs" className="inline" /> : profileGatewayUsdc}
-                </span>
-                <span style={{ fontSize: "0.62rem", color: "var(--t3)", marginTop: 4, display: "block", fontFamily: "var(--mono)" }}>
-                  Circle Gateway contract
                 </span>
               </div>
               <div className="profile-tile">
@@ -4527,53 +4636,64 @@ export function AppPage({
       {showFundArcModal && (
         <div className="modal-backdrop open" style={{ display: "flex" }}>
           <div className="wallet-profile-modal funding-modal" role="dialog" aria-modal="true" aria-labelledby="fund-arc-title" style={{ display: "block" }}>
-            <div className="modal-header">
+            <div className="funding-modal-header">
               <div>
                 <div className="modal-title" id="fund-arc-title">Fund Arc Wallet</div>
                 <div className="modal-subtitle">
-                  Read-only funding readiness before QMA spends Gateway balance through x402.
+                  {fundReadinessTone === "ready" ? "Gateway balance covers this report." : "Top up your Gateway balance to unlock this report."}
                 </div>
               </div>
-              <button className="icon-button" type="button" title="Close" onClick={() => setShowFundArcModal(false)}>✕</button>
+              <button className="funding-close-btn" type="button" title="Close" aria-label="Close" onClick={() => setShowFundArcModal(false)}>✕</button>
             </div>
-            <div className="funding-body">
+            <div className="funding-body funding-modal-body">
               <section className="funding-section">
-                <div className="funding-section-top">
-                  <div>
-                    <div className="funding-section-title">Wallet Status</div>
-                    <p className="funding-section-desc">QMA checks readiness before payment without bridging or depositing from this modal.</p>
-                  </div>
-                  <span className={`funding-status-pill ${fundReadinessTone}`}>{fundReadinessStatus}</span>
+                <div className="funding-balance-head">
+                  <span className="funding-item-label">Gateway balance</span>
+                  <span className={`funding-status-pill ${fundReadinessTone}`}>
+                    {fundReadinessTone === "ready" ? "✓ " : ""}{fundReadinessTone === "ready" ? "Ready" : fundReadinessStatus}
+                  </span>
                 </div>
-                <div className="funding-status-grid">
-                  <div className="funding-status-item">
-                    <span className="funding-item-label">Connected wallet</span>
-                    <strong className="funding-item-value" title={wallet}>{fundWalletStatus}</strong>
-                  </div>
-                  <div className="funding-status-item">
-                    <span className="funding-item-label">Wallet provider</span>
-                    <strong className="funding-item-value">{fundProviderStatus}</strong>
-                  </div>
-                  <div className="funding-status-item">
-                    <span className="funding-item-label">Arc USDC balance</span>
-                    <strong className="funding-item-value">{fundWalletUsdc}</strong>
-                  </div>
-                  <div className="funding-status-item">
-                    <span className="funding-item-label">Gateway balance</span>
-                    <strong className="funding-item-value">{fundGatewayBalance}</strong>
-                  </div>
-                  <div className="funding-status-item">
-                    <span className="funding-item-label">Required amount</span>
-                    <strong className="funding-item-value">{fundRequiredAmount}</strong>
-                  </div>
+                <div className="funding-balance-values">
+                  <strong>{fundGatewayBalance}</strong>
+                  <span>needs {fundRequiredAmount}</span>
+                </div>
+                <div className={`funding-progress ${fundReadinessTone}`}>
+                  <span style={{ width: fundGatewayBalance !== "n/a" && fundRequiredAmount !== "n/a" ? `${Math.min((Number.parseFloat(fundGatewayBalance) / Number.parseFloat(fundRequiredAmount)) * 100, 100)}%` : "0%" }} />
                 </div>
               </section>
+              <div className="funding-wallet-identity">
+                <span className="funding-wallet-icon">◈</span>
+                <div>
+                  <strong title={wallet}>{fundWalletStatus}</strong>
+                  <span>{fundProviderStatus} · {fundChainStatus}</span>
+                </div>
+                <strong className="funding-wallet-usdc">{fundWalletUsdc}</strong>
+              </div>
               <section className="funding-section">
-                <div className="funding-section-top">
-                  <div className="funding-next-step">
-                    <span className="funding-item-label">Next Step</span>
-                    <strong className="funding-item-value">{fundNextStep}</strong>
-                    <div style={{ marginTop: 10 }}>
+                {fundReadinessTone === "ready" || fundPrimaryAction.action === "close" ? (
+                  <div className="funding-ready-actions">
+                    <button type="button" className="funding-continue-btn" onClick={() => setShowFundArcModal(false)}>
+                      Continue to payment
+                    </button>
+                    <button type="button" className="funding-details-toggle" onClick={() => setFundShowAdvanced((value) => !value)}>
+                      Network details <span className={fundShowAdvanced ? "expanded" : ""}>⌄</span>
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="funding-section-title">Funding options</div>
+                    <div className="funding-route-grid">
+                      <a className="funding-route-card" href="https://faucet.circle.com/" target="_blank" rel="noopener noreferrer">
+                        <span className="funding-option-icon">↯</span><span><strong>Circle Faucet</strong><small>Free Arc Testnet USDC for demos and testing.</small></span>
+                      </a>
+                      <a className="funding-route-card" href="https://developers.circle.com/" target="_blank" rel="noopener noreferrer">
+                        <span className="funding-option-icon">⇄</span><span><strong>Bridge via CCTP</strong><small>Move USDC from another chain into Arc.</small></span>
+                      </a>
+                      <div className="funding-route-card funding-route-card-highlight">
+                        <span className="funding-option-icon">＋</span><span><strong>Deposit to Gateway</strong><small>Move Arc USDC into your Gateway balance.</small></span>
+                      </div>
+                    </div>
+                    <div className="funding-next-step"><span className="funding-item-label">Next step</span><strong className="funding-item-value">{fundNextStep}</strong><div className="funding-primary-action">
                       {fundPrimaryAction.action === "connect" && (
                         <button type="button" className="funding-action-btn" onClick={connect}>
                           Connect wallet first
@@ -4608,10 +4728,10 @@ export function AppPage({
                           Close
                         </button>
                       )}
-                    </div>
-                  </div>
-                </div>
-                <div className="funding-network-details">
+                    </div></div>
+                  </>
+                )}
+                {(fundShowAdvanced || (fundReadinessTone !== "ready" && fundPrimaryAction.action !== "close")) && <div className="funding-network-details">
                   <span className="funding-network-title">Arc Testnet network details</span>
                   <div className="funding-network-row">
                     <strong className="funding-network-label">Chain ID</strong>
@@ -4629,27 +4749,7 @@ export function AppPage({
                     <strong className="funding-network-label">Explorer</strong>
                     <code>https://testnet.arcscan.app</code>
                   </div>
-                </div>
-              </section>
-              <section className="funding-section">
-                <div className="funding-section-title">Funding Options</div>
-                <div className="funding-route-grid">
-                  <a className="funding-route-card" href="https://faucet.circle.com/" target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
-                    <span className="funding-item-label">Option A</span>
-                    <strong className="funding-item-value" style={{ display: "block" }}>Circle Faucet</strong>
-                    <small>Get Arc Testnet USDC for demos, judge testing, and Arc network fees.</small>
-                  </a>
-                  <a className="funding-route-card" href="https://developers.circle.com/" target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
-                    <span className="funding-item-label">Option B</span>
-                    <strong className="funding-item-value" style={{ display: "block" }}>CCTP / Arc App Kit</strong>
-                    <small>Move existing USDC from another supported chain into Arc. QMA does not execute the bridge in-browser.</small>
-                  </a>
-                  <div className="funding-route-card">
-                    <span className="funding-item-label">Option C</span>
-                    <strong className="funding-item-value" style={{ display: "block" }}>Gateway Deposit</strong>
-                    <small>Gateway balance is what QMA spends during x402 checkout. Deposit prompts stay inside payment flow.</small>
-                  </div>
-                </div>
+                </div>}
               </section>
             </div>
           </div>

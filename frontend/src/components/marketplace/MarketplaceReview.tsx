@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { API_BASE_URL } from "../../services/api";
-import { clearAllWalletProfileSessions, requestWalletProfileSession } from "../../services/walletProfileSession";
+import { clearAllWalletProfileSessions } from "../../services/walletProfileSession";
 import { Loader } from "../ui/Loader";
 
 interface Provider {
@@ -165,12 +165,9 @@ export function MarketplaceReview({
       if (next) {
         localStorage.setItem("qma_connected_wallet", next);
         setWalletStatus("Wallet connected.");
-        await requestWalletProfileSession(next).catch((sessionErr: any) => {
-          setWalletStatus(sessionErr?.message || "Connected. Private snapshots can be unlocked later in Profile.");
-        });
       }
     } catch (err: any) {
-      setWalletStatus(err.message || "Failed to connect wallet");
+      setWalletStatus(err?.code === 4001 ? "Wallet connection cancelled." : err.message || "Failed to connect wallet");
     }
   };
 
@@ -455,7 +452,7 @@ export function MarketplaceReview({
             <div className="logo-text">QMA</div>
           </a>
           <div className="market-nav-actions">
-            <button type="button" className="market-page-link text-btn" onClick={() => onNavigate("app")}>
+            <button type="button" className="landing-secondary text-btn" onClick={() => onNavigate("app")}>
               Launch App
             </button>
             <div className="wallet-area" style={{ position: "relative" }}>
@@ -471,8 +468,8 @@ export function MarketplaceReview({
                 <div className="wallet-menu open" style={{ right: 0, top: "100%", marginTop: 8 }}>
                   <div className="wallet-menu-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div className="wallet-menu-identity">
-                      <div className="wallet-menu-address" style={{ fontSize: "0.72rem", overflowWrap: "anywhere" }}>
-                        {wallet}
+                      <div className="wallet-menu-address" style={{ fontSize: "0.72rem" }} title={wallet}>
+                        {shortAddress(wallet)}
                       </div>
                       <div className="wallet-role-label role-buyer">Creator</div>
                     </div>
