@@ -49,7 +49,7 @@ const PORT = Number(process.env.PORT ?? process.env.QMA_ARC_GATEWAY_PORT ?? "300
 const SELLER =
   process.env.QMA_PLATFORM_TREASURY_ADDRESS ??
   process.env.QMA_ARC_SELLER_ADDRESS ??
-  "0x933a2405f84c224be1ef373ba16e992e1f459682";
+  "0x23e7c029a287a83d80b2e084e008211658dda11d";
 const AMOUNT = process.env.QMA_ARC_AMOUNT ?? "$0.005";
 const DEFAULT_DEPOSIT_USDC = process.env.QMA_ARC_DEFAULT_DEPOSIT_USDC ?? "1.00";
 const DEFAULT_APPROVE_USDC = process.env.QMA_ARC_APPROVE_USDC ?? "10.00";

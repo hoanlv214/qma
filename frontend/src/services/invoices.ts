@@ -4,7 +4,10 @@ import type { InvoiceRequest, InvoiceResponse, PaymentVerifyRequest, PaymentVeri
 export function createInvoice(payload: InvoiceRequest) {
   return requestJson<InvoiceResponse>("/api/v1/payment/invoice", {
     method: "POST",
-    body: JSON.stringify(withSyntheticFlag(payload)),
+    body: JSON.stringify(withSyntheticFlag({
+      resource_type: "qma_signal_report",
+      ...payload,
+    })),
   });
 }
 

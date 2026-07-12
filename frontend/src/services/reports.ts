@@ -20,8 +20,10 @@ export function getProviderReport(options: {
   });
 }
 
-export function getWalletReport(address: string, entitlementId: string) {
+export function getWalletReport(address: string, entitlementId: string, walletToken: string) {
+  if (!walletToken) throw new Error("Wallet profile session required to open a private report.");
   return requestJson<PaidReport>(
     `/api/v1/wallets/${encodeURIComponent(address)}/reports/${encodeURIComponent(entitlementId)}`,
+    { headers: { "X-QMA-Wallet-Token": walletToken } },
   );
 }

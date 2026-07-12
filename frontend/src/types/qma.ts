@@ -1,5 +1,14 @@
 export type Tier = "preview" | "full";
 export type BuyerType = "human" | "agent";
+export type PaymentStatus = "pending" | "partial_paid" | "paid" | "expired" | "disputed";
+export type AccessStatus =
+  | "pending"
+  | "partial_paid"
+  | "paid"
+  | "expired"
+  | "disputed"
+  | "settlement_confirmed"
+  | "access_issued_pending_batch";
 
 export interface QmaQuery {
   symbol: string;
@@ -103,7 +112,8 @@ export interface PaymentVerifyRequest {
 }
 
 export interface PaymentVerifyResponse {
-  status: "paid" | "pending" | string;
+  status: PaymentStatus;
+  access_status?: AccessStatus;
   access_token?: string;
   settlement_id?: string;
   gateway_status?: string;
