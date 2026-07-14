@@ -42,7 +42,16 @@ Name: qma-api
 Runtime: Python
 Branch: main
 Build Command: pip install -r requirements.txt
-Start Command: uvicorn main:app --host 0.0.0.0 --port $PORT
+  Start Command: uvicorn main:app --host 0.0.0.0 --port $PORT
+```
+
+For the rebuild preview, the tracked sample datasets are at repository-root
+`data/`. If these variables already exist in Render, use these exact relative
+paths (not the old `qma/data/...` paths):
+
+```env
+QMA_HISTORICAL_DB_PATH=data/sample_funding_historical_analysis.csv
+QMA_BACKTEST_OUTCOME_PATH=data/sample_trading_analysis.csv
 ```
 
 The root `main.py` is the supported Render start-command shim and delegates to
@@ -109,10 +118,19 @@ Cross-link the preview services:
 ```env
 # qma-api-rebuild
 QMA_ARC_GATEWAY_URL=https://qma-arc-gateway-rebuild.onrender.com
+QMA_SPLIT_LEG_URL_SECRET=<same-random-value-as-gateway>
+QMA_SPLIT_RECEIPT_SECRET=<same-random-value-as-gateway>
 
 # qma-arc-gateway-rebuild
 QMA_BACKEND_INTERNAL_URL=https://qma-api-rebuild.onrender.com
+QMA_SPLIT_LEG_URL_SECRET=<same-random-value-as-api>
+QMA_SPLIT_RECEIPT_SECRET=<same-random-value-as-api>
 ```
+
+These two HMAC secrets must be entered manually with identical values in both
+Render services. Do not use separate `generateValue` values: each service
+would then sign and verify with different keys, producing `403 invalid split
+leg signature`.
 
 Use separate secrets and, preferably, separate Supabase/persistence for the
 preview services. Never copy production service-role keys or a funded relay

@@ -8,6 +8,10 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
+      - key: QMA_HISTORICAL_DB_PATH
+        value: data/sample_funding_historical_analysis.csv
+      - key: QMA_BACKTEST_OUTCOME_PATH
+        value: data/sample_trading_analysis.csv
       - key: QMA_ARC_GATEWAY_URL
         value: https://qma-arc-gateway-rebuild.onrender.com
       - key: QMA_ARC_SELLER_ADDRESS
@@ -26,6 +30,12 @@ services:
         value: public
       - key: QMA_ACCESS_TOKEN_SECRET
         generateValue: true
+      # Must be the same value on qma-arc-gateway-rebuild.
+      - key: QMA_SPLIT_LEG_URL_SECRET
+        sync: false
+      # Must be the same value on qma-arc-gateway-rebuild.
+      - key: QMA_SPLIT_RECEIPT_SECRET
+        sync: false
       - key: QMA_ADMIN_TOKEN
         sync: false
 
@@ -41,5 +51,11 @@ services:
     envVars:
       - key: QMA_BACKEND_INTERNAL_URL
         value: https://qma-api-rebuild.onrender.com
+      # Must exactly match qma-api-rebuild.
+      - key: QMA_SPLIT_LEG_URL_SECRET
+        sync: false
+      # Must exactly match qma-api-rebuild.
+      - key: QMA_SPLIT_RECEIPT_SECRET
+        sync: false
       - key: QMA_ARC_SELLER_ADDRESS
         sync: false
