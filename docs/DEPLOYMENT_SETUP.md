@@ -1,59 +1,41 @@
 # QMA Deployment Setup
 
-This guide is for a clean Lepton submission deploy using:
+This repository currently contains two deployable frontend realities:
 
-- Vercel for the static frontend
-- Render for the FastAPI backend
-- Render for the Arc Gateway sidecar
-- Supabase for durable payment/report history
+- `main`: the live legacy HTML application (`index.html`, `app.html`,
+  `user.html`, `marketplace.html`, `docs.html`, and `public/*`).
+- `frontend/vite-react-rebuild`: the replacement Vite + React application in
+  `frontend/src/`, backed by the modular FastAPI application in `backend/app/`.
 
-Do not put server secrets in Vercel. Vercel only serves static HTML/CSS/JS.
+Keep them isolated during validation. Do not repoint the live Vercel/Render
+projects until the rebuild preview has passed its smoke tests.
 
-## Target Architecture
-
-```text
-Vercel frontend
-  -> Render qma-api FastAPI backend
-      -> Supabase
-      -> Circle Gateway API
-      -> Arcscan
-      -> Render qma-arc-gateway sidecar
-```
-
-Recommended service names:
+## Target architecture
 
 ```text
-qma-api
-qma-arc-gateway
+Vercel: qma-react-rebuild-preview
+  branch: frontend/vite-react-rebuild
+  output: frontend/dist
+       |
+       v
+Render: qma-api-rebuild
+  root shim: main.py -> backend.app
+       |
+       +--> Render: qma-arc-gateway-rebuild
+       +--> isolated Supabase/project or test persistence
+
+Existing production remains unchanged:
+main -> qma-api -> qma-arc-gateway -> production data
 ```
 
-The current HTML fallback points to:
+No new repository is required. Create a separate Vercel project and separate
+Render preview services connected to the same repository and rebuild branch.
+This prevents a preview deployment from sharing production API, gateway
+secrets, or persistence accidentally.
 
-```text
-https://qma-api.onrender.com
-```
+## Render: production FastAPI backend
 
-If you use another Render backend name, update the fallback in these files:
-
-```text
-index.html
-app.html
-user.html
-marketplace.html
-docs.html
-```
-
-Search for:
-
-```text
-window.QMA_API_BASE_URL
-```
-
-Vercel environment variables do not automatically change this static HTML value.
-
-## Render: FastAPI Backend
-
-Create a Render Web Service:
+Keep the existing production service on `main`:
 
 ```text
 Name: qma-api
@@ -63,63 +45,28 @@ Build Command: pip install -r requirements.txt
 Start Command: uvicorn main:app --host 0.0.0.0 --port $PORT
 ```
 
-Required env vars are intentionally small. Start from `.env.example`; add values from
-`.env.advanced.example` only when you need to override defaults.
+The root `main.py` is the supported Render start-command shim and delegates to
+`backend.app`. It is not an independent second backend implementation.
+
+Required production variables include:
 
 ```env
 QMA_ARC_SELLER_ADDRESS=0xYourSellerTreasuryWallet
 QMA_ADMIN_WALLET=0xYourSellerTreasuryWallet
 QMA_ADMIN_TOKEN=replace-with-admin-review-token
 QMA_ACCESS_TOKEN_SECRET=replace-with-long-random-secret
-
-QMA_FUNDING_MEMORY_OWNER_WALLET=0xFundingProviderOwnerWallet
-QMA_OI_MEMORY_OWNER_WALLET=0xOiProviderOwnerWallet
-
 QMA_ARC_GATEWAY_URL=https://qma-arc-gateway.onrender.com
-
 SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 SUPABASE_SCHEMA=public
 ```
 
-Optional dataset env vars if using private/full data:
+Start from `.env.example`; use `.env.advanced.example` only for intentional
+overrides. Keep relayer keys and service-role keys out of Vercel.
 
-```env
-QMA_HISTORICAL_DB_PATH=/private_data/funding_historical_analysis.csv
-QMA_BACKTEST_OUTCOME_PATH=/private_data/trading_analysis.csv
-```
+## Render: production Arc Gateway
 
-If omitted, the backend uses bundled sample data.
-
-Environment files:
-
-- `.env.example`: minimal role, secret, storage, and dataset keys.
-- `.env.local.example`: local developer defaults, demo pricing, and CLI agent settings.
-- `.env.advanced.example`: public Arc/Circle overrides, rate limits, market-data tuning, and other optional knobs.
-
-Do not add public Arc Testnet constants to Render unless you need to override the source defaults.
-
-Gasless withdraw relay is optional. To enable it, set these only after funding a dedicated hot
-relayer wallet:
-
-```env
-# qma-api
-QMA_WITHDRAW_MODE=platform_relayed
-QMA_WITHDRAW_RELAYER_ADDRESS=0xHotRelayerWallet
-QMA_MIN_PROVIDER_WITHDRAW_USDC=5
-QMA_PROVIDER_WITHDRAW_DAILY_LIMIT=1
-
-# qma-arc-gateway
-QMA_WITHDRAW_RELAYER_PRIVATE_KEY=0xserver-only-hot-wallet-private-key
-QMA_WITHDRAW_RELAYER_ADDRESS=0xHotRelayerWallet
-ARC_TESTNET_RPC=https://rpc.testnet.arc.network
-```
-
-Keep the relayer wallet separate from the admin wallet and platform settlement treasury.
-
-## Render: Arc Gateway Sidecar
-
-Create a second Render Web Service:
+Keep the existing gateway on `main`:
 
 ```text
 Name: qma-arc-gateway
@@ -130,100 +77,90 @@ Build Command: npm install
 Start Command: npm start
 ```
 
-Required env vars:
-
-```env
-QMA_ARC_SELLER_ADDRESS=0xYourSellerTreasuryWallet
-QMA_CIRCLE_GATEWAY_API=https://gateway-api-testnet.circle.com
-QMA_ARC_EXPLORER=https://testnet.arcscan.app
-ARC_EXPLORER=https://testnet.arcscan.app
-ARC_TESTNET_RPC=https://rpc.testnet.arc.network
-
-QMA_PRICE_PREVIEW_USDC=0.001
-QMA_PRICE_FULL_USDC=0.005
-QMA_ARC_DEFAULT_DEPOSIT_USDC=1.00
-QMA_ARC_APPROVE_USDC=10.00
-```
-
-The FastAPI backend must point to this service:
+The production API must use:
 
 ```env
 QMA_ARC_GATEWAY_URL=https://qma-arc-gateway.onrender.com
 ```
 
-## Supabase
+## Render: rebuild preview services
 
-Create tables from:
+Create these services manually in Render, using the same repository and branch
+`frontend/vite-react-rebuild`:
 
 ```text
-docs/SUPABASE.md
+qma-api-rebuild
+  Runtime: Python
+  Root Directory: .
+  Branch: frontend/vite-react-rebuild
+  Build Command: pip install -r requirements.txt
+  Start Command: uvicorn main:app --host 0.0.0.0 --port $PORT
+
+qma-arc-gateway-rebuild
+  Runtime: Node
+  Root Directory: arc_gateway
+  Branch: frontend/vite-react-rebuild
+  Build Command: npm install
+  Start Command: npm start
 ```
 
-Then verify:
+Cross-link the preview services:
+
+```env
+# qma-api-rebuild
+QMA_ARC_GATEWAY_URL=https://qma-arc-gateway-rebuild.onrender.com
+
+# qma-arc-gateway-rebuild
+QMA_BACKEND_INTERNAL_URL=https://qma-api-rebuild.onrender.com
+```
+
+Use separate secrets and, preferably, separate Supabase/persistence for the
+preview services. Never copy production service-role keys or a funded relay
+key into an untrusted preview environment.
+
+## Supabase
+
+Create tables from `docs/SUPABASE.md`. For each environment, verify:
 
 ```text
 /api/v1/health
-```
-
-Expected minimal response:
-
-```json
-{
-  "status": "ok",
-  "engine": "ready",
-  "storage_backend": "supabase"
-}
-```
-
-Frontend bootstrap config is:
-
-```text
 /api/v1/config
 ```
 
-It should include:
+Do not decide between JSON and Supabase storage from deployment settings alone;
+that remains the repository's documented needs-verification item.
 
-```json
-{
-  "arc_gateway": "https://qma-arc-gateway.onrender.com",
-  "seller_wallet": "0xYourSellerTreasuryWallet",
-  "pricing": {
-    "preview_base_usdc": 0.001,
-    "full_base_usdc": 0.005
-  }
-}
-```
+## Vercel: rebuild preview project
 
-## Vercel Frontend
-
-Vercel deploys static files only:
+Create a new Vercel project, for example `qma-react-rebuild-preview`, linked to
+the existing repository. Configure it as follows:
 
 ```text
-index.html
-app.html
-user.html
-marketplace.html
-docs.html
-public/**
+Production Branch: frontend/vite-react-rebuild (for this preview project)
+Root Directory: . (repository root)
+Framework Preset: Vite
+Install Command: cd frontend && npm ci
+Build Command: cd frontend && npm run build
+Output Directory: frontend/dist
 ```
 
-The current `vercel.json` already routes:
+The root directory must remain `.` because the checked-in `vercel.json` runs
+the build from `frontend/` and publishes `frontend/dist`. Setting the Vercel
+Root Directory to `frontend` would require moving/reworking the root config and
+handling the Vite `publicDir: ../public` dependency separately.
 
-```text
-/           -> index.html
-/app        -> app.html
-/user       -> user.html
-/marketplace -> marketplace.html
-/docs       -> docs.html
+Set this variable in both the Vercel Production and Preview environments of
+this dedicated preview project:
+
+```env
+VITE_QMA_API_BASE_URL=https://qma-api-rebuild.onrender.com
 ```
 
-Vercel required env vars:
-
-```text
-None, if the Render backend is named qma-api.
-```
-
-If the backend is not `https://qma-api.onrender.com`, update the static fallback in the HTML files listed above.
+The Vite client reads that variable in `frontend/src/services/api.ts`. The
+root `index.html` is the legacy landing page; it is not published by this
+project because Vercel serves `frontend/dist`. The Vite entry is
+`frontend/index.html`. The SPA rewrite in `vercel.json` makes direct refreshes
+of `/app`, `/profile`, and `/marketplace` resolve to the React entry.
 
 Do not add these to Vercel:
 
@@ -237,56 +174,47 @@ OpenAI keys
 Circle secrets
 ```
 
-## Post-Deploy Smoke Test
+## Why the current Active Branches preview is not sufficient
 
-Backend:
+A branch preview uses the Vercel project's existing root, build, and
+environment settings. If that project still publishes the legacy root HTML,
+the rebuild branch can appear deployed while serving the wrong entrypoint or
+calling the production API. A separate project gives the rebuild an explicit
+`frontend/dist` output and isolated Preview environment variable.
 
-```text
-https://qma-api.onrender.com/api/v1/health
-https://qma-api.onrender.com/api/v1/config
-https://qma-api.onrender.com/api/v1/platform/summary
-https://qma-api.onrender.com/api/v1/live-anomalies
-```
+## Smoke test
 
-Arc Gateway:
-
-```text
-https://qma-arc-gateway.onrender.com/health
-```
-
-Frontend:
+Run these against the rebuild services before any cutover:
 
 ```text
-https://your-vercel-domain.vercel.app/
-https://your-vercel-domain.vercel.app/app
-https://your-vercel-domain.vercel.app/user
+https://qma-api-rebuild.onrender.com/api/v1/health
+https://qma-api-rebuild.onrender.com/api/v1/config
+https://qma-arc-gateway-rebuild.onrender.com/health
+https://qma-react-rebuild-preview.vercel.app/
+https://qma-react-rebuild-preview.vercel.app/app
+https://qma-react-rebuild-preview.vercel.app/profile
+https://qma-react-rebuild-preview.vercel.app/marketplace
 ```
 
-In the browser Network tab, confirm frontend API calls go to:
+In the browser Network tab, confirm requests use
+`https://qma-api-rebuild.onrender.com` and that direct refreshes do not return
+404. Test wallet session, report preview/full unlock, profile history, provider
+authorization, and failure paths without spending real funds.
 
-```text
-https://qma-api.onrender.com
-```
+## Cutover sequence
 
-Then test:
+1. Validate the rebuild Vercel project against `qma-api-rebuild` and
+   `qma-arc-gateway-rebuild`.
+2. Open a PR from `frontend/vite-react-rebuild` into `main`. Merge frontend,
+   backend, gateway configuration, and deployment configuration together.
+3. Deploy the merged `main` to the production Render services. Confirm the
+   production API points to the production gateway and persistence.
+4. Update the existing production Vercel project to the Vite settings above,
+   set production `VITE_QMA_API_BASE_URL=https://qma-api.onrender.com`, and
+   deploy from the merged `main`.
+5. Smoke-test `/`, `/app`, `/profile`, `/marketplace`, API health, wallet
+   session, and report unlock. Only then retire the preview services and legacy
+   static files in a separate change.
 
-1. Live Signals loads.
-2. Browser Judge Mode opens.
-3. Fund Arc Wallet opens and reads wallet state.
-4. Preview payment creates invoice.
-5. Gateway deposit prompt appears if needed.
-6. x402 settlement verifies.
-7. Paid report unlocks.
-8. Wallet Profile and `/user` show the paid receipt.
-
-## Main vs Dev
-
-For final submission:
-
-```text
-main -> qma-api -> final Supabase DB
-main -> qma-arc-gateway
-main -> Vercel production
-```
-
-Avoid mixing preview/frontend with an old backend. The frontend is thin; the backend decides which Supabase project is used.
+The preview services are disposable. Production services remain on `main`
+until the pull request is merged and the coordinated cutover is verified.

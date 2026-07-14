@@ -1,14 +1,15 @@
 services:
   - type: web
-    name: qma-api
+    name: qma-api-rebuild
     env: python
     plan: free
     region: singapore
+    branch: frontend/vite-react-rebuild
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: QMA_ARC_GATEWAY_URL
-        value: https://qma-arc-gateway.onrender.com
+        value: https://qma-arc-gateway-rebuild.onrender.com
       - key: QMA_ARC_SELLER_ADDRESS
         sync: false
       - key: QMA_FUNDING_MEMORY_OWNER_WALLET
@@ -29,13 +30,16 @@ services:
         sync: false
 
   - type: web
-    name: qma-arc-gateway
+    name: qma-arc-gateway-rebuild
     env: node
     plan: free
     region: singapore
+    branch: frontend/vite-react-rebuild
     rootDir: arc_gateway
     buildCommand: npm install
     startCommand: npm start
     envVars:
+      - key: QMA_BACKEND_INTERNAL_URL
+        value: https://qma-api-rebuild.onrender.com
       - key: QMA_ARC_SELLER_ADDRESS
         sync: false

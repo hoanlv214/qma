@@ -7,18 +7,6 @@
   "cleanUrls": true,
   "rewrites": [
     {
-      "source": "/api/:path*",
-      "destination": "https://qma-api.onrender.com/api/:path*"
-    },
-    {
-      "source": "/docs",
-      "destination": "https://qma-api.onrender.com/docs"
-    },
-    {
-      "source": "/openapi.json",
-      "destination": "https://qma-api.onrender.com/openapi.json"
-    },
-    {
       "source": "/:path*",
       "destination": "/index.html"
     }
