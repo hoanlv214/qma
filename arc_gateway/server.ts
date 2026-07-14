@@ -206,6 +206,8 @@ function splitReceipt(params: {
   payTo: string;
   settledAmountRaw: string;
   settlementId: string;
+  payer: string;
+  gatewayStatus: string;
 }): string {
   return hmacHex(
     SPLIT_RECEIPT_SECRET,
@@ -215,6 +217,8 @@ function splitReceipt(params: {
       normalizeAddress(params.payTo),
       BigInt(params.settledAmountRaw).toString(),
       params.settlementId,
+      normalizeAddress(params.payer),
+      params.gatewayStatus.trim().toLowerCase(),
     ]),
   );
 }
@@ -482,27 +486,41 @@ app.get("/qma-access/split-leg", async (req, res) => {
         throw new RelayHttpError("settled split leg pay_to does not match invoice", 502);
       }
       const payer = String(transfer.fromAddress ?? verify.payer ?? settle.payer ?? "");
+      const gatewayStatus = String(transfer.status ?? "").trim().toLowerCase();
+      if (!payer || !gatewayStatus) {
+        throw new RelayHttpError("Circle settlement response is missing payer or status", 502);
+      }
       const receipt = splitReceipt({
         invoiceId,
         legId,
         payTo: String(leg.pay_to),
         settledAmountRaw,
         settlementId,
+        payer,
+        gatewayStatus,
       });
-      await backendJson(
-        `/api/internal/invoices/${encodeURIComponent(invoiceId)}/split-leg/${encodeURIComponent(legId)}/record`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            settlement_id: settlementId,
-            amount_raw: settledAmountRaw,
-            pay_to: String(leg.pay_to),
-            payer_address: payer,
-            gateway_status: transfer.status,
-            sidecar_receipt: receipt,
-          }),
-        },
-      );
+      const recordPath = `/api/internal/invoices/${encodeURIComponent(invoiceId)}/split-leg/${encodeURIComponent(legId)}/record`;
+      const recordPayload = {
+        settlement_id: settlementId,
+        amount_raw: settledAmountRaw,
+        pay_to: String(leg.pay_to),
+        payer_address: payer,
+        gateway_status: gatewayStatus,
+        sidecar_receipt: receipt,
+      };
+      try {
+        await backendJson(recordPath, { method: "POST", body: JSON.stringify(recordPayload) });
+      } catch (recordError) {
+        // A successful record may have committed before the response was
+        // lost. Retry the same settlement record; the backend treats the
+        // same (invoice, leg, settlement) as an idempotent no-op.
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        try {
+          await backendJson(recordPath, { method: "POST", body: JSON.stringify(recordPayload) });
+        } catch {
+          throw recordError;
+        }
+      }
       res.json({
         status: "paid",
         invoice_id: invoiceId,
@@ -512,15 +530,18 @@ app.get("/qma-access/split-leg", async (req, res) => {
         amount_raw: settledAmountRaw,
         amount_usdc: formatUnits(BigInt(settledAmountRaw), 6),
         payer,
+        gateway_status: gatewayStatus,
         settlement_id: settlementId,
         settlementId,
         sidecar_receipt: receipt,
       });
     } catch (err) {
-      await backendJson(
-        `/api/internal/invoices/${encodeURIComponent(invoiceId)}/split-leg/${encodeURIComponent(legId)}/release`,
-        { method: "POST", body: "{}" },
-      ).catch(() => undefined);
+      if (!settlementId) {
+        await backendJson(
+          `/api/internal/invoices/${encodeURIComponent(invoiceId)}/split-leg/${encodeURIComponent(legId)}/release`,
+          { method: "POST", body: "{}" },
+        ).catch(() => undefined);
+      }
       throw err;
     }
   } catch (err) {

@@ -638,21 +638,52 @@ def verify_split_payment(invoice_id, invoice, proof):
                 raise HTTPException(status_code=400, detail=f"Split leg {leg_id} amount does not match invoice.")
             if normalize_address(submitted.pay_to) != normalize_address(leg.get("pay_to")):
                 raise HTTPException(status_code=400, detail=f"Split leg {leg_id} pay_to does not match invoice.")
-            if not verify_split_receipt(
+            has_authoritative_gateway_claims = bool(submitted.payer_address and submitted.gateway_status)
+            receipt_valid = verify_split_receipt(
                 invoice_id=invoice_id, leg_id=leg_id, pay_to=leg.get("pay_to"),
                 settled_amount_raw=submitted.amount_raw, settlement_id=submitted.settlement_id,
                 receipt=submitted.sidecar_receipt,
-            ):
+                payer_address=submitted.payer_address,
+                gateway_status=submitted.gateway_status,
+            ) if has_authoritative_gateway_claims else verify_split_receipt(
+                invoice_id=invoice_id, leg_id=leg_id, pay_to=leg.get("pay_to"),
+                settled_amount_raw=submitted.amount_raw, settlement_id=submitted.settlement_id,
+                receipt=submitted.sidecar_receipt,
+            )
+            if not receipt_valid and has_authoritative_gateway_claims:
+                # A legacy relay may include payer/status in its body while
+                # still returning a five-field receipt. Keep it on the
+                # authoritative Circle-lookup path instead of rejecting it.
+                has_authoritative_gateway_claims = False
+                receipt_valid = verify_split_receipt(
+                    invoice_id=invoice_id, leg_id=leg_id, pay_to=leg.get("pay_to"),
+                    settled_amount_raw=submitted.amount_raw, settlement_id=submitted.settlement_id,
+                    receipt=submitted.sidecar_receipt,
+                )
+            if not receipt_valid:
                 raise HTTPException(status_code=400, detail=f"Invalid sidecar receipt for split leg {leg_id}.")
             if settlement_id_already_claimed(submitted.settlement_id, exclude_invoice_id=invoice_id, load_invoices_fn=_load_invoices, invoices_db=state.invoices_db):
                 raise HTTPException(status_code=409, detail=f"settlement_id for leg {leg_id} is already claimed by another invoice/leg.")
-            settlement = fetch_circle_settlement(submitted.settlement_id)
+            if has_authoritative_gateway_claims:
+                # Arc Gateway already fetched and validated this settlement
+                # against Circle before signing the sidecar receipt. The HMAC
+                # binds payer and status, so avoid repeating the remote GET.
+                settlement = {
+                    "status": submitted.gateway_status,
+                    "toAddress": leg.get("pay_to"),
+                    "fromAddress": submitted.payer_address,
+                    "amount": submitted.amount_raw,
+                }
+            else:
+                # Compatibility path for receipts issued before payer/status
+                # were included in the signed sidecar proof.
+                settlement = fetch_circle_settlement(submitted.settlement_id)
             validate_arc_split_leg_payment(invoice, leg, settlement, payer_address=proof.payer_address)
             settlement_payer = normalize_address(settlement.get("fromAddress"))
             if payer and settlement_payer != payer:
                 raise HTTPException(status_code=400, detail="Split settlement payer mismatch.")
             payer = payer or settlement_payer
-            batch = find_arc_batch_tx(settlement)
+            batch = {"batch_tx": None, "explorer_url": None} if has_authoritative_gateway_claims else find_arc_batch_tx(settlement)
             leg.update({
                 "status": "paid",
                 "settlement_id": submitted.settlement_id,

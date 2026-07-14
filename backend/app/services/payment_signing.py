@@ -100,14 +100,25 @@ def sign_split_receipt(
     pay_to: str,
     settled_amount_raw: str,
     settlement_id: str,
+    payer_address: str | None = None,
+    gateway_status: str | None = None,
 ) -> str:
-    payload = split_hmac_payload([
+    fields = [
         invoice_id,
         leg_id,
         normalize_address(pay_to),
         raw_usdc_str(settled_amount_raw),
         settlement_id,
-    ])
+    ]
+    # New receipts bind the authoritative gateway claims that the relay
+    # obtained from Circle. Keep the old five-field format when either field
+    # is absent so already-issued pending receipts remain verifiable.
+    if payer_address is not None and gateway_status is not None:
+        fields.extend([
+            normalize_address(payer_address),
+            str(gateway_status).strip().lower(),
+        ])
+    payload = split_hmac_payload(fields)
     return hmac.new(SPLIT_RECEIPT_SECRET.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
@@ -119,6 +130,8 @@ def verify_split_receipt(
     settled_amount_raw: str,
     settlement_id: str,
     receipt: str,
+    payer_address: str | None = None,
+    gateway_status: str | None = None,
 ) -> bool:
     expected = sign_split_receipt(
         invoice_id=invoice_id,
@@ -126,6 +139,8 @@ def verify_split_receipt(
         pay_to=pay_to,
         settled_amount_raw=settled_amount_raw,
         settlement_id=settlement_id,
+        payer_address=payer_address,
+        gateway_status=gateway_status,
     )
     return hmac.compare_digest(str(receipt or ""), expected)
 

@@ -73,3 +73,24 @@ Rule of the branch: only add or edit files under `frontend/` until React reaches
 - No payment amount or settlement mode changes.
 - No entitlement-cache or unlock-rule changes.
 - No automatic creator payout behavior changes.
+
+## Phase 15 — Final Manual Smoke-Test Checklist
+
+The production build and TypeScript checks pass, but these browser/runtime
+flows remain manual verification items. Do not mark them complete from a
+build-only check.
+
+| Flow | Status | Required check |
+| --- | --- | --- |
+| Connect wallet | Not run | Connect, reconnect, disconnect, and refresh behavior |
+| Provider display | Not run | Provider list, selection, schema fields, and live signal loading |
+| Paywall open | Not run | Preview/full pricing, modal state, loading, and error paths |
+| x402 settlement | Not run | Wallet signature, split legs, verify response, and access token |
+| Agent buyer | Not run | Recommendation, policy selection, invoice resume, retry, cancel, unlock |
+| Quick profile | Not run | Summary, payment history, pagination, and report reopen |
+| Provider earnings claim | Not run | Stats, selection, claim signature, refresh, and failure handling |
+| Fund Arc wallet | Not run | Gateway readiness, allowance, deposit, receipt polling, and cleanup |
+
+Final readiness rule: runtime parity is not established until the listed
+flows are executed against a deployed-like backend with a test wallet and the
+network/storage/error evidence is recorded.

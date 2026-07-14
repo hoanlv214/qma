@@ -1,16 +1,18 @@
-export function FundArcWalletModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+import type { ReactNode } from "react";
+
+interface FundArcWalletModalProps {
+  open: boolean;
+  onClose: () => void;
+  children: ReactNode;
+}
+
+export function FundArcWalletModal({ open, onClose, children }: FundArcWalletModalProps) {
   if (!open) return null;
   return (
-    <div className="modal-backdrop" role="presentation" onClick={onClose}>
-      <section className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="fund-arc-title" onClick={(event) => event.stopPropagation()}>
-        <header className="modal-header">
-          <h2 id="fund-arc-title">Fund Arc Wallet</h2>
-          <button type="button" onClick={onClose}>x</button>
-        </header>
-        <div className="placeholder-panel">
-          Port `fund-arc-modal` logic from `public/app.js`: chain readiness, on-chain USDC, Gateway balance, deposit and approve actions.
-        </div>
-      </section>
+    <div className="modal-backdrop open" style={{ display: "flex" }}>
+      <div className="wallet-profile-modal funding-modal" role="dialog" aria-modal="true" aria-labelledby="fund-arc-title" style={{ display: "block" }}>
+        {children}
+      </div>
     </div>
   );
 }

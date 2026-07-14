@@ -28,9 +28,10 @@ Try:
 ## What This Repo Contains
 
 - FastAPI backend with OpenAPI docs at `/docs`
-- Terminal-style QMA dashboard at `/app`
-- Provider marketplace and creator application page at `/marketplace`
-- Short hackathon landing page at `/`
+- Legacy terminal-style QMA dashboard at `/app` on the live `main` branch
+- Legacy provider marketplace and creator application page at `/marketplace` on `main`
+- Vite + React rebuild under `frontend/src/`, intended to replace the legacy UI after cutover
+- Short hackathon landing page at `/` on the live legacy deployment
 - Paid Intelligence API Kit
 - Provider interface with `funding_memory` and experimental `oi_memory` providers
 - Arc/Circle x402 gateway sidecar
@@ -40,21 +41,31 @@ Try:
 
 ```text
 qma/
-  main.py                 FastAPI backend and HTML/API routes
+  main.py                 Render-compatible FastAPI shim used by the live deployment
+  backend/app/            FastAPI source: api/v1/endpoints, core, repositories, schemas, services
+  frontend/src/           Vite + React + TypeScript source: app, components, hooks, services, state, types, utils
+  frontend/dist/           generated Vite output; never edit directly
+  frontend/package.json    React rebuild scripts and dependencies
   qma_engine.py           historical analog engine
   providers.py            paid intelligence provider registry
   storage.py              JSON/Supabase persistence layer
-  index.html              landing page served at /
-  app.html                QMA dashboard served at /app
-  user.html               wallet profile/history served at /user
-  marketplace.html        provider marketplace served at /marketplace
-  public/                 shared JS, CSS, and image assets
+  index.html              live legacy landing page served at / on main
+  app.html                live legacy dashboard served at /app on main
+  user.html               live legacy wallet profile/history served at /user on main
+  marketplace.html        live legacy marketplace served at /marketplace on main
+  public/                 live legacy JS, CSS, and image assets
   docs/                   Arc, Supabase, API security, Cloudflare, demo notes
   examples/               autonomous buyer agent example
   scripts/                migration/util scripts
   data/                   public sample datasets
   paid_intelligence_kit/  reusable paid API primitive
 ```
+
+The repository currently contains two intentionally parallel frontend
+realities. The live `main` deployment uses the root `*.html` files, `public/`,
+and the root `main.py` shim. The `frontend/vite-react-rebuild` branch is the
+active React implementation; its production deployment is configured to
+build `frontend/dist/`, but permanent cutover has not been confirmed.
 
 ## Docs
 
@@ -231,15 +242,24 @@ Railway / Render / VPS:
   - private full dataset
 ```
 
-This repo includes:
+The live deployment and the React rebuild use different Vercel/Render
+boundaries until cutover. This repo includes:
 
 ```text
-render.yaml   Render blueprint for qma-api + qma-arc-gateway
-vercel.json   Static landing/dashboard routes: /, /app, /user, /marketplace
+render.yaml   Render blueprint; qma-api starts with the root main.py shim
+vercel.json   React rebuild deployment: Vite build to frontend/dist/
 .vercelignore Keeps Vercel from deploying the Python/Node backend files
-*.html        Vercel and FastAPI served HTML entrypoints
-public/       Shared CSS, JS, and assets
+*.html        Live legacy Vercel/FastAPI HTML entrypoints on main
+public/       Live legacy shared CSS, JS, and assets
+frontend/src/ React rebuild source
 ```
+
+Deployment status confirmed from repository configuration and root
+`AGENTS.md`: `main` remains the live legacy deployment, while
+`frontend/vite-react-rebuild` is the development/cutover branch. The current
+branch's `vercel.json` is configured with `framework: vite`, installs from
+`frontend/`, runs `npm run build`, and publishes `frontend/dist/`; that config
+does not by itself prove that production traffic has already switched.
 
 After Render creates both services, set these environment variables:
 
@@ -269,7 +289,7 @@ If the static UI is deployed separately from the API, set:
 
 The same variable is supported by all static pages.
 
-In Vercel project settings, use:
+For the legacy `main` deployment, the historical Vercel project settings are:
 
 ```text
 Framework Preset: Other
@@ -280,6 +300,10 @@ Install Command: empty
 ```
 
 If Vercel shows "This Serverless Function has crashed", it is trying to deploy the backend. The static frontend deployment should include the root HTML entrypoints, `public/`, `vercel.json`, and `.vercelignore`.
+
+For `frontend/vite-react-rebuild`, use the checked-in `vercel.json` instead of
+the legacy settings above: install with `cd frontend && npm ci`, build with
+`cd frontend && npm run build`, and publish `frontend/dist`.
 
 Vercel notes: their docs support FastAPI/Python deployments, but Python functions have a 500 MB uncompressed bundle size limit and Python files are not tree-shaken automatically. For QMA, that makes split deployment the practical default.
 
@@ -297,6 +321,17 @@ Local terminal 1:
 ```powershell
 python qma\main.py
 ```
+
+To run the React rebuild locally instead of the live legacy pages:
+
+```powershell
+cd qma\frontend
+npm.cmd install
+npm.cmd run dev
+```
+
+The React rebuild uses `VITE_QMA_API_BASE_URL` for its API base. The legacy
+HTML pages continue to use `window.QMA_API_BASE_URL` as documented below.
 
 Local terminal 2:
 

@@ -35,6 +35,18 @@ def split_receipt(invoice_id: str, leg: dict, settlement_id: str) -> str:
     )
 
 
+def authoritative_split_receipt(invoice_id: str, leg: dict, settlement_id: str) -> str:
+    return app_module.sign_split_receipt(
+        invoice_id=invoice_id,
+        leg_id=leg["leg_id"],
+        pay_to=leg["pay_to"],
+        settled_amount_raw=leg["amount_raw"],
+        settlement_id=settlement_id,
+        payer_address=PAYER,
+        gateway_status="received",
+    )
+
+
 def make_split_invoice(invoice_id: str = "inv_http_contract") -> dict:
     now = time.time()
     return {
@@ -267,6 +279,82 @@ class HttpContractBatchATests(unittest.TestCase):
         self.assertEqual(response.status_code, 402)
         self.assertIn("Missing split settlement leg", response.json()["detail"])
         self.assertEqual(platform["status"], "pending")
+
+    def test_verify_authoritative_sidecar_skips_duplicate_circle_lookup(self):
+        self.invoice = make_split_invoice("inv_http_authoritative_sidecar")
+        self.seed_invoice(self.invoice)
+        proofs = []
+        for leg in self.invoice["split"]["legs"]:
+            settlement_id = f"settle_{leg['leg_id']}"
+            proofs.append({
+                "leg_id": leg["leg_id"],
+                "settlement_id": settlement_id,
+                "pay_to": leg["pay_to"],
+                "amount_raw": leg["amount_raw"],
+                "payer_address": PAYER,
+                "gateway_status": "received",
+                "sidecar_receipt": authoritative_split_receipt(self.invoice["invoice_id"], leg, settlement_id),
+            })
+
+        patches = self.persistence_patches()
+        patches.extend([
+            patch.object(app_module, "fetch_circle_settlement", side_effect=AssertionError("duplicate Circle lookup")),
+            patch.object(app_module, "find_arc_batch_tx", side_effect=AssertionError("duplicate batch lookup")),
+            patch.object(app_module, "refresh_split_leg_batch_txs", lambda _invoice: False),
+        ])
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+            response = self.client.post(
+                f"/api/v1/payment/verify?invoice_id={self.invoice['invoice_id']}",
+                json={
+                    "invoice_secret": self.invoice["invoice_secret"],
+                    "payer_address": PAYER,
+                    "split_settlements": proofs,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["status"], "paid")
+        self.assertIsNotNone(payload["access_token"])
+        self.assertEqual(payload["split_settlement_ids"], ["settle_creator", "settle_platform"])
+
+    def test_authoritative_sidecar_status_tampering_is_rejected(self):
+        invoice = make_split_invoice("inv_http_sidecar_tamper")
+        self.seed_invoice(invoice)
+        leg = invoice["split"]["legs"][0]
+        other_leg = invoice["split"]["legs"][1]
+        settlement_id = "settle_creator_tamper"
+        other_settlement_id = "settle_platform_tamper"
+        proof = {
+            "invoice_secret": invoice["invoice_secret"],
+            "payer_address": PAYER,
+            "split_settlements": [{
+                "leg_id": leg["leg_id"],
+                "settlement_id": settlement_id,
+                "pay_to": leg["pay_to"],
+                "amount_raw": leg["amount_raw"],
+                "payer_address": PAYER,
+                "gateway_status": "completed",
+                "sidecar_receipt": authoritative_split_receipt(invoice["invoice_id"], leg, settlement_id),
+            }, {
+                "leg_id": other_leg["leg_id"],
+                "settlement_id": other_settlement_id,
+                "pay_to": other_leg["pay_to"],
+                "amount_raw": other_leg["amount_raw"],
+                "payer_address": PAYER,
+                "gateway_status": "received",
+                "sidecar_receipt": authoritative_split_receipt(invoice["invoice_id"], other_leg, other_settlement_id),
+            }],
+        }
+        with patch.object(app_module, "_save_invoice", lambda *_args, **_kwargs: None):
+            response = self.client.post(
+                f"/api/v1/payment/verify?invoice_id={invoice['invoice_id']}",
+                json=proof,
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Invalid sidecar receipt", response.json()["detail"])
+        self.assertIsNone(response.json().get("access_token"))
 
     def test_disputed_status_does_not_issue_access(self):
         invoice = make_split_invoice("inv_http_disputed")

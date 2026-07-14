@@ -13,7 +13,24 @@ function randomNonceHex() {
   return `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
-export async function payX402Resource(resourceUrl: string, account: string) {
+export interface PreparedX402Payment {
+  resourceUrl: string;
+  paymentSignature: string;
+}
+
+export class X402PaymentError extends Error {
+  readonly status?: number;
+  readonly outcomeUncertain: boolean;
+
+  constructor(message: string, status?: number) {
+    super(message);
+    this.name = "X402PaymentError";
+    this.status = status;
+    this.outcomeUncertain = status == null || status === 408 || status === 429 || status >= 500;
+  }
+}
+
+export async function prepareX402Payment(resourceUrl: string, account: string): Promise<PreparedX402Payment> {
   const provider = getInjectedWallet();
   if (!provider) throw new Error("No EVM wallet provider found.");
 
@@ -81,12 +98,26 @@ export async function payX402Resource(resourceUrl: string, account: string) {
     resource: challenge.resource,
   };
 
-  const paidResp = await fetch(resourceUrl, {
-    headers: { "payment-signature": b64encode(paymentPayload) },
+  return {
+    resourceUrl,
+    paymentSignature: b64encode(paymentPayload),
+  };
+}
+
+export async function submitX402Payment(prepared: PreparedX402Payment) {
+  const paidResp = await fetch(prepared.resourceUrl, {
+    headers: { "payment-signature": prepared.paymentSignature },
   });
   const paidData = await paidResp.json().catch(async () => ({ error: await paidResp.text() }));
   if (!paidResp.ok) {
-    throw new Error(String(paidData.reason || paidData.errorReason || paidData.message || paidData.error || "Arc settlement failed"));
+    throw new X402PaymentError(
+      String(paidData.reason || paidData.errorReason || paidData.message || paidData.error || "Arc settlement failed"),
+      paidResp.status,
+    );
   }
   return paidData;
+}
+
+export async function payX402Resource(resourceUrl: string, account: string) {
+  return submitX402Payment(await prepareX402Payment(resourceUrl, account));
 }

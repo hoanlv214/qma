@@ -28,6 +28,8 @@ class SplitSettlementProof(BaseModel):
     pay_to: str = Field(..., min_length=8, max_length=80)
     amount_raw: str = Field(..., min_length=1, max_length=80)
     sidecar_receipt: str = Field(..., min_length=20, max_length=300)
+    payer_address: Optional[str] = Field(default=None, min_length=8, max_length=80)
+    gateway_status: Optional[str] = Field(default=None, min_length=1, max_length=40)
 
 
 class PaymentVerifyRequest(BaseModel):

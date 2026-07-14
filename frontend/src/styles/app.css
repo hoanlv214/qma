@@ -3954,6 +3954,88 @@ body.basic-view .platform-stats-section {
     box-shadow: 0 0 10px rgba(124, 111, 255, 0.15);
 }
 
+/* Hierarchical query form: provider schema first, signal fields second. */
+.query-provider-tier {
+    margin: 0 -18px 16px;
+    padding: 18px 18px 16px;
+    border-bottom: 1px solid var(--bdr);
+    background: rgba(24, 27, 38, 0.72);
+}
+
+.query-tier-label,
+.query-fields-heading,
+.query-provider-row {
+    display: flex;
+    align-items: center;
+}
+
+.query-tier-label {
+    gap: 7px;
+    margin-bottom: 8px;
+    color: #a89bfa;
+    font-family: var(--mono);
+    font-size: 0.64rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.query-provider-row {
+    gap: 12px;
+}
+
+.query-provider-row .provider-select {
+    width: min(390px, 100%);
+    background: var(--bg-1);
+    border-color: var(--bdr-hi);
+}
+
+.query-provider-help,
+.query-fields-heading span:last-child {
+    color: var(--t3);
+    font-family: var(--mono);
+    font-size: 0.64rem;
+}
+
+.query-fields-heading {
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+    color: var(--t3);
+    font-family: var(--mono);
+    font-size: 0.64rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.query-fields-heading span:last-child {
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+@media (max-width: 600px) {
+    .query-provider-tier {
+        margin-inline: -12px;
+        padding-inline: 12px;
+    }
+
+    .query-provider-row {
+        align-items: stretch;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .query-provider-row .provider-select {
+        width: 100%;
+    }
+
+    .query-fields-heading {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 3px;
+    }
+}
+
 /* --- Mobile View Toggles --- */
 .mobile-view-tabs {
     display: none;
@@ -4498,10 +4580,6 @@ body.basic-view .platform-stats-section {
     -webkit-line-clamp: 2;
 }
 
-.agent-picks-panel .card-meta-row {
-    justify-content: flex-start;
-    margin-top: 0 !important;
-}
 
 .agent-picks-panel .signal-badge {
     max-width: 100%;
@@ -6303,3 +6381,49 @@ body.basic-view .platform-stats-section {
         grid-template-columns: 1fr;
     }
 }
+/* AppPage static presentation helpers. Dynamic values remain inline only
+   where they are data-driven (for example progress widths). */
+.is-open { display: block; }
+.text-green { color: var(--green); }
+.text-semibold { font-weight: 600; }
+.text-muted-deep { color: var(--t3); }
+.mt-6 { margin-top: 6px; }
+.mt-8 { margin-top: 8px; }
+.inline-flex { display: inline-flex; }
+.wallet-menu-header-flex { display: flex; justify-content: space-between; align-items: center; }
+.pick-reason-muted { color: var(--t2); font-size: var(--text-xs); margin-top: 4px; }
+.error-centered { text-align: center; color: var(--red); }
+.anomalies-error { margin-top: 48px; }
+.query-actions-row { display: flex; gap: 12px; margin-top: 12px; }
+.report-shell { position: relative; min-height: 300px; }
+.paywall-overlay { display: flex; }
+.payment-flow-panel-visible { display: block; margin-top: 12px; }
+.status-message { font-size: var(--text-sm); color: var(--t2); }
+.status-message-error { color: var(--red); }
+.report-container { display: grid; }
+.gateway-status-badge { font-weight: 700; }
+.settlement-status-note { font-size: var(--text-xs); margin-top: 2px; }
+.settlement-status-note.is-final { color: var(--t3); }
+.settlement-status-note.is-pending { color: var(--amber); }
+.info-label-emphasis { font-weight: 600; font-size: 0.9rem; color: var(--t1); }
+.info-desc-compact { font-size: var(--text-sm); line-height: 1.5; }
+.info-divider { border-top: 1px solid var(--bdr); padding-top: 10px; margin-top: 4px; }
+.pnl-badge-compact { font-size: var(--text-xs); }
+.info-value { color: var(--t1); font-size: var(--text-sm); }
+.mt-12 { margin-top: 12px; }
+.mt-16 { margin-top: 16px; }
+.text-amber { color: var(--amber); }
+.text-red { color: var(--red); }
+.empty-state-centered { text-align: center; color: var(--t3); margin-top: 80px; }
+.funding-action-link { text-decoration: none; text-align: center; display: inline-block; }
+.copilot-btn-neutral { background: var(--bg-2); color: var(--t1); border: 1px solid var(--bdr-md); }
+.platform-stats-section-compact { padding-bottom: 0; }
+.platform-stats-summary { cursor: pointer; user-select: none; }
+.platform-stats-hint { font-size: var(--text-xs); color: var(--t3); font-weight: 400; }
+.platform-tables-error { margin-top: 12px; color: var(--amber); }
+.table-count { color: var(--t3); margin-left: 8px; }
+.table-scroll-x { overflow-x: auto; }
+.table-meta { color: var(--t3); font-size: var(--text-2xs); }
+.table-meta-spaced { margin-top: 2px; }
+.table-empty-cell { color: var(--t3); text-align: center; }
+.table-page-label { margin: 0 10px; font-size: 0.8rem; }

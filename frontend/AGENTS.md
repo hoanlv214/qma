@@ -184,6 +184,48 @@ Unless explicitly requested, do not:
 - change wallet or payment behavior while performing a visual redesign
 - create duplicate components that already exist under `src/components/ui/`
 
+## Large-File Decomposition Protocol
+
+Applies whenever a single component file exceeds roughly 800 lines, or
+mixes more than one modal, panel, or independent section inside one
+component (e.g. a page component that renders several unrelated modals
+inline).
+
+Never decompose in one pass. Never extract more than one component per
+turn. Follow this sequence:
+
+1. **Map before touching code.** Produce a full boundary map first:
+   every target file, its approximate line range in the source, and
+   which JSX block moves where. Do not start extracting until this map
+   is shown.
+2. **Order by size, largest first.** Extract the largest, most
+   self-contained block first (e.g. the biggest modal), then the next
+   largest, and so on. Do not reorder for convenience or perceived
+   safety — size determines order.
+3. **One component per turn, then stop.** After extracting a single
+   component:
+   - run the production build
+   - confirm the extracted unit's open/close, submit, loading, empty,
+     and error states still behave the same as before extraction
+   - report: what was moved, what state stayed in the parent vs moved
+     local, any new props introduced, and the build/check result
+   - **stop and wait for explicit confirmation before extracting the
+     next component.** Do not chain extractions in the same turn even
+     if the previous one built cleanly.
+4. **State-ownership rule**, applied consistently across every
+   extracted unit:
+   - State read and written only inside the block being extracted ->
+     move into that component's own local state.
+   - State read or written by the parent, or by more than one
+     extracted unit -> stays in the parent, passed down as props.
+   - If ownership is ambiguous (e.g. state a modal writes but the
+     parent reads for a toast or badge elsewhere) -> do not guess.
+     Flag the ambiguity and propose an owner before extracting that
+     piece.
+5. Do not merge two components' extraction into a single diff even if
+   they look structurally similar. Each is its own verifiable change,
+   reviewed and confirmed on its own.
+
 ## Work Protocol
 
 For every non-trivial frontend task:

@@ -1,127 +1,81 @@
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useEffect, useState } from "react";
 import { API_BASE_URL } from "../../services/api";
-import { ensureArcTestnet, getInjectedWallet, shortAddress } from "../../services/wallet";
-import { clearAllWalletProfileSessions, clearWalletProfileSession, requestWalletProfileSession } from "../../services/walletProfileSession";
+import { shortAddress } from "../../services/wallet";
 import { payX402Resource } from "../../services/x402";
-import { createInvoice, getInvoiceStatus } from "../../services/invoices";
+import { createInvoice } from "../../services/invoices";
 import { Loader } from "../ui/Loader";
+import { DepositModal } from "../modals/DepositModal";
+import { ProviderEarningsModal } from "../modals/ProviderEarningsModal";
+import { AgentBuyerModal } from "../modals/AgentBuyerModal";
+import { AgentBuyerModalContent } from "../modals/AgentBuyerModalContent";
+import { AppHeader } from "./AppHeader";
+import { SignalSidebar } from "./SignalSidebar";
+import { ReportWorkspace } from "./ReportWorkspace";
+import { ProfileModal } from "../modals/ProfileModal";
+import { FundArcWalletModal } from "../wallet/FundArcWalletModal";
+import { FundArcWalletModalContent } from "../wallet/FundArcWalletModalContent";
+import { PaywallPanel } from "../paywall/PaywallPanel";
+import { usePendingInvoiceCache } from "../../hooks/usePendingInvoiceCache";
+import { useWalletConnection } from "../../hooks/useWalletConnection";
+import { usePlatformMetrics } from "../../hooks/usePlatformMetrics";
+import { useProviders } from "../../hooks/useProviders";
+import { useQuote } from "../../hooks/useQuote";
+import { useFundArcWallet } from "../../hooks/useFundArcWallet";
+import { useQuickProfile } from "../../hooks/useQuickProfile";
+import { useProviderEarnings } from "../../hooks/useProviderEarnings";
+import { usePayment } from "../../hooks/usePayment";
+import { useAgentBuyer } from "../../hooks/useAgentBuyer";
+import { getOnChainUsdcBalance } from "../../services/gatewayCrypto";
+import {
+  formatPercentage,
+  formatRawPercent,
+  formatCompactMoney,
+  normalizePercentPoint,
+  formatCiRange,
+  formatDateTime,
+  formatUsdc,
+  tierLabel,
+  paidBadgeText,
+  gatewayStatusBadge,
+  normalizeTierForCache,
+} from "../../utils/format";
+import type {
+  Anomaly,
+} from "../../types/qma";
 
-const WITHDRAW_FEE_RESERVE_USDC = 0.0035;
 const DEFAULT_ARC_USDC_ADDRESS = "0x3600000000000000000000000000000000000000";
 const DEFAULT_GATEWAY_MINTER_ADDRESS = "0x0022222ABE238Cc2C7Bb1f21003F0a260052475B";
-
-interface Provider {
-  provider_id: string;
-  provider_name: string;
-  description: string;
-  owner_wallet: string;
-  revenue_wallet?: string;
-  revenue_share_bps?: number;
-  pricing?: {
-    preview?: { amount_usdc: number };
-    full?: { amount_usdc: number };
-  };
-  ui_schema?: {
-    display_mode?: string;
-    fields?: {
-      key: string;
-      label: string;
-      type: string;
-      step?: string;
-      required?: boolean;
-      default?: any;
-    }[];
-  };
-  category?: string;
-}
-
-interface Anomaly {
-  symbol: string;
-  fundingRate: number;
-  marketCap: number;
-  circRatio: number;
-  volume24h: number;
-  fromATH: number;
-  amount?: number;
-  openInterest?: number;
-  openInterestChange24h?: number;
-  longShortRatio?: number;
-  price?: number;
-}
-
-interface Recommendation {
-  symbol: string;
-  score: number;
-  tier?: string;
-  suggested_tier?: string;
-  suggested_price_usdc?: number;
-  provider_id: string;
-  reason?: string;
-  reasons?: string[];
-  query?: Record<string, any>;
-}
-
-type PaymentStatus = "waiting" | "active" | "completed" | "failed";
-type PaymentStepKey = "wallet" | "gateway" | "settlement" | "report";
-type AgentSessionStage =
-  | "idle"
-  | "scanning"
-  | "selected"
-  | "invoicing"
-  | "awaiting_signature"
-  | "verifying"
-  | "unlocked"
-  | "error";
 
 export function AppPage({
   onNavigate,
 }: {
   onNavigate: (route: any) => void;
 }) {
-  const [wallet, setWallet] = useState(() => localStorage.getItem("qma_connected_wallet") || "");
   const [viewMode, setViewModeState] = useState<"basic" | "advanced">(() => {
     return (localStorage.getItem("qma_view_mode") as "basic" | "advanced") || "basic";
   });
   const [mobileActiveView, setMobileActiveView] = useState<"live-feed-sidebar" | "main-panel">("live-feed-sidebar");
 
-  // Time / Clock
-  const [timeStr, setTimeStr] = useState("");
-
-  // Dropdown Panels
-  const [statsDropdownOpen, setStatsDropdownOpen] = useState(false);
-  const [walletDropdownOpen, setWalletDropdownOpen] = useState(false);
-
-  // Platform Metrics
-  const [metrics, setMetrics] = useState({
-    paid_count: 0,
-    revenue_usdc: 0,
-    available_usdc: 0,
-  });
-  const [platformSummary, setPlatformSummary] = useState<any>(null);
-  const [platformPayments, setPlatformPayments] = useState<any[]>([]);
-  const [platformPaymentsPage, setPlatformPaymentsPage] = useState(1);
-  const [platformPaymentsTotalPages, setPlatformPaymentsTotalPages] = useState(1);
-  const [platformPaymentsTotal, setPlatformPaymentsTotal] = useState(0);
-  const [platformPayers, setPlatformPayers] = useState<any[]>([]);
-  const [platformPayersPage, setPlatformPayersPage] = useState(1);
-  const [platformPayersTotalPages, setPlatformPayersTotalPages] = useState(1);
-  const [platformPayersTotal, setPlatformPayersTotal] = useState(0);
-  const [platformTablesLoaded, setPlatformTablesLoaded] = useState(false);
-  const [platformTablesLoading, setPlatformTablesLoading] = useState(false);
-  const [platformTablesError, setPlatformTablesError] = useState("");
-
-  // Sidebar Data
-  const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
-  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
-  const [lastUpdatedTime, setLastUpdatedTime] = useState<Date | null>(null);
-  const [anomaliesLoading, setAnomaliesLoading] = useState(false);
-  const [anomaliesError, setAnomaliesError] = useState("");
-  const [liveRefreshTone, setLiveRefreshTone] = useState<"" | "refreshing" | "error">("");
-  const [cacheRevision, setCacheRevision] = useState(0);
+  const {
+    metrics,
+    platformSummary,
+    platformPayments,
+    platformPaymentsPage,
+    platformPaymentsTotalPages,
+    platformPaymentsTotal,
+    platformPayers,
+    platformPayersPage,
+    platformPayersTotalPages,
+    platformPayersTotal,
+    platformTablesLoading,
+    platformTablesError,
+    loadPlatformSummary,
+    refreshPlatformTables,
+    changePlatformPaymentsPage,
+    changePlatformPayersPage,
+  } = usePlatformMetrics();
 
   // Current Selection
-  const [selectedProviderId, setSelectedProviderId] = useState("funding_memory");
-  const [providers, setProviders] = useState<Provider[]>([]);
   const [activeQuery, setActiveQuery] = useState<Record<string, any>>({
     symbol: "HYPE",
     fundingRate: -0.005,
@@ -132,67 +86,16 @@ export function AppPage({
     volume24h: 15000000,
   });
 
+  const {
+    providers,
+    selectedProviderId,
+    setSelectedProviderId,
+    loadProviders,
+    handleProviderChange,
+  } = useProviders({ activeQuery, setActiveQuery });
+
   // Basic vs Advanced form edits
   const [showBasicFields, setShowBasicFields] = useState(false);
-
-  // Quotes Price
-  const [quotedPrices, setQuotedPrices] = useState<Record<string, number>>({});
-
-  // Paywall & Payment state
-  const [paywallOpen, setPaywallOpen] = useState(false);
-  const [currentInvoice, setCurrentInvoice] = useState<any>(null);
-  const [paymentStep, setPaymentStep] = useState<PaymentStepKey>("wallet");
-  const [paymentStepStatus, setPaymentStepStatus] = useState<Record<PaymentStepKey, { status: PaymentStatus; label: string; detail?: string }>>({
-    wallet: { status: "waiting", label: "Waiting" },
-    gateway: { status: "waiting", label: "Waiting" },
-    settlement: { status: "waiting", label: "Waiting" },
-    report: { status: "waiting", label: "Waiting" },
-  });
-  const [payStatusText, setPayStatusText] = useState("");
-  const [payErrorText, setPayErrorText] = useState("");
-  const [paymentSuccess, setPaymentSuccess] = useState(false);
-  const [paySubmitting, setPaySubmitting] = useState(false);
-  const [paymentDetails, setPaymentDetails] = useState({
-    buyerGatewayBalance: "",
-    settlementId: "",
-    sellerAvailable: "",
-    sellerPending: "",
-    txHash: "",
-    explorerUrl: "",
-  });
-  const [reportDetailsOpen, setReportDetailsOpen] = useState(true);
-
-  // Deposit Assist Modal inside paywall
-  const [showDepositModal, setShowDepositModal] = useState(false);
-  const [depositAmountInput, setDepositAmountInput] = useState("0.005");
-  const [allowanceApproved, setAllowanceApproved] = useState(false);
-  const [depositConfirmed, setDepositConfirmed] = useState(false);
-
-  // Unlocked Report
-  const [unlockedReport, setUnlockedReport] = useState<any>(null);
-  const [reportCollapsed, setReportCollapsed] = useState(true);
-
-  // Agent control bar trace logs
-  const [agentPrompt, setAgentPrompt] = useState("");
-  const [agentTrace, setAgentTrace] = useState<{ text: string; tone?: string }[]>([]);
-  const agentChatLogRef = useRef<HTMLDivElement | null>(null);
-  const [agentRunning, setAgentRunning] = useState(false);
-  const [showAgentBuyerModal, setShowAgentBuyerModal] = useState(false);
-  const [agentSessionStage, setAgentSessionStage] = useState<AgentSessionStage>("idle");
-  const [agentSelectedPick, setAgentSelectedPick] = useState<any>(null);
-  const [agentSessionInvoice, setAgentSessionInvoice] = useState<any>(null);
-  const [agentVerifyResult, setAgentVerifyResult] = useState<any>(null);
-  const [agentStartTime, setAgentStartTime] = useState<number | null>(null);
-  const [agentElapsed, setAgentElapsed] = useState<string>("0.0s");
-  const [agentDecisionLatency, setAgentDecisionLatency] = useState<string | null>(null);
-  const [agentSelectReason, setAgentSelectReason] = useState<string | null>(null);
-  const [agentRejectedReasons, setAgentRejectedReasons] = useState<string[]>([]);
-
-  // Refs for progress bar alignment
-  const firstDotRef = useRef<HTMLSpanElement | null>(null);
-  const lastDotRef = useRef<HTMLSpanElement | null>(null);
-  const stageContainerRef = useRef<HTMLDivElement | null>(null);
-  const [progressBarStyle, setProgressBarStyle] = useState<React.CSSProperties>({ width: "0%" });
 
   // Config addresses
   const [sellerAddress, setSellerAddress] = useState("");
@@ -211,76 +114,7 @@ export function AppPage({
 
   // Modal display toggles
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [showAgentRunModal, setShowAgentRunModal] = useState(false);
   const [showFundArcModal, setShowFundArcModal] = useState(false);
-  const [showProviderEarningsModal, setShowProviderEarningsModal] = useState(false);
-  const [providerEarningsLoading, setProviderEarningsLoading] = useState(false);
-  const [providerEarningsError, setProviderEarningsError] = useState("");
-  const [providerEarningsStats, setProviderEarningsStats] = useState<any[]>([]);
-  const [selectedProviderEarningsIds, setSelectedProviderEarningsIds] = useState<string[]>([]);
-  const [creatorClaimSubmitting, setCreatorClaimSubmitting] = useState(false);
-  const [providerWithdrawAmount, setProviderWithdrawAmount] = useState("");
-  const [providerWithdrawSubmitting, setProviderWithdrawSubmitting] = useState(false);
-
-  // Quick Profile data
-  const [profileChainUsdc, setProfileChainUsdc] = useState("n/a");
-  const [profileGatewayUsdc, setProfileGatewayUsdc] = useState("n/a");
-  const [profileReportsCount, setProfileReportsCount] = useState(0);
-  const [profileTotalSpent, setProfileTotalSpent] = useState("0.00 USDC");
-  const [profilePurchasedSymbols, setProfilePurchasedSymbols] = useState<string[]>([]);
-  const [profileVerifiedPayments, setProfileVerifiedPayments] = useState<any[]>([]);
-  const [profileVerifiedPaymentsPage, setProfileVerifiedPaymentsPage] = useState(1);
-  const [profileVerifiedPaymentsTotalPages, setProfileVerifiedPaymentsTotalPages] = useState(1);
-  const [profilePaymentsLoading, setProfilePaymentsLoading] = useState(false);
-  const [profilePaymentsError, setProfilePaymentsError] = useState("");
-
-  // Agent run modal policy & trace
-  const [agentRunBudget, setAgentRunBudget] = useState("0.010");
-  const [agentRunMaxPrice, setAgentRunMaxPrice] = useState("0.005");
-  const [agentRunTraceLines, setAgentRunTraceLines] = useState<{ text: string; tone?: string }[]>([]);
-  const [agentRunMode, setAgentRunMode] = useState<"judge" | "cli">("judge");
-  const [agentRunInProgress, setAgentRunInProgress] = useState(false);
-
-  // Fund Arc Wallet readiness status
-  const [fundReadinessStatus, setFundReadinessStatus] = useState("Checking");
-  const [fundReadinessTone, setFundReadinessTone] = useState("");
-  const [fundWalletStatus, setFundWalletStatus] = useState("Not connected");
-  const [fundProviderStatus, setFundProviderStatus] = useState("n/a");
-  const [fundChainStatus, setFundChainStatus] = useState("n/a");
-  const [fundArcStatus, setFundArcStatus] = useState("Unknown");
-  const [fundWalletUsdc, setFundWalletUsdc] = useState("n/a");
-  const [fundGatewayBalance, setFundGatewayBalance] = useState("n/a");
-  const [fundRequiredAmount, setFundRequiredAmount] = useState("n/a");
-  const [fundNextStep, setFundNextStep] = useState("Connect wallet first");
-  const [fundPrimaryAction, setFundPrimaryAction] = useState({ action: "connect", label: "Connect wallet first" });
-  const [fundShowAdvanced, setFundShowAdvanced] = useState(false);
-
-  const sameAddress = (a?: string, b?: string) => {
-    return Boolean(a && b && String(a).toLowerCase() === String(b).toLowerCase());
-  };
-
-  const ownedProviders = useMemo(() => {
-    if (!wallet) return [];
-    return providers.filter((provider) =>
-      [provider.owner_wallet, provider.revenue_wallet]
-        .filter(Boolean)
-        .some((address) => sameAddress(address, wallet))
-    );
-  }, [providers, wallet]);
-
-  const activeProvider = useMemo(() => {
-    return providers.find((p) => p.provider_id === selectedProviderId);
-  }, [providers, selectedProviderId]);
-
-  const walletRole = useMemo(() => {
-    const normalized = wallet.toLowerCase();
-    if (!normalized) return { label: "Buyer", className: "role-buyer" };
-    if (adminAddress && normalized === adminAddress.toLowerCase()) return { label: "Admin", className: "role-admin" };
-    if (sellerAddress && normalized === sellerAddress.toLowerCase()) return { label: "Treasury", className: "role-treasury" };
-    const ownedProvider = ownedProviders[0];
-    if (ownedProvider) return { label: "Provider", className: "role-creator" };
-    return { label: "Buyer", className: "role-buyer" };
-  }, [adminAddress, ownedProviders, sellerAddress, wallet]);
 
   // Sync view mode class to body so public/app.css acts properly
   useEffect(() => {
@@ -288,68 +122,6 @@ export function AppPage({
     document.body.classList.toggle("basic-view", viewMode === "basic");
     localStorage.setItem("qma_view_mode", viewMode);
   }, [viewMode]);
-
-  // Auto-scroll chat log to bottom when trace messages update
-  useEffect(() => {
-    if (showAgentBuyerModal && agentChatLogRef.current) {
-      agentChatLogRef.current.scrollTop = agentChatLogRef.current.scrollHeight;
-    }
-  }, [agentTrace, showAgentBuyerModal]);
-
-  // Live elapsed timer while agent is running
-  useEffect(() => {
-    if (!agentStartTime || !agentRunning) return;
-    const interval = setInterval(() => {
-      const elapsed = (Date.now() - agentStartTime) / 1000;
-      setAgentElapsed(`${elapsed.toFixed(1)}s`);
-    }, 200);
-    return () => clearInterval(interval);
-  }, [agentStartTime, agentRunning]);
-
-  // Recalculate progress bar left/width dynamically based on active dots
-  useEffect(() => {
-    if (!showAgentBuyerModal) return;
-
-    const updateProgressBar = () => {
-      if (!firstDotRef.current || !lastDotRef.current || !stageContainerRef.current) return;
-      const containerRect = stageContainerRef.current.getBoundingClientRect();
-      const firstRect = firstDotRef.current.getBoundingClientRect();
-      const lastRect = lastDotRef.current.getBoundingClientRect();
-
-      const left = firstRect.left + firstRect.width / 2 - containerRect.left;
-      const totalWidth = (lastRect.left + lastRect.width / 2) - (firstRect.left + firstRect.width / 2);
-
-      setProgressBarStyle({
-        left: `${left}px`,
-        width: `${totalWidth}px`,
-      });
-    };
-
-    // Run immediately
-    updateProgressBar();
-
-    // Poll periodically during modal transition to capture dynamic rendering stabilization
-    let count = 0;
-    const interval = setInterval(() => {
-      updateProgressBar();
-      count++;
-      if (count > 20) clearInterval(interval);
-    }, 100);
-
-    window.addEventListener("resize", updateProgressBar);
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener("resize", updateProgressBar);
-    };
-  }, [showAgentBuyerModal, agentSessionStage]);
-
-  // Update Clock
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setTimeStr(new Date().toLocaleTimeString());
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   // Fetch Providers & Configuration
   useEffect(() => {
@@ -375,64 +147,12 @@ export function AppPage({
       }
     }
 
-    async function loadMetrics() {
-      try {
-        const resp = await fetch(`${API_BASE_URL}/api/v1/platform/summary`);
-        if (!resp.ok) return;
-        const data = await resp.json();
-        setPlatformSummary(data);
-        setMetrics({
-          paid_count: data.current_paid_count ?? data.paid_count ?? 0,
-          revenue_usdc: data.revenue_usdc || 0,
-          available_usdc: data.seller_gateway_balance?.available_usdc ?? data.available_usdc ?? 0,
-        });
-      } catch (err) {
-        console.warn("Failed to load metrics", err);
-      }
-    }
-
     loadConfig();
-    loadMetrics();
+    loadPlatformSummary().catch((err) => console.warn("Failed to load metrics", err));
     loadProviders();
-    loadLiveAnomalies();
-    loadAgentRecommendations();
-
-    const interval = setInterval(() => {
-      loadLiveAnomalies(true);
-    }, 30000);
-
-    const handleAccountsChanged = (accounts: any) => {
-      clearAllWalletProfileSessions();
-      const next = accounts && accounts[0] ? String(accounts[0]) : "";
-      setWallet(next);
-      if (next) localStorage.setItem("qma_connected_wallet", next);
-      else localStorage.removeItem("qma_connected_wallet");
-    };
-    if (window.ethereum?.on) {
-      window.ethereum.on("accountsChanged", handleAccountsChanged);
-    }
-
-    return () => {
-      clearInterval(interval);
-      if (window.ethereum?.removeListener) {
-        window.ethereum.removeListener("accountsChanged", handleAccountsChanged);
-      }
-    };
   }, []);
 
-  // Quote prices on query updates
-  useEffect(() => {
-    if (activeQuery?.symbol) {
-      scheduleQuoteRefresh();
-    }
-  }, [activeQuery, selectedProviderId]);
-
-  // Load Quick Profile data when opened or page changes
-  useEffect(() => {
-    if (showProfileModal) {
-      loadQuickProfileData();
-    }
-  }, [showProfileModal, profileVerifiedPaymentsPage]);
+  const { quotedPrices } = useQuote({ activeQuery, selectedProviderId });
 
   const handleCopyAddress = () => {
     if (!wallet) return;
@@ -448,404 +168,191 @@ export function AppPage({
     }, 3600);
   };
 
-  const loadProviders = async () => {
-    try {
-      const resp = await fetch(`${API_BASE_URL}/api/v1/providers`);
-      if (!resp.ok) return;
-      const data = await resp.json();
-      setProviders(data.providers || []);
-    } catch (err) {
-      console.warn("Failed to load providers list", err);
-    }
-  };
+  const {
+    wallet,
+    connect,
+    disconnect,
+    sameAddress,
+    walletRole,
+    ownedProviders,
+    activeProvider,
+  } = useWalletConnection({
+    providers,
+    selectedProviderId,
+    adminAddress,
+    sellerAddress,
+    showToast,
+  });
 
-  const loadLiveAnomalies = async (silent = false) => {
-    setLiveRefreshTone("refreshing");
-    if (!silent) setAnomaliesLoading(true);
-    setAnomaliesError("");
-    try {
-      const resp = await fetch(`${API_BASE_URL}/api/v1/live-anomalies`);
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.detail || "Failed to load anomalies");
-      setAnomalies(data.anomalies || []);
-      const rawUpdated = data.last_updated;
-      const numericUpdated = Number(rawUpdated);
-      const updatedAt = Number.isFinite(numericUpdated)
-        ? new Date(numericUpdated > 10_000_000_000 ? numericUpdated : numericUpdated * 1000)
-        : new Date(rawUpdated);
-      setLastUpdatedTime(Number.isNaN(updatedAt.getTime()) ? null : updatedAt);
-      setLiveRefreshTone("");
+  const {
+    fundReadinessStatus,
+    fundReadinessTone,
+    fundWalletStatus,
+    fundProviderStatus,
+    fundChainStatus,
+    fundWalletUsdc,
+    fundGatewayBalance,
+    fundRequiredAmount,
+    fundNextStep,
+    fundPrimaryAction,
+    fundShowAdvanced,
+    setFundShowAdvanced,
+    refreshFundingReadiness,
+  } = useFundArcWallet({ wallet, arcGatewayUrl });
 
-      // Auto select first anomaly on initial load if query is basic
-      if (data.anomalies && data.anomalies.length > 0 && !silent) {
-        loadAnomalyIntoQuery(data.anomalies[0]);
-      }
-    } catch (err: any) {
-      setAnomaliesError(err.message || "Exchange scan error");
-      setLiveRefreshTone("error");
-    } finally {
-      setAnomaliesLoading(false);
-    }
-  };
+  const {
+    profileChainUsdc,
+    profileGatewayUsdc,
+    profileReportsCount,
+    profileTotalSpent,
+    profilePurchasedSymbols,
+    profileVerifiedPayments,
+    profileVerifiedPaymentsPage,
+    profileVerifiedPaymentsTotalPages,
+    profilePaymentsLoading,
+    profilePaymentsError,
+    setProfileVerifiedPaymentsPage,
+    loadQuickProfileData,
+    openQuickProfileModal,
+  } = useQuickProfile({ wallet, arcGatewayUrl, showProfileModal, setShowProfileModal });
 
-  const liveRefreshLabel = lastUpdatedTime
-    ? `Updated ${lastUpdatedTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}`
-    : liveRefreshTone === "refreshing"
-      ? "Refreshing"
-      : liveRefreshTone === "error"
-        ? "Refresh error"
-        : "Auto 30s";
+  const {
+    cacheRevision,
+    setCacheRevision,
+    normalizeSignalPayload,
+    signalCacheKey,
+    rememberPendingInvoice,
+    clearPendingInvoice,
+    refreshPendingInvoice,
+    getCachedReport,
+    getCachedReportsForSymbol,
+  } = usePendingInvoiceCache({ wallet, selectedProviderId, activeQuery });
 
-  const loadAgentRecommendations = async () => {
-    try {
-      const resp = await fetch(`${API_BASE_URL}/api/v1/agent/recommendations`);
-      if (!resp.ok) return;
-      const data = await resp.json();
-      setRecommendations(data.recommendations || []);
-    } catch (err) {
-      console.warn("Failed to load recommendations", err);
-    }
-  };
+  const {
+    paywallOpen,
+    setPaywallOpen,
+    currentInvoice,
+    setCurrentInvoice,
+    paymentStep,
+    paymentStepStatus,
+    payStatusText,
+    payErrorText,
+    paymentSuccess,
+    paySubmitting,
+    paymentDetails,
+    reportDetailsOpen,
+    setReportDetailsOpen,
+    showDepositModal,
+    setShowDepositModal,
+    depositAmountInput,
+    setDepositAmountInput,
+    unlockedReport,
+    setUnlockedReport,
+    reportCollapsed,
+    setReportCollapsed,
+    openPaywall,
+    signAndSettleX402,
+    handleDepositToGateway,
+    waitForTxReceipt,
+    fetchReportContent,
+    handleOpenUnlockedReport,
+    recommendationTierPrice,
+    recommendationTier,
+    saveLocalAction,
+  } = usePayment({
+    wallet,
+    activeQuery,
+    selectedProviderId,
+    sellerAddress,
+    arcGatewayUrl,
+    sameAddress,
+    showToast,
+    refreshPendingInvoice,
+    rememberPendingInvoice,
+    clearPendingInvoice,
+    normalizeSignalPayload,
+    signalCacheKey,
+    setCacheRevision,
+  });
 
-  const loadPlatformSummary = async () => {
-    const resp = await fetch(`${API_BASE_URL}/api/v1/platform/summary`);
-    if (!resp.ok) throw new Error(`Platform summary returned ${resp.status}`);
-    const data = await resp.json();
-    setPlatformSummary(data);
-    setMetrics({
-      paid_count: data.current_paid_count ?? data.paid_count ?? 0,
-      revenue_usdc: data.revenue_usdc || 0,
-      available_usdc: data.seller_gateway_balance?.available_usdc ?? data.available_usdc ?? 0,
-    });
-    return data;
-  };
+  const {
+    agentPrompt,
+    setAgentPrompt,
+    agentTrace,
+    clearAgentTrace,
+    agentChatLogRef,
+    agentRunning,
+    showAgentBuyerModal,
+    setShowAgentBuyerModal,
+    agentSessionStage,
+    agentSelectedPick,
+    agentSessionInvoice,
+    agentVerifyResult,
+    agentStartTime,
+    agentElapsed,
+    agentDecisionLatency,
+    agentSelectReason,
+    agentRejectedReasons,
+    firstDotRef,
+    lastDotRef,
+    stageContainerRef,
+    progressBarStyle,
+    handleAgentRetry,
+    handleAgentCancelSession,
+    handleAgentRun,
+  } = useAgentBuyer({
+    wallet,
+    setActiveQuery,
+    selectedProviderId,
+    setSelectedProviderId,
+    currentInvoice,
+    setCurrentInvoice,
+    setReportCollapsed,
+    fetchReportContent,
+    recommendationTier,
+    recommendationTierPrice,
+    refreshPendingInvoice,
+    rememberPendingInvoice,
+    clearPendingInvoice,
+    getCachedReport,
+    getCachedReportsForSymbol,
+    refreshPlatformTables,
+  });
 
-  const loadPlatformPayments = async (page = platformPaymentsPage) => {
-    const params = new URLSearchParams({
-      page: String(page),
-      page_size: "10",
-    });
-    const resp = await fetch(`${API_BASE_URL}/api/v1/platform/payments?${params.toString()}`);
-    if (!resp.ok) throw new Error(`Platform payments returned ${resp.status}`);
-    const data = await resp.json();
-    const rows = Array.isArray(data.recent_payments) ? data.recent_payments : [];
-    const meta = data.recent_payments_page || {};
-    setPlatformPayments(rows);
-    setPlatformPaymentsPage(Number(meta.page || page || 1));
-    setPlatformPaymentsTotalPages(Number(meta.total_pages || 1));
-    setPlatformPaymentsTotal(Number(meta.total || rows.length));
-    return data;
-  };
-
-  const loadPlatformPayers = async (page = platformPayersPage) => {
-    const params = new URLSearchParams({
-      page: String(page),
-      page_size: "10",
-    });
-    const resp = await fetch(`${API_BASE_URL}/api/v1/platform/payers?${params.toString()}`);
-    if (!resp.ok) throw new Error(`Platform payers returned ${resp.status}`);
-    const data = await resp.json();
-    const rows = Array.isArray(data.payer_breakdown) ? data.payer_breakdown : [];
-    const meta = data.payer_breakdown_page || {};
-    setPlatformPayers(rows);
-    setPlatformPayersPage(Number(meta.page || page || 1));
-    setPlatformPayersTotalPages(Number(meta.total_pages || 1));
-    setPlatformPayersTotal(Number(meta.total || rows.length));
-    return data;
-  };
-
-  const refreshPlatformTables = async (paymentPage = platformPaymentsPage, payerPage = platformPayersPage) => {
-    setPlatformTablesLoading(true);
-    setPlatformTablesError("");
-    try {
-      await Promise.all([
-        loadPlatformSummary(),
-        loadPlatformPayments(paymentPage),
-        loadPlatformPayers(payerPage),
-      ]);
-      setPlatformTablesLoaded(true);
-    } catch (err: any) {
-      console.warn("Platform analytics unavailable", err);
-      setPlatformTablesError(err?.message || "Platform analytics unavailable.");
-    } finally {
-      setPlatformTablesLoading(false);
-    }
-  };
-
-  const quoteTimer = useRef<any>(null);
-  const scheduleQuoteRefresh = () => {
-    clearTimeout(quoteTimer.current);
-    quoteTimer.current = setTimeout(async () => {
-      try {
-        const tiers = ["preview", "full"];
-        const results = await Promise.all(
-          tiers.map(async (t) => {
-            const resp = await fetch(`${API_BASE_URL}/api/v1/payment/quote`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                ...activeQuery,
-                provider_id: selectedProviderId,
-                tier: t,
-              }),
-            });
-            if (!resp.ok) return [t, null];
-            const resData = await resp.json();
-            return [t, Number(resData.amount_usdc)];
-          })
-        );
-        const nextQuotes: Record<string, number> = {};
-        results.forEach(([t, val]) => {
-          if (t && val !== null) nextQuotes[t as string] = val as number;
-        });
-        setQuotedPrices(nextQuotes);
-      } catch (err) {
-        console.warn("Quote refresh failed", err);
-      }
-    }, 400);
-  };
-
-  const connect = async () => {
-    if (!window.ethereum?.request) {
-      showToast("EVM wallet provider required.", "error");
-      return;
-    }
-    try {
-      const accounts = (await window.ethereum.request({ method: "eth_requestAccounts" })) as any;
-      const next = accounts && accounts[0] ? String(accounts[0]) : "";
-      setWallet(next);
-      if (next) {
-        localStorage.setItem("qma_connected_wallet", next);
-        showToast("Wallet connected.", "success");
-        try {
-          await requestWalletProfileSession(next);
-          showToast("Private profile access unlocked for this session.", "success");
-        } catch (sessionErr: any) {
-          showToast(sessionErr?.message || "Connected. Private snapshots can be unlocked later in Profile.", "warning");
-        }
-      }
-    } catch (err: any) {
-      showToast(err.message || "Connection failed", "error");
-    }
-  };
-
-  const paymentClass = (status: PaymentStatus) => {
-    if (status === "active") return "is-active";
-    if (status === "completed") return "is-completed";
-    if (status === "failed") return "is-failed";
-    return "is-pending";
-  };
-
-
-  const disconnect = () => {
-    if (wallet) clearWalletProfileSession(wallet);
-    setWallet("");
-    localStorage.removeItem("qma_connected_wallet");
-    setWalletDropdownOpen(false);
-    showToast("Wallet disconnected. Private profile session cleared.", "info");
-  };
-
-  const openQuickProfileModal = () => {
-    setWalletDropdownOpen(false);
-    setProfileVerifiedPaymentsPage(1);
-    setProfileChainUsdc("loading...");
-    setProfileGatewayUsdc("loading...");
-    setProfileReportsCount(0);
-    setProfileTotalSpent("loading...");
-    setProfilePurchasedSymbols([]);
-    setProfileVerifiedPayments([]);
-    setProfilePaymentsError("");
-    setShowProfileModal(true);
-  };
-
-  const normalizeSignalPayload = (source: Record<string, any> = {}) => {
-    const numberOrNull = (value: any) => {
-      if (value === undefined || value === null || value === "") return null;
-      const num = Number(value);
-      return Number.isFinite(num) ? Number(num.toFixed(12)) : null;
-    };
-    return {
-      symbol: String(source.symbol || "").trim().toUpperCase(),
-      fundingRate: numberOrNull(source.fundingRate ?? source.funding_rate),
-      marketCap: numberOrNull(source.marketCap ?? source.market_cap),
-      FDV: numberOrNull(source.FDV ?? source.fdv),
-      circRatio: numberOrNull(source.circRatio ?? source.circ_ratio),
-      fromATH: numberOrNull(source.fromATH ?? source.fromATHPercent ?? source["fromATH(%)"]),
-      volume24h: numberOrNull(source.volume24h ?? source.volume_24h),
-      amount: numberOrNull(source.amount),
-      openInterest: numberOrNull(source.openInterest ?? source.open_interest),
-      openInterestChange24h: numberOrNull(source.openInterestChange24h ?? source.open_interest_change_24h),
-      longShortRatio: numberOrNull(source.longShortRatio ?? source.long_short_ratio),
-      price: numberOrNull(source.price),
-    };
-  };
-
-  const normalizeTierForCache = (tier: any): "preview" | "full" => {
-    return String(tier || "").toLowerCase() === "preview" ? "preview" : "full";
-  };
-
-  const signalFingerprint = (source: Record<string, any> = {}) => {
-    return b64encode(normalizeSignalPayload(source));
-  };
-
-  const signalCacheKey = (
-    signal: Record<string, any>,
-    tier: "preview" | "full" = "full",
-    providerId: string = selectedProviderId,
-    account = wallet
-  ) => {
-    const normalized = normalizeSignalPayload(signal);
-    const normalizedWallet = String(account || "").toLowerCase();
-    if (!normalizedWallet || !normalized.symbol) return "";
-    return `qma_paid_signal_v5_${normalizedWallet}_${providerId}_${tier}_${normalized.symbol}_${signalFingerprint(normalized)}`;
-  };
-
-  const pendingInvoiceStoreKey = (account = wallet) => {
-    return `qma_pending_invoices_${String(account || "browser").toLowerCase()}`;
-  };
-
-  const pendingInvoiceMatchKey = (
-    signal: Record<string, any>,
-    tier: "preview" | "full",
-    providerId: string = selectedProviderId
-  ) => {
-    const normalized = normalizeSignalPayload(signal);
-    if (!normalized.symbol) return "";
-    return `${providerId || "funding_memory"}:${tier}:${signalFingerprint(normalized)}`;
-  };
-
-  const readPendingInvoiceStore = (account = wallet) => {
-    try {
-      return JSON.parse(localStorage.getItem(pendingInvoiceStoreKey(account)) || "{}") || {};
-    } catch {
-      return {};
-    }
-  };
-
-  const writePendingInvoiceStore = (store: Record<string, any>, account = wallet) => {
-    try {
-      localStorage.setItem(pendingInvoiceStoreKey(account), JSON.stringify(store || {}));
-    } catch (err) {
-      console.warn("Could not persist pending invoice", err);
-    }
-  };
-
-  const rememberPendingInvoice = (
-    invoice: any,
-    signal: Record<string, any> = activeQuery,
-    tier: "preview" | "full" = normalizeTierForCache(invoice?.tier || "full"),
-    providerId: string = invoice?.provider_id || selectedProviderId,
-    account = wallet
-  ) => {
-    if (!invoice?.invoice_id || !invoice?.invoice_secret || !signal) return;
-    const key = pendingInvoiceMatchKey(signal, tier, providerId);
-    if (!key) return;
-    const store = readPendingInvoiceStore(account);
-    store[key] = {
-      saved_at: Date.now(),
-      signal: normalizeSignalPayload(signal),
-      invoice: {
-        ...invoice,
-        invoice_secret: invoice.invoice_secret,
-        split_legs: Array.isArray(invoice.split_legs) ? invoice.split_legs : [],
-      },
-    };
-    store.__last_key = key;
-    writePendingInvoiceStore(store, account);
-  };
-
-  const clearPendingInvoice = (
-    signal: Record<string, any> = activeQuery,
-    tier: "preview" | "full" = "full",
-    providerId: string = selectedProviderId,
-    account = wallet
-  ) => {
-    const key = pendingInvoiceMatchKey(signal, tier, providerId);
-    if (!key) return;
-    const store = readPendingInvoiceStore(account);
-    delete store[key];
-    if (store.__last_key === key) delete store.__last_key;
-    writePendingInvoiceStore(store, account);
-  };
-
-  const refreshPendingInvoice = async (
-    signal: Record<string, any>,
-    tier: "preview" | "full",
-    providerId: string = selectedProviderId,
-    account = wallet
-  ) => {
-    const key = pendingInvoiceMatchKey(signal, tier, providerId);
-    const entry = key ? readPendingInvoiceStore(account)[key] : null;
-    const invoice = entry?.invoice;
-    if (!invoice?.invoice_id || !invoice?.invoice_secret) return null;
-    try {
-      const state = await getInvoiceStatus(invoice.invoice_id, invoice.invoice_secret);
-      return {
-        ...invoice,
-        ...state,
-        invoice_secret: invoice.invoice_secret,
-        arc_gateway_url: invoice.arc_gateway_url || state.arc_gateway_url,
-        split_legs: Array.isArray(state.split_legs) ? state.split_legs : invoice.split_legs,
-      };
-    } catch (err) {
-      console.warn("Pending invoice status check failed", err);
-      return null;
-    }
-  };
-
-  const getCachedReport = (signal: any, tier: "preview" | "full" = "full", providerId: string = selectedProviderId) => {
-    if (!wallet) return null;
-    const normalized = normalizeSignalPayload(signal);
-    const keys = [
-      signalCacheKey(normalized, tier, providerId),
-      `qma_paid_signal_v5_${wallet.toLowerCase()}_${providerId}_${tier}_${normalized.symbol}_${b64encode(signal)}`,
-    ].filter(Boolean);
-    if (tier === "preview") {
-      keys.push(signalCacheKey(normalized, "full", providerId));
-      keys.push(`qma_paid_signal_v5_${wallet.toLowerCase()}_${providerId}_full_${normalized.symbol}_${b64encode(signal)}`);
-    }
-    const raw = keys.map((key) => localStorage.getItem(key)).find(Boolean);
-    if (!raw) return null;
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return null;
-    }
-  };
-
-  const getCachedReportsForSymbol = (symbol: string, providerId?: string) => {
-    if (!wallet) return [];
-    const normalizedSymbol = String(symbol || "").trim().toUpperCase();
-    const prefix = `qma_paid_signal_v5_${wallet.toLowerCase()}_`;
-    const found: any[] = [];
-    const seen = new Set<string>();
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith(prefix) && key.includes(`_${normalizedSymbol}_`)) {
-        try {
-          const entry = JSON.parse(localStorage.getItem(key) || "{}");
-          const entryProvider = entry.provider_id || entry.report?.provider_id || entry.report?.invoice?.provider_id;
-          const entrySymbol = String(entry.signal?.symbol || entry.report?.query_symbol || "").toUpperCase();
-          const cacheId = entry.report?.query_hash || entry.report?.invoice?.settlement_id || key;
-          if (
-            entry?.report &&
-            entrySymbol === normalizedSymbol &&
-            (!providerId || !entryProvider || entryProvider === providerId) &&
-            !seen.has(cacheId)
-          ) {
-            seen.add(cacheId);
-            found.push(entry);
-          }
-        } catch { }
-      }
-    }
-    return found.sort((a, b) => (b.saved_at || 0) - (a.saved_at || 0));
-  };
-
-  const paidBadgeText = (entry: any) => {
-    const tier = normalizeTierForCache(entry?.tier || entry?.report?.tier || entry?.report?.invoice?.tier || "full");
-    return tier === "preview" ? "Paid Preview" : "Paid Full";
-  };
+  const {
+    showProviderEarningsModal,
+    setShowProviderEarningsModal,
+    providerEarningsLoading,
+    providerEarningsError,
+    providerEarningsStats,
+    selectedProviderEarningsIds,
+    creatorClaimSubmitting,
+    providerWithdrawSubmitting,
+    selectedProviderEarningsStats,
+    providerEarningsTotals,
+    providerGatewayWithdrawMax,
+    providerWithdrawDisplayAmount,
+    toggleProviderEarningsSelection,
+    openProviderEarningsModal,
+    refreshProviderEarningsModal,
+    submitCreatorClaim,
+    submitProviderGatewayWithdraw,
+  } = useProviderEarnings({
+    wallet,
+    ownedProviders,
+    sameAddress,
+    creatorClaimConfig,
+    paymentNetworkName,
+    gatewayContractAddress,
+    gatewayMinterAddress,
+    arcUsdcAddress,
+    withdrawMode,
+    refreshPlatformTables,
+    loadQuickProfileData,
+    waitForTxReceipt,
+    saveLocalAction,
+    showToast,
+  });
 
   const entitlementBadgeForSignal = (signal: Record<string, any>, providerId: string = selectedProviderId) => {
     void cacheRevision;
@@ -927,1575 +434,6 @@ export function AppPage({
     }
   };
 
-  const loadQuickProfileData = async () => {
-    if (!wallet) return;
-    const account = wallet;
-    const page = profileVerifiedPaymentsPage;
-    setProfilePaymentsLoading(true);
-    setProfilePaymentsError("");
-
-    const cleanGatewayUrl = arcGatewayUrl.replace(/\/$/, "");
-    if (cleanGatewayUrl) {
-      try {
-        const statusResp = await fetch(`${cleanGatewayUrl}/api/wallet-status/${account}`);
-        if (statusResp.ok) {
-          const statusData = await statusResp.json();
-          const chainBal = getOnChainUsdcBalance(statusData);
-          setProfileChainUsdc(chainBal ? `${Number(chainBal).toFixed(6)} USDC` : "0.000000 USDC");
-        } else {
-          setProfileChainUsdc("n/a");
-        }
-      } catch (err) {
-        console.warn("Failed to load quick profile wallet status", err);
-        setProfileChainUsdc("n/a");
-      }
-
-      try {
-        const balResp = await fetch(`${cleanGatewayUrl}/api/balance/${account}`);
-        if (balResp.ok) {
-          const balData = await balResp.json();
-          const formattedGatewayBal = extractGatewayBalanceUsdc(balData) ?? 0;
-          setProfileGatewayUsdc(`${formattedGatewayBal.toFixed(6)} USDC`);
-        } else {
-          setProfileGatewayUsdc("n/a");
-        }
-      } catch (err) {
-        console.warn("Failed to load quick profile gateway balance", err);
-        setProfileGatewayUsdc("n/a");
-      }
-    } else {
-      setProfileChainUsdc("n/a");
-      setProfileGatewayUsdc("n/a");
-    }
-
-    try {
-      const summaryResp = await fetch(`${API_BASE_URL}/api/v1/wallets/${account}/summary`);
-      if (summaryResp.ok) {
-        const summaryData = await summaryResp.json();
-        setProfileReportsCount(summaryData.current_payments ?? summaryData.payments ?? 0);
-        setProfileTotalSpent(`${Number(summaryData.spent_usdc || 0).toFixed(3)} USDC`);
-        setProfilePurchasedSymbols(Array.isArray(summaryData.purchased_symbols) ? summaryData.purchased_symbols : []);
-      }
-    } catch (err) {
-      console.warn("Failed to load quick profile summary", err);
-    }
-
-    try {
-      const params = new URLSearchParams({
-        page: String(page),
-        page_size: "10",
-      });
-      const paymentsResp = await fetch(`${API_BASE_URL}/api/v1/wallets/${account}/payments?${params.toString()}`);
-      if (paymentsResp.ok) {
-        const paymentsData = await paymentsResp.json();
-        const rows = paymentsData.recent_payments || paymentsData.payments || [];
-        const pageMeta = paymentsData.recent_payments_page || paymentsData.meta || {};
-        setProfileVerifiedPayments(Array.isArray(rows) ? rows : []);
-        setProfileVerifiedPaymentsTotalPages(Number(pageMeta.total_pages || pageMeta.pages || 1));
-      } else {
-        setProfileVerifiedPayments([]);
-        setProfilePaymentsError(`Could not load payments (${paymentsResp.status}).`);
-      }
-    } catch (err) {
-      console.warn("Failed to load quick profile payments", err);
-      setProfileVerifiedPayments([]);
-      setProfilePaymentsError("Could not load verified payments.");
-    } finally {
-      setProfilePaymentsLoading(false);
-    }
-  };
-
-  const getOnChainUsdcBalance = (walletStatus: any) => {
-    return walletStatus?.usdc?.formatted ?? walletStatus?.usdcBalance?.formatted ?? null;
-  };
-
-  // Mirror of app.js extractGatewayBalanceUsdc; handles all Circle API response shapes.
-  // Circle returns: { token, balances: [{ domain, depositor, balance: "0.99", pendingBatch: "0" }] }
-  const extractGatewayBalanceUsdc = (data: any): number | null => {
-    const candidates = [
-      data?.balance,
-      data?.available,
-      data?.amount,
-      data?.balances?.[0]?.amount,
-      data?.balances?.[0]?.balance,
-      data?.sources?.[0]?.amount,
-      data?.sources?.[0]?.balance,
-      data?.data?.balances?.[0]?.amount,
-    ];
-    for (const c of candidates) {
-      if (c === undefined || c === null) continue;
-      const raw = Number(c);
-      if (!Number.isFinite(raw)) continue;
-      return raw > 1000 ? raw / 1_000_000 : raw;
-    }
-    return null;
-  };
-
-  const refreshFundingReadiness = async () => {
-    const required = 0.005;
-    const requiredLabel = `${required.toFixed(3)} USDC`;
-    setFundRequiredAmount(requiredLabel);
-
-    if (!wallet) {
-      setFundReadinessStatus("Wallet needed");
-      setFundReadinessTone("warn");
-      setFundWalletStatus("Not connected");
-      setFundProviderStatus("n/a");
-      setFundChainStatus("n/a");
-      setFundArcStatus("Unknown");
-      setFundWalletUsdc("n/a");
-      setFundGatewayBalance("n/a");
-      setFundNextStep("Connect wallet first");
-      setFundPrimaryAction({ action: "connect", label: "Connect wallet first" });
-      return;
-    }
-
-    setFundWalletStatus(shortAddress(wallet));
-
-    let provider = null;
-    let chainIdHex = "";
-    let isArc = false;
-    let chainLabel = "n/a";
-    let providerLabel = "Injected Wallet";
-    let error: any = null;
-
-    try {
-      provider = getInjectedWallet();
-      if (provider) {
-        const pAny = provider as any;
-        if (pAny.isMetaMask) providerLabel = "MetaMask";
-        else if (pAny.isRabby) providerLabel = "Rabby";
-        else if (pAny.isOKX || pAny.isOKExWallet) providerLabel = "OKX Wallet";
-        setFundProviderStatus(providerLabel);
-
-        const rawChainId = await provider.request<string>({ method: "eth_chainId" });
-        chainIdHex = String(rawChainId).toLowerCase();
-        isArc = chainIdHex === "0x4cef52";
-        chainLabel = isArc ? "Arc Testnet" : `Other Network (${chainIdHex})`;
-        setFundChainStatus(chainLabel);
-        setFundArcStatus(isArc ? "Arc Testnet" : "Wrong network");
-      }
-    } catch (err) {
-      error = err;
-      setFundChainStatus("Chain detection failed");
-      setFundArcStatus("Unknown");
-    }
-
-    if (error || !provider) {
-      setFundReadinessStatus("Check failed");
-      setFundReadinessTone("warn");
-      setFundNextStep("Funding status is unavailable. Retry or continue to payment.");
-      setFundPrimaryAction({ action: "refresh", label: "Retry readiness check" });
-      return;
-    }
-
-    if (!isArc) {
-      setFundReadinessStatus("Wrong chain");
-      setFundReadinessTone("warn");
-      setFundNextStep("Add or switch to Arc Testnet. Your wallet will show the network details for approval.");
-      setFundPrimaryAction({ action: "switch", label: "Add / Switch Arc Testnet" });
-      return;
-    }
-
-    try {
-      const cleanGatewayUrl = arcGatewayUrl.replace(/\/$/, "");
-      const [statusResp, balResp] = await Promise.all([
-        fetch(`${cleanGatewayUrl}/api/wallet-status/${wallet}`),
-        fetch(`${cleanGatewayUrl}/api/balance/${wallet}`),
-      ]);
-
-      let walletBal = 0;
-      if (statusResp.ok) {
-        const statusData = await statusResp.json();
-        const chainBal = getOnChainUsdcBalance(statusData);
-        walletBal = chainBal ? Number(chainBal) : 0;
-        setFundWalletUsdc(`${walletBal.toFixed(3)} USDC`);
-      } else {
-        setFundWalletUsdc("n/a");
-      }
-
-      let gatewayBal = 0;
-      if (balResp.ok) {
-        const balData = await balResp.json();
-        gatewayBal = extractGatewayBalanceUsdc(balData) ?? 0;
-        setFundGatewayBalance(`${gatewayBal.toFixed(3)} USDC`);
-      } else {
-        setFundGatewayBalance("n/a");
-      }
-
-      if (gatewayBal >= required) {
-        setFundReadinessStatus("Ready");
-        setFundReadinessTone("ready");
-        setFundNextStep("Gateway balance is ready for the selected report.");
-        setFundPrimaryAction({ action: "close", label: "Continue to payment" });
-      } else if (walletBal + gatewayBal >= required) {
-        setFundReadinessStatus("Gateway low");
-        setFundReadinessTone("warn");
-        setFundNextStep("Continue to payment; QMA will prompt Gateway Deposit");
-        setFundPrimaryAction({ action: "close", label: "Continue to payment" });
-      } else {
-        setFundReadinessStatus("Funding needed");
-        setFundReadinessTone("warn");
-        setFundNextStep("Use Faucet or CCTP/App Kit, then retry. Arc uses USDC for gas and payment funding.");
-        setFundPrimaryAction({ action: "faucet", label: "Open Circle Faucet" });
-      }
-    } catch (err) {
-      setFundReadinessStatus("Check failed");
-      setFundReadinessTone("warn");
-      setFundNextStep("Funding status is unavailable. Retry or continue to payment.");
-      setFundPrimaryAction({ action: "refresh", label: "Retry readiness check" });
-    }
-  };
-
-  const recommendationTierPrice = (pick: any, tier: string, pricing: Record<string, number>) => {
-    const baseKey = `${pick.provider_id || "funding_memory"}_${tier}`;
-    return pricing[baseKey] || (tier === "preview" ? 0.001 : 0.005);
-  };
-
-  const recommendationTier = (pick: any): "preview" | "full" => {
-    const tier = String(pick?.tier || pick?.suggested_tier || "").toLowerCase();
-    return tier === "full" ? "full" : "preview";
-  };
-
-  const agentPendingInvoiceFor = (signal: any, tier: string) => {
-    if (currentInvoice && currentInvoice.tier === tier && currentInvoice.symbol === signal.symbol) {
-      return currentInvoice;
-    }
-    return null;
-  };
-
-  const getLatestCachedReportForSymbolTier = (symbol: string, tier: "preview" | "full", providerId: string) => {
-    const list = getCachedReportsForSymbol(symbol, providerId);
-    return list.find((entry) => entry.tier === tier) || null;
-  };
-
-  const agentPolicyPick = (
-    recommendationsList: any[] = [],
-    budget = 0.01,
-    maxPrice = 0.005,
-    pricing = {},
-    preferredTier: "preview" | "full" | null = null,
-  ) => {
-    const audit: any[] = [];
-    const candidates = recommendationsList.map((pick) => {
-      let tier = preferredTier || recommendationTier(pick);
-      const signal = pick.query || { symbol: pick.symbol };
-      const providerId = pick.provider_id || selectedProviderId || "funding_memory";
-
-      const fullEntry = getCachedReport(signal, "full", providerId);
-      const exactPreviewEntry = fullEntry ? null : getCachedReport(signal, "preview", providerId);
-      const symbolPreviewEntry = exactPreviewEntry || getLatestCachedReportForSymbolTier(signal.symbol, "preview", providerId);
-
-      const shouldUpgrade = !preferredTier && tier === "preview" && symbolPreviewEntry?.report && !fullEntry?.report;
-      if (shouldUpgrade) {
-        tier = "full";
-      }
-
-      const price = recommendationTierPrice(pick, tier, pricing);
-      const pendingInvoice = agentPendingInvoiceFor(signal, tier);
-      let skippedReason = "";
-
-      if (price <= 0) {
-        skippedReason = "missing price";
-      } else if (fullEntry?.report) {
-        skippedReason = "Full Report already purchased";
-      } else if (pendingInvoice) {
-        skippedReason = `invoice is already waiting for payment`;
-      } else if (price > budget) {
-        skippedReason = `over budget (${price.toFixed(3)} > ${budget.toFixed(3)})`;
-      } else if (price > maxPrice) {
-        skippedReason = `over max/report (${price.toFixed(3)} > ${maxPrice.toFixed(3)})`;
-      }
-
-      return {
-        ...pick,
-        agent_tier: tier,
-        agent_price: price,
-        agent_signal: signal,
-        agent_upgrade_from_preview: shouldUpgrade,
-        agent_upgrade_match: exactPreviewEntry?.report ? "exact Preview snapshot" : "previous Preview for same symbol",
-        agent_skipped_reason: skippedReason,
-        agent_value_density: price > 0 ? Number(pick.score || 0) / price : 0,
-      };
-    });
-
-    candidates.slice(0, 5).forEach((pick) => {
-      if (pick.agent_skipped_reason) {
-        audit.push({ text: `Skipped ${pick.symbol}: ${pick.agent_skipped_reason}.`, tone: "muted" });
-      } else if (pick.agent_upgrade_from_preview) {
-        audit.push({
-          text: `Candidate ${pick.symbol}: ${pick.agent_upgrade_match} already paid, evaluating Full Report upgrade at ${pick.agent_price.toFixed(3)} USDC.`,
-          tone: "active",
-        });
-      } else {
-        audit.push({
-          text: `Candidate ${pick.symbol}: score ${Number(pick.score || 0).toFixed(1)}, value density ${pick.agent_value_density.toFixed(1)}.`,
-          tone: "active",
-        });
-      }
-    });
-
-    const selected = candidates
-      .filter((pick) => !pick.agent_skipped_reason)
-      .sort((a, b) => {
-        const upgradeDiff = Number(Boolean(b.agent_upgrade_from_preview)) - Number(Boolean(a.agent_upgrade_from_preview));
-        if (upgradeDiff) return upgradeDiff;
-        const valueDiff = Number(b.agent_value_density || 0) - Number(a.agent_value_density || 0);
-        return valueDiff || Number(b.score || 0) - Number(a.score || 0);
-      })[0] || null;
-
-    return { selected, audit };
-  };
-
-  const runAgentDecision = async () => {
-    const budget = Number(agentRunBudget);
-    const maxPrice = Number(agentRunMaxPrice);
-    if (!Number.isFinite(budget) || budget <= 0 || !Number.isFinite(maxPrice) || maxPrice <= 0) {
-      showToast("Agent policy needs a positive budget and max price.", "warning");
-      return;
-    }
-
-    setAgentRunInProgress(true);
-    setAgentRunTraceLines([
-      { text: `Policy loaded: budget ${budget.toFixed(3)} USDC, max/report ${maxPrice.toFixed(3)} USDC.`, tone: "active" },
-      { text: "Fetching live paid opportunities from /api/v1/agent/recommendations...", tone: "" }
-    ]);
-
-    try {
-      const resp = await fetch(`${API_BASE_URL}/api/v1/agent/recommendations?limit=8`);
-      if (!resp.ok) throw new Error(`Agent endpoint returned ${resp.status}`);
-      const data = await resp.json();
-      const picks = data.recommendations || [];
-
-      setAgentRunTraceLines(prev => [...prev, { text: `Scanned ${picks.length} ranked opportunities.`, tone: "" }]);
-
-      const pricing = data.pricing || {};
-      const { selected, audit } = agentPolicyPick(picks, budget, maxPrice, pricing);
-
-      audit.forEach((line: any) => {
-        setAgentRunTraceLines(prev => [...prev, { text: line.text, tone: line.tone }]);
-      });
-
-      if (!selected) {
-        setAgentRunTraceLines(prev => [...prev, { text: "No affordable report matched the current budget policy.", tone: "warning" }]);
-        return;
-      }
-
-      const signal = selected.agent_signal || selected.query || { symbol: selected.symbol };
-      setAgentRunTraceLines(prev => [...prev, {
-        text: `Selected ${selected.symbol}: score ${Number(selected.score || 0).toFixed(1)}, ${selected.agent_tier} report, ${selected.agent_price.toFixed(3)} USDC.`,
-        tone: "success"
-      }]);
-
-      if (selected.agent_upgrade_from_preview) {
-        setAgentRunTraceLines(prev => [...prev, {
-          text: "Upgrade rule: paid Preview exists, so agent is buying the Full Report instead of paying for Preview again.",
-          tone: "success"
-        }]);
-      }
-
-      setAgentRunTraceLines(prev => [...prev,
-      { text: "Decision rule: complete paid Preview snapshots first, then choose highest value density under budget.", tone: "" },
-      { text: `Reasoning: ${(selected.reasons || ["fresh live anomaly"]).join(" | ")}`, tone: "" },
-      { text: "Creating provider-bound invoice with buyer_type=agent...", tone: "" }
-      ]);
-
-      if (!wallet) {
-        setAgentRunTraceLines(prev => [...prev, { text: "No wallet address provided. Run cancelled.", tone: "error" }]);
-        return;
-      }
-
-      setSelectedProviderId(selected.provider_id || "funding_memory");
-      setActiveQuery(signal);
-      setShowAgentRunModal(false);
-      openPaywall(selected.agent_tier);
-    } catch (err: any) {
-      console.warn("Agent run failed", err);
-      setAgentRunTraceLines(prev => [...prev, { text: `Agent run failed: ${err.message || err}`, tone: "error" }]);
-    } finally {
-      setAgentRunInProgress(false);
-    }
-  };
-
-  const handleProviderChange = (providerId: string) => {
-    setSelectedProviderId(providerId);
-    const target = providers.find((p) => p.provider_id === providerId);
-    if (target?.ui_schema?.fields) {
-      const fieldsQuery: Record<string, any> = { symbol: activeQuery.symbol || "HYPE" };
-      target.ui_schema.fields.forEach((f) => {
-        fieldsQuery[f.key] = f.default !== undefined ? f.default : "";
-      });
-      setActiveQuery(fieldsQuery);
-    }
-  };
-
-  // Paywall Actions
-  const openPaywall = async (tier: "preview" | "full", event?: React.FormEvent) => {
-    if (event) event.preventDefault();
-    if (!wallet) {
-      showToast("Please connect your wallet first.", "warning");
-      return;
-    }
-
-    setPaywallOpen(true);
-    setPaymentSuccess(false);
-    setPaySubmitting(false);
-    setPayErrorText("");
-    setUnlockedReport(null);
-    setPaymentDetails({
-      buyerGatewayBalance: "",
-      settlementId: "",
-      sellerAvailable: "",
-      sellerPending: "",
-      txHash: "",
-      explorerUrl: "",
-    });
-
-    // Initial Stepper labels
-    setPaymentStep("wallet");
-    setPaymentStepStatus({
-      wallet: { status: "active", label: "Checking" },
-      gateway: { status: "waiting", label: "Waiting" },
-      settlement: { status: "waiting", label: "Waiting" },
-      report: { status: "waiting", label: "Waiting" },
-    });
-
-    try {
-      // 1. Check Wallet & Arc Network chain ID
-      const provider = getInjectedWallet();
-      if (!provider) throw new Error("Wallet not found.");
-      const chainId = await provider.request<string>({ method: "eth_chainId" });
-      const ARC_TESTNET_HEX = "0x4cef52";
-      if (String(chainId).toLowerCase() !== ARC_TESTNET_HEX) {
-        setPayStatusText("Switching network to Arc Testnet...");
-        try {
-          await provider.request({
-            method: "wallet_switchEthereumChain",
-            params: [{ chainId: ARC_TESTNET_HEX }],
-          });
-        } catch (switchErr: any) {
-          // If chain not added, try adding it
-          if (switchErr.code === 4902 || String(switchErr.message).toLowerCase().includes("unrecognized")) {
-            await provider.request({
-              method: "wallet_addEthereumChain",
-              params: [
-                {
-                  chainId: ARC_TESTNET_HEX,
-                  chainName: "Arc Testnet",
-                  nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
-                  rpcUrls: ["https://rpc.testnet.arc.network"],
-                  blockExplorerUrls: ["https://testnet.arcscan.app"],
-                },
-              ],
-            });
-            await provider.request({
-              method: "wallet_switchEthereumChain",
-              params: [{ chainId: ARC_TESTNET_HEX }],
-            });
-          } else {
-            throw switchErr;
-          }
-        }
-      }
-
-      setPaymentStepStatus((prev) => ({
-        ...prev,
-        wallet: { status: "completed", label: "Connected" },
-        gateway: { status: "active", label: "Checking" },
-      }));
-      setPaymentStep("gateway");
-
-      // 2. Resume an unfinished invoice first; invoice_secret only exists client-side.
-      setPayStatusText("Checking pending invoice state...");
-      let invoiceData = await refreshPendingInvoice(activeQuery, tier, selectedProviderId, wallet);
-      if (invoiceData?.access_status === "expired" || invoiceData?.access_status === "disputed") {
-        clearPendingInvoice(activeQuery, tier, selectedProviderId, wallet);
-        invoiceData = null;
-      }
-      if (invoiceData?.status === "paid" && invoiceData.access_token) {
-        setCurrentInvoice(invoiceData);
-        sessionStorage.setItem(`qma_accessToken_${invoiceData.invoice_id}`, invoiceData.access_token);
-        setPaymentStepStatus((prev) => ({
-          ...prev,
-          gateway: { status: "completed", label: "Funded" },
-          settlement: { status: "completed", label: "Accepted" },
-          report: { status: "active", label: "Opening" },
-        }));
-        setPayStatusText("Recovered paid invoice. Opening report...");
-        await fetchReportContent(invoiceData.invoice_id, invoiceData.access_token, invoiceData, activeQuery, selectedProviderId);
-        clearPendingInvoice(activeQuery, tier, selectedProviderId, wallet);
-        return;
-      }
-
-      if (!invoiceData) {
-        setPayStatusText("Creating payment invoice...");
-        invoiceData = await createInvoice({
-          ...activeQuery,
-          symbol: String(activeQuery.symbol || ""),
-          provider_id: selectedProviderId,
-          tier,
-        });
-      } else {
-        showToast(`Resumed invoice ${shortAddress(invoiceData.invoice_id)}. Continue with remaining split leg.`, "info");
-      }
-      setCurrentInvoice(invoiceData);
-      rememberPendingInvoice(invoiceData, activeQuery, tier, selectedProviderId, wallet);
-
-      // Check user's Gateway balance via Arc Gateway (port 3000)
-      // arcGatewayUrl = "http://127.0.0.1:3000" from /api/v1/config
-      // Fallback: extract origin from arc_gateway_url in invoice (e.g. "http://127.0.0.1:3000/qma-access?...")
-      setPayStatusText("Reading Gateway Balance...");
-      let gatewayBase = arcGatewayUrl.replace(/\/$/, "");
-      if (!gatewayBase && invoiceData.arc_gateway_url) {
-        try { gatewayBase = new URL(invoiceData.arc_gateway_url).origin; } catch { gatewayBase = ""; }
-      }
-      if (!gatewayBase) throw new Error("Arc Gateway URL not configured. Retry or refresh.");
-      const cleanGatewayUrl = gatewayBase;
-      const balResp = await fetch(`${cleanGatewayUrl}/api/balance/${wallet}`);
-      if (!balResp.ok) throw new Error("Could not check Gateway Balance");
-      const balData = await balResp.json();
-      // extractGatewayBalanceUsdc already normalises atomic values > 1000 to USDC
-      const gatewayBal = extractGatewayBalanceUsdc(balData) ?? 0;
-      setPaymentDetails((prev) => ({
-        ...prev,
-        buyerGatewayBalance: `${gatewayBal.toFixed(6)} USDC`,
-      }));
-
-      const invoiceCost = Number(invoiceData.amount);
-      if (gatewayBal < invoiceCost) {
-        // Enforce Top Up Assist Modal
-        setPayStatusText(`Top Up required: need ${invoiceCost.toFixed(6)} USDC, have ${gatewayBal.toFixed(6)} USDC`);
-        setPaymentStepStatus((prev) => ({
-          ...prev,
-          gateway: { status: "failed", label: "Top Up Needed" },
-        }));
-        setPaymentStep("gateway");
-        setDepositAmountInput(Math.max(invoiceCost, 0.005).toFixed(6));
-        setShowDepositModal(true);
-        return;
-      }
-
-      // Preload ready for signing
-      setPaymentStepStatus((prev) => ({
-        ...prev,
-        gateway: { status: "completed", label: "Funded" },
-        settlement: { status: "active", label: "Sign Settlement" },
-      }));
-      setPaymentStep("settlement");
-      setPayStatusText("Gateway funds confirmed. Ready for settlement signature.");
-    } catch (err: any) {
-      setPayErrorText(err.message || "Failed to initialize payment.");
-      setPaymentStepStatus((prev) => ({
-        ...prev,
-        wallet: { status: "failed", label: "Failed" },
-      }));
-    }
-  };
-
-  const handleDepositToGateway = async () => {
-    if (!currentInvoice || !wallet) return;
-    const amount = Number(depositAmountInput);
-    if (isNaN(amount) || amount <= 0) {
-      showToast("Invalid deposit amount.", "warning");
-      return;
-    }
-
-    setPayStatusText("Preparing gateway deposit transaction...");
-    try {
-      let gwBase = arcGatewayUrl.replace(/\/$/, "");
-      if (!gwBase && currentInvoice?.arc_gateway_url) {
-        try { gwBase = new URL(currentInvoice.arc_gateway_url).origin; } catch { gwBase = ""; }
-      }
-      const cleanGatewayUrl = gwBase;
-      const walletStatusResp = await fetch(`${cleanGatewayUrl}/api/wallet-status/${wallet}`);
-      const statusData = walletStatusResp.ok ? await walletStatusResp.json() : null;
-
-      const approveDefault = statusData?.defaultApproveUsdc ?? 10;
-      const approveAmount = Math.max(approveDefault, amount).toFixed(6);
-
-      const calldataUrl = `${cleanGatewayUrl}/api/deposit-calldata/${wallet}?amount=${amount.toFixed(6)}&approveAmount=${approveAmount}`;
-      const calldataResp = await fetch(calldataUrl);
-      const data = await calldataResp.json();
-      if (!calldataResp.ok) throw new Error(data.error || "Deposit calldata failed");
-
-      const provider = getInjectedWallet();
-      if (!provider) throw new Error("No wallet injection found.");
-
-      const allowance = Number(statusData?.allowance?.formatted || 0);
-      if (allowance < amount) {
-        setPayStatusText("Requesting USDC allowance approval in wallet...");
-        const appTxHash = await provider.request<string>({
-          method: "eth_sendTransaction",
-          params: [data.approveTx],
-        });
-        setPayStatusText("Waiting for allowance transaction receipt...");
-        await waitForTxReceipt(appTxHash);
-        setAllowanceApproved(true);
-        saveLocalAction("approve", approveAmount, appTxHash);
-      }
-
-      setPayStatusText("Confirm Gateway deposit in your wallet...");
-      const depTxHash = await provider.request<string>({
-        method: "eth_sendTransaction",
-        params: [data.depositTx],
-      });
-      setPayStatusText("Waiting for deposit transaction confirmation...");
-      await waitForTxReceipt(depTxHash);
-      setDepositConfirmed(true);
-      saveLocalAction("deposit", amount.toFixed(6), depTxHash);
-
-      // Verify balance update
-      setPayStatusText("Updating gateway balances...");
-      let balanceUpdated = false;
-      for (let i = 0; i < 30; i++) {
-        const check = await fetch(`${cleanGatewayUrl}/api/balance/${wallet}`);
-        if (check.ok) {
-          const res = await check.json();
-          const normalBal = extractGatewayBalanceUsdc(res) ?? 0;
-          if (normalBal >= Number(currentInvoice.amount)) {
-            balanceUpdated = true;
-            break;
-          }
-        }
-        await new Promise((r) => setTimeout(r, 2000));
-      }
-
-      if (!balanceUpdated) throw new Error("Circle Gateway did not settle balance update in time.");
-      setPaymentDetails((prev) => ({
-        ...prev,
-        buyerGatewayBalance: `${Number(currentInvoice.amount).toFixed(6)}+ USDC`,
-      }));
-
-      setShowDepositModal(false);
-      setPaymentStepStatus((prev) => ({
-        ...prev,
-        gateway: { status: "completed", label: "Funded" },
-        settlement: { status: "active", label: "Sign Settlement" },
-      }));
-      setPaymentStep("settlement");
-      setPayStatusText("Circle deposit successful. Ready to sign settlement.");
-    } catch (err: any) {
-      showToast(err.message || "Gateway deposit failed.", "error");
-      setPayStatusText("Deposit failed. Retry.");
-    }
-  };
-
-  const waitForTxReceipt = async (hash: string) => {
-    const provider = getInjectedWallet();
-    if (!provider) return;
-    for (let i = 0; i < 45; i++) {
-      const rec = await provider.request<any>({
-        method: "eth_getTransactionReceipt",
-        params: [hash],
-      });
-      if (rec) {
-        if (rec.status !== "0x1") throw new Error("Transaction reverted.");
-        return rec;
-      }
-      await new Promise((r) => setTimeout(r, 1500));
-    }
-    throw new Error("Receipt timeout");
-  };
-
-  const saveLocalAction = (type: string, amount: string, hash: string) => {
-    try {
-      const key = `qma_wallet_events_${wallet.toLowerCase()}`;
-      const events = JSON.parse(localStorage.getItem(key) || "[]");
-      events.unshift({
-        type,
-        amount_usdc: amount,
-        tx_hash: hash,
-        explorer_url: `https://testnet.arcscan.app/tx/${hash}`,
-        at: Date.now(),
-      });
-      localStorage.setItem(key, JSON.stringify(events.slice(0, 50)));
-    } catch (err) {
-      console.warn("Failed to write local event log", err);
-    }
-  };
-
-  const utf8ToHex = (value: string) => {
-    const bytes = new TextEncoder().encode(String(value || ""));
-    return `0x${Array.from(bytes).map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
-  };
-
-  const randomHexBytes = (length: number) => {
-    const bytes = new Uint8Array(length);
-    if (window.crypto?.getRandomValues) {
-      window.crypto.getRandomValues(bytes);
-    } else {
-      for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
-    }
-    return `0x${Array.from(bytes).map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
-  };
-
-  const randomHexNonce = () => randomHexBytes(16);
-
-  const addressToBytes32 = (address: string) => {
-    const clean = String(address || "").replace(/^0x/i, "").toLowerCase();
-    if (!/^[0-9a-f]{40}$/.test(clean)) {
-      throw new Error(`Invalid EVM address: ${address || "empty"}`);
-    }
-    return `0x${clean.padStart(64, "0")}`;
-  };
-
-  const encodeGatewayMintCalldata = (attestationHex: string, signatureHex: string) => {
-    const att = String(attestationHex || "").replace(/^0x/i, "").toLowerCase();
-    const sig = String(signatureHex || "").replace(/^0x/i, "").toLowerCase();
-    const attLen = att.length / 2;
-    const sigLen = sig.length / 2;
-    const offset1 = 64;
-    const attPaddedLen = Math.ceil(attLen / 32) * 32;
-    const offset2 = 64 + 32 + attPaddedLen;
-    const toWord = (value: number) => value.toString(16).padStart(64, "0");
-    const padTo32 = (hex: string) => hex.padEnd(Math.ceil(hex.length / 64) * 64, "0");
-    return `0x9fb01cc5${toWord(offset1)}${toWord(offset2)}${toWord(attLen)}${padTo32(att)}${toWord(sigLen)}${padTo32(sig)}`;
-  };
-
-  const buildCreatorClaimMessage = ({
-    claimant,
-    providerIds,
-    amountUsdc,
-    nonce,
-    issuedAt,
-  }: {
-    claimant: string;
-    providerIds: string[];
-    amountUsdc: number;
-    nonce: string;
-    issuedAt: number;
-  }) => {
-    const providersValue = [...(providerIds || [])].sort().join(",");
-    return [
-      "QMA Creator Claim",
-      `claimant: ${String(claimant || "").toLowerCase()}`,
-      `providers: ${providersValue}`,
-      `amount_usdc: ${Number(amountUsdc || 0).toFixed(6)}`,
-      `nonce: ${nonce}`,
-      `issued_at: ${Number(issuedAt)}`,
-      `network: ${paymentNetworkName || "Arc Testnet"}`,
-    ].join("\n");
-  };
-
-  const buildGatewayWithdrawIntent = (amountUsdc: number) => ({
-    maxBlockHeight: "115792089237316195423570985008687907853269984665640564039457584007913129639935",
-    maxFee: String(Math.round(2.01 * 1_000_000)),
-    spec: {
-      version: 1,
-      sourceDomain: 26,
-      destinationDomain: 26,
-      sourceContract: addressToBytes32(gatewayContractAddress),
-      destinationContract: addressToBytes32(gatewayMinterAddress),
-      sourceToken: addressToBytes32(arcUsdcAddress),
-      destinationToken: addressToBytes32(arcUsdcAddress),
-      sourceDepositor: addressToBytes32(wallet),
-      destinationRecipient: addressToBytes32(wallet),
-      sourceSigner: addressToBytes32(wallet),
-      destinationCaller: addressToBytes32("0x0000000000000000000000000000000000000000"),
-      value: String(Math.round(Number(amountUsdc || 0) * 1_000_000)),
-      salt: randomHexBytes(32),
-      hookData: "0x",
-    },
-  });
-
-  const buildGatewayWithdrawTypedData = (burnIntent: any) => ({
-    domain: { name: "GatewayWallet", version: "1" },
-    message: burnIntent,
-    primaryType: "BurnIntent",
-    types: {
-      EIP712Domain: [
-        { name: "name", type: "string" },
-        { name: "version", type: "string" },
-      ],
-      TransferSpec: [
-        { name: "version", type: "uint32" },
-        { name: "sourceDomain", type: "uint32" },
-        { name: "destinationDomain", type: "uint32" },
-        { name: "sourceContract", type: "bytes32" },
-        { name: "destinationContract", type: "bytes32" },
-        { name: "sourceToken", type: "bytes32" },
-        { name: "destinationToken", type: "bytes32" },
-        { name: "sourceDepositor", type: "bytes32" },
-        { name: "destinationRecipient", type: "bytes32" },
-        { name: "sourceSigner", type: "bytes32" },
-        { name: "destinationCaller", type: "bytes32" },
-        { name: "value", type: "uint256" },
-        { name: "salt", type: "bytes32" },
-        { name: "hookData", type: "bytes" },
-      ],
-      BurnIntent: [
-        { name: "maxBlockHeight", type: "uint256" },
-        { name: "maxFee", type: "uint256" },
-        { name: "spec", type: "TransferSpec" },
-      ],
-    },
-  });
-
-  const fetchProviderEarningsStats = async () => {
-    const stats = await Promise.all(ownedProviders.map(async (provider) => {
-      try {
-        const resp = await fetch(`${API_BASE_URL}/api/v1/providers/${encodeURIComponent(provider.provider_id)}/stats`);
-        if (!resp.ok) throw new Error(`stats ${resp.status}`);
-        const data = await resp.json();
-        return data.stats || data;
-      } catch (err) {
-        console.warn(`Provider stats unavailable for ${provider.provider_id}`, err);
-        return {
-          provider_id: provider.provider_id,
-          provider_name: provider.provider_name || provider.provider_id,
-          revenue_wallet: provider.revenue_wallet,
-          creator_claimable_usdc: 0,
-          creator_earned_usdc: 0,
-          revenue_usdc: 0,
-          creator_share_bps: provider.revenue_share_bps || 0,
-          withdrawal_mode: "unavailable",
-          split_note: "Stats endpoint is unavailable for this provider.",
-        };
-      }
-    }));
-    return stats;
-  };
-
-  const providerIdsFromStats = (stats: any[]) => stats.map((item) => item.provider_id).filter(Boolean).sort();
-
-  const syncProviderEarningsSelection = (stats: any[], mode: "all" | "preserve" = "preserve") => {
-    const nextIds = providerIdsFromStats(stats);
-    setSelectedProviderEarningsIds((current) => {
-      if (mode === "all") return nextIds;
-      const valid = new Set(nextIds);
-      const kept = current.filter((providerId) => valid.has(providerId));
-      return kept.length ? kept : nextIds;
-    });
-  };
-
-  const toggleProviderEarningsSelection = (providerId: string) => {
-    setSelectedProviderEarningsIds((current) => {
-      if (current.includes(providerId)) {
-        return current.filter((item) => item !== providerId);
-      }
-      return [...current, providerId].sort();
-    });
-  };
-
-  const selectAllProviderEarnings = () => {
-    setSelectedProviderEarningsIds(providerIdsFromStats(providerEarningsStats));
-  };
-
-  const clearProviderEarningsSelection = () => {
-    setSelectedProviderEarningsIds([]);
-  };
-
-  const openProviderEarningsModal = async () => {
-    if (!wallet) {
-      showToast("Connect your creator wallet first.", "warning");
-      return;
-    }
-    if (!ownedProviders.length) {
-      showToast("This wallet is not registered as a provider owner.", "warning");
-      return;
-    }
-    setWalletDropdownOpen(false);
-    setShowProviderEarningsModal(true);
-    setProviderEarningsLoading(true);
-    setProviderEarningsError("");
-    try {
-      const stats = await fetchProviderEarningsStats();
-      setProviderEarningsStats(stats);
-      syncProviderEarningsSelection(stats, "all");
-    } catch (err: any) {
-      setProviderEarningsError(err?.message || "Could not load creator earnings.");
-    } finally {
-      setProviderEarningsLoading(false);
-    }
-  };
-
-  const refreshProviderEarningsModal = async () => {
-    setProviderEarningsLoading(true);
-    setProviderEarningsError("");
-    try {
-      const stats = await fetchProviderEarningsStats();
-      setProviderEarningsStats(stats);
-      syncProviderEarningsSelection(stats);
-    } catch (err: any) {
-      setProviderEarningsError(err?.message || "Could not refresh creator earnings.");
-    } finally {
-      setProviderEarningsLoading(false);
-    }
-  };
-
-  const submitCreatorClaim = async () => {
-    if (!wallet) {
-      showToast("Connect your creator wallet first.", "warning");
-      return;
-    }
-    const selectedStats = providerEarningsStats.filter((item) => selectedProviderEarningsIds.includes(item.provider_id));
-    if (!selectedStats.length) {
-      setProviderEarningsError("Select at least one provider to claim.");
-      return;
-    }
-    const claimableStats = selectedStats.filter((item) => Number(item.creator_claimable_usdc || 0) > 0);
-    const providerIds = claimableStats.map((item) => item.provider_id).filter(Boolean).sort();
-    const totalClaimable = claimableStats.reduce((sum, item) => sum + Number(item.creator_claimable_usdc || 0), 0);
-    if (!providerIds.length) {
-      setProviderEarningsError("Selected providers have no creator ledger earnings to claim.");
-      return;
-    }
-    if (totalClaimable <= 0) {
-      setProviderEarningsError("No creator ledger earnings are available to claim.");
-      return;
-    }
-    if (!creatorClaimConfig?.configured) {
-      setProviderEarningsError(creatorClaimConfig?.error || "Creator claim payout executor is not configured yet.");
-      return;
-    }
-    const provider = getInjectedWallet();
-    if (!provider?.request) {
-      setProviderEarningsError("EVM wallet provider required for claim signature.");
-      return;
-    }
-    setCreatorClaimSubmitting(true);
-    setProviderEarningsError("");
-    try {
-      const nonce = randomHexNonce();
-      const issuedAt = Math.floor(Date.now() / 1000);
-      const message = buildCreatorClaimMessage({
-        claimant: wallet,
-        providerIds,
-        amountUsdc: totalClaimable,
-        nonce,
-        issuedAt,
-      });
-      showToast("Sign the creator claim intent in your wallet.", "info");
-      const signature = await provider.request<string>({
-        method: "personal_sign",
-        params: [utf8ToHex(message), wallet],
-      });
-      const resp = await fetch(`${API_BASE_URL}/api/v1/creators/claim`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          claimant_address: wallet,
-          provider_ids: providerIds,
-          amount_usdc: totalClaimable.toFixed(6),
-          nonce,
-          issued_at: issuedAt,
-          signature,
-        }),
-      });
-      const data = await resp.json().catch(() => ({}));
-      if (!resp.ok) {
-        throw new Error(data.detail || data.error || `Creator claim failed with status ${resp.status}`);
-      }
-      const claim = data.claim || {};
-      const txHash = claim.transaction_hash || claim.tx_hash;
-      if (txHash) {
-        saveLocalAction("creator_claim", Number(claim.amount_usdc || totalClaimable).toFixed(6), txHash);
-      }
-      showToast(`Creator claim paid: ${Number(claim.amount_usdc || totalClaimable).toFixed(6)} USDC`, "success");
-      await Promise.all([
-        refreshProviderEarningsModal(),
-        refreshPlatformTables(1, 1).catch((err) => console.warn("Platform refresh after claim failed", err)),
-      ]);
-    } catch (err: any) {
-      console.warn("Creator claim failed", err);
-      setProviderEarningsError(err?.message || "Creator claim failed.");
-      showToast(err?.message || "Creator claim failed.", "error");
-    } finally {
-      setCreatorClaimSubmitting(false);
-    }
-  };
-
-  const signAndSettleX402 = async () => {
-    if (!currentInvoice || !wallet) return;
-    if (paySubmitting) return;
-    setPaySubmitting(true);
-    setPayErrorText("");
-    setPayStatusText("Requesting EIP-712 payment authorization signature...");
-    setPaymentStep("settlement");
-    setPaymentStepStatus((prev) => ({
-      ...prev,
-      settlement: { status: "active", label: "Signing" },
-    }));
-
-    try {
-      const splitLegs = Array.isArray(currentInvoice.split_legs) ? currentInvoice.split_legs : [];
-      const selfRecipientLeg = splitLegs.find((leg: any) => sameAddress(wallet, leg.pay_to));
-      if (selfRecipientLeg) {
-        throw new Error(`Connected wallet is the ${selfRecipientLeg.role || selfRecipientLeg.leg_id} split recipient (${selfRecipientLeg.pay_to}). Use a separate buyer wallet from the provider or treasury wallet.`);
-      }
-      if (!splitLegs.length && sameAddress(wallet, sellerAddress)) {
-        throw new Error(`Connected wallet is the seller wallet (${sellerAddress}). Use a separate buyer wallet for report purchases.`);
-      }
-
-      const splitSettlements: any[] = splitLegs
-        .filter((leg: any) => leg.status === "paid" && leg.settlement_id && leg.sidecar_receipt)
-        .map((leg: any) => ({
-          leg_id: leg.leg_id,
-          settlement_id: leg.settlement_id,
-          pay_to: leg.pay_to,
-          amount_raw: String(leg.amount_raw),
-          sidecar_receipt: leg.sidecar_receipt,
-        }));
-
-      let settlementId = "";
-      let paidAmountUsdc: number | undefined;
-
-      if (splitLegs.length) {
-        let workingSplitLegs = splitLegs;
-        const paidLegIds = new Set(splitSettlements.map((item) => item.leg_id));
-        const pendingLegs = splitLegs.filter((leg: any) => !paidLegIds.has(leg.leg_id) && leg.status !== "paid");
-        for (const leg of pendingLegs) {
-          setPayStatusText(`Signing ${leg.role || leg.leg_id} split leg...`);
-          const paidLeg = await payX402Resource(leg.resource, wallet);
-          const legSettlementId = paidLeg.settlement_id || paidLeg.settlementId;
-          if (!legSettlementId || !paidLeg.sidecar_receipt) {
-            throw new Error(`Split leg ${leg.leg_id} did not return a settlement receipt.`);
-          }
-          splitSettlements.push({
-            leg_id: paidLeg.leg_id || leg.leg_id,
-            settlement_id: legSettlementId,
-            pay_to: paidLeg.pay_to || leg.pay_to,
-            amount_raw: String(paidLeg.amount_raw || leg.amount_raw),
-            sidecar_receipt: paidLeg.sidecar_receipt,
-          });
-          workingSplitLegs = workingSplitLegs.map((item: any) => (
-            item.leg_id === (paidLeg.leg_id || leg.leg_id)
-              ? {
-                ...item,
-                status: "paid",
-                settlement_id: legSettlementId,
-                sidecar_receipt: paidLeg.sidecar_receipt,
-                gateway_status: paidLeg.gateway_status || paidLeg.status || item.gateway_status,
-              }
-              : item
-          ));
-          const updatedInvoice = {
-            ...currentInvoice,
-            split_legs: workingSplitLegs,
-          };
-          setCurrentInvoice(updatedInvoice);
-          rememberPendingInvoice(
-            updatedInvoice,
-            activeQuery,
-            normalizeTierForCache(updatedInvoice.tier),
-            updatedInvoice.provider_id || selectedProviderId,
-            wallet
-          );
-          saveLocalAction("x402_split_leg", String(paidLeg.amount_usdc || leg.amount_usdc || currentInvoice.amount), legSettlementId);
-        }
-      } else {
-        const paidData = await payX402Resource(currentInvoice.arc_gateway_url, wallet);
-        settlementId = paidData.settlement_id || paidData.settlementId;
-        paidAmountUsdc = Number(paidData.amount_usdc || currentInvoice.amount);
-        if (!settlementId) {
-          throw new Error("Arc Gateway did not return a settlement id.");
-        }
-        saveLocalAction("x402_settlement", String(paidAmountUsdc || currentInvoice.amount), settlementId);
-      }
-
-      setPaymentStep("report");
-      setPaymentStepStatus((prev) => ({
-        ...prev,
-        settlement: { status: "completed", label: "Settled" },
-        report: { status: "active", label: "Verifying" },
-      }));
-      setPayStatusText("Settlement accepted. Verifying tokens...");
-
-      const verifyResp = await fetch(`${API_BASE_URL}/api/v1/payment/verify?invoice_id=${encodeURIComponent(
-        currentInvoice.invoice_id
-      )}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          invoice_secret: currentInvoice.invoice_secret,
-          payer_address: wallet,
-          ...(settlementId ? { settlement_id: settlementId, amount_usdc: paidAmountUsdc } : {}),
-          ...(splitSettlements.length ? { split_settlements: splitSettlements } : {}),
-        }),
-      });
-
-      const verifyData = await verifyResp.json();
-      if (!verifyResp.ok) {
-        const detail = typeof verifyData.detail === "object" ? JSON.stringify(verifyData.detail) : verifyData.detail;
-        throw new Error(detail || "Verification failed");
-      }
-      if (!verifyData.access_token) {
-        throw new Error("QMA verification did not return an access token.");
-      }
-
-      setPaymentStepStatus((prev) => ({
-        ...prev,
-        report: { status: "completed", label: "Unlocked" },
-      }));
-      setPaymentDetails((prev) => ({
-        ...prev,
-        settlementId: verifyData.settlement_id || settlementId || splitSettlements.map((item) => item.settlement_id).join(", "),
-        sellerAvailable: verifyData.seller_gateway_available_usdc != null
-          ? `${Number(verifyData.seller_gateway_available_usdc).toFixed(6)} USDC`
-          : prev.sellerAvailable,
-        sellerPending: verifyData.seller_gateway_pending_batch_usdc != null
-          ? `${Number(verifyData.seller_gateway_pending_batch_usdc).toFixed(6)} USDC`
-          : prev.sellerPending,
-        txHash: verifyData.transaction_hash || prev.txHash,
-        explorerUrl: verifyData.explorer_url || prev.explorerUrl,
-      }));
-      setPayStatusText("Report unlocked successfully.");
-      setPaymentSuccess(true);
-      sessionStorage.setItem(`qma_accessToken_${currentInvoice.invoice_id}`, verifyData.access_token);
-
-      await fetchReportContent(currentInvoice.invoice_id, verifyData.access_token, currentInvoice);
-      clearPendingInvoice(
-        activeQuery,
-        normalizeTierForCache(currentInvoice.tier),
-        currentInvoice.provider_id || selectedProviderId,
-        wallet
-      );
-    } catch (err: any) {
-      setPayErrorText(err.message || "Settlement signature cancelled or failed.");
-      setPaymentStepStatus((prev) => ({
-        ...prev,
-        settlement: { status: "failed", label: "Failed" },
-      }));
-    } finally {
-      setPaySubmitting(false);
-    }
-  };
-  const fetchReportContent = async (
-    invoiceId: string,
-    accessToken: string,
-    invoiceOverride?: any,
-    queryOverride?: Record<string, any>,
-    providerOverride?: string
-  ) => {
-    try {
-      const invoiceForReport = invoiceOverride || currentInvoice;
-      const reportQuery = queryOverride || activeQuery;
-      const providerForReport = invoiceForReport?.provider_id || providerOverride || selectedProviderId;
-      const endpoint =
-        invoiceForReport?.tier === "preview"
-          ? `/api/v1/providers/${encodeURIComponent(providerForReport)}/preview`
-          : `/api/v1/providers/${encodeURIComponent(providerForReport)}/full-report`;
-
-      const resp = await fetch(`${API_BASE_URL}${endpoint}?invoice_id=${encodeURIComponent(invoiceId)}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-QMA-Access-Token": accessToken,
-        },
-        body: JSON.stringify(reportQuery),
-      });
-
-      const reportData = await resp.json();
-      if (!resp.ok) throw new Error(reportData.detail || "Could not read report data");
-
-      const normalizedReportQuery = normalizeSignalPayload(reportQuery);
-      const reportTier = normalizeTierForCache(invoiceForReport.tier);
-      const cachedReportData = {
-        ...reportData,
-        invoice: reportData.invoice || invoiceForReport,
-        provider_id: reportData.provider_id || providerForReport,
-        tier: reportData.tier || reportTier,
-        query: reportData.query || normalizedReportQuery,
-      };
-
-      setUnlockedReport(cachedReportData);
-      setPaywallOpen(false);
-      setReportCollapsed(false);
-
-      // Cache report locally for wallet
-      const key = signalCacheKey(normalizedReportQuery, reportTier, providerForReport);
-      localStorage.setItem(
-        key,
-        JSON.stringify({
-          saved_at: Date.now(),
-          signal: normalizedReportQuery,
-          tier: reportTier,
-          provider_id: providerForReport,
-          payer_address: wallet,
-          invoice: invoiceForReport,
-          report: cachedReportData,
-        })
-      );
-      setCacheRevision((value) => value + 1);
-    } catch (err: any) {
-      showToast("Failed to load report contents: " + err.message, "error");
-    }
-  };
-
-  const b64encode = (obj: any) => {
-    return btoa(JSON.stringify(obj)).replace(/[=+/]/g, "_").slice(0, 96);
-  };
-
-  const handleOpenUnlockedReport = () => {
-    setPaywallOpen(false);
-    setReportCollapsed(false);
-  };
-
-  // Agent AI Run
-  const handleAgentRetry = () => {
-    // Resume: keep existing invoice (don't cancel), re-trigger signature step
-    if (!agentSessionInvoice) return;
-    setAgentSessionStage("awaiting_signature");
-    setAgentTrace((prev) => [
-      ...prev,
-      { text: "retry: re-attempting wallet signature for existing invoice...", tone: "t-val" },
-    ]);
-    // Re-run from signature step with stored invoice
-    (async () => {
-      try {
-        setAgentRunning(true);
-        const invData = agentSessionInvoice;
-        const pickQuery = agentSelectedPick?.agent_query || agentSelectedPick?.query || { symbol: agentSelectedPick?.symbol };
-        const pickTier = agentSelectedPick?.agent_tier || "preview";
-        const pickProviderId = agentSelectedPick?.provider_id || "funding_memory";
-        const splitLegs = Array.isArray(invData.split_legs) ? invData.split_legs : [];
-        const splitSettlements: any[] = [];
-        let settlementId = "";
-        let paidAmountUsdc: number | undefined;
-        if (splitLegs.length) {
-          let workingSplitLegs = splitLegs;
-          for (const leg of splitLegs.filter((item: any) => item.status !== "paid")) {
-            const paidLeg = await payX402Resource(leg.resource, wallet);
-            const legSettlementId = paidLeg.settlement_id || paidLeg.settlementId;
-            if (!legSettlementId || !paidLeg.sidecar_receipt) throw new Error(`Split leg ${leg.leg_id} did not return a settlement receipt.`);
-            splitSettlements.push({ leg_id: paidLeg.leg_id || leg.leg_id, settlement_id: legSettlementId, pay_to: paidLeg.pay_to || leg.pay_to, amount_raw: String(paidLeg.amount_raw || leg.amount_raw), sidecar_receipt: paidLeg.sidecar_receipt });
-            workingSplitLegs = workingSplitLegs.map((item: any) => item.leg_id === (paidLeg.leg_id || leg.leg_id) ? { ...item, status: "paid", settlement_id: legSettlementId, sidecar_receipt: paidLeg.sidecar_receipt } : item);
-          }
-          setAgentSessionInvoice({ ...invData, split_legs: workingSplitLegs });
-        } else {
-          const paidData = await payX402Resource(invData.arc_gateway_url, wallet);
-          settlementId = paidData.settlement_id || paidData.settlementId;
-          paidAmountUsdc = Number(paidData.amount_usdc || invData.amount);
-          if (!settlementId) throw new Error("Arc Gateway did not return a settlement id.");
-        }
-        setAgentTrace((prev) => [...prev, { text: "pay:     x402 authorization accepted", tone: "t-green" }]);
-        setAgentSessionStage("verifying");
-        const verifyResp = await fetch(`${API_BASE_URL}/api/v1/payment/verify?invoice_id=${encodeURIComponent(invData.invoice_id)}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ invoice_secret: invData.invoice_secret, payer_address: wallet, ...(settlementId ? { settlement_id: settlementId, amount_usdc: paidAmountUsdc } : {}), ...(splitSettlements.length ? { split_settlements: splitSettlements } : {}) }),
-        });
-        const verifyData = await verifyResp.json();
-        if (!verifyResp.ok) throw new Error(verifyData.detail || "Verification failed");
-        setAgentVerifyResult(verifyData);
-        setAgentTrace((prev) => [...prev, { text: "result:  JSON report unlocked ok", tone: "t-accent" }]);
-        setSelectedProviderId(pickProviderId);
-        setActiveQuery(pickQuery);
-        setCurrentInvoice(invData);
-        await fetchReportContent(invData.invoice_id, verifyData.access_token, invData, pickQuery, pickProviderId);
-        clearPendingInvoice(pickQuery, pickTier, pickProviderId, wallet);
-        setReportCollapsed(false);
-        setAgentSessionStage("unlocked");
-      } catch (err: any) {
-        setAgentSessionStage("error");
-        setAgentTrace((prev) => [...prev, { text: `Error: ${err.message || err}`, tone: "t-error" }]);
-      } finally {
-        setAgentRunning(false);
-      }
-    })();
-  };
-
-  const handleAgentCancelSession = () => {
-    // Cancel: void the existing invoice so it cannot be reused
-    if (agentSessionInvoice) {
-      const pickQuery = agentSelectedPick?.agent_query || agentSelectedPick?.query || { symbol: agentSelectedPick?.symbol };
-      const pickTier = agentSelectedPick?.agent_tier || "preview";
-      const pickProviderId = agentSelectedPick?.provider_id || "funding_memory";
-      clearPendingInvoice(pickQuery, pickTier, pickProviderId, wallet);
-    }
-    setAgentSessionStage("idle");
-    setAgentRunning(false);
-    setAgentSelectedPick(null);
-    setAgentSessionInvoice(null);
-    setAgentVerifyResult(null);
-    setAgentSelectReason(null);
-    setAgentRejectedReasons([]);
-    setAgentTrace([]);
-    setShowAgentBuyerModal(false);
-  };
-
-  const handleAgentRun = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!agentPrompt.trim()) return;
-    const sessionStart = Date.now();
-    setAgentStartTime(sessionStart);
-    setAgentElapsed("0.0s");
-    setAgentDecisionLatency(null);
-    setAgentSelectReason(null);
-    setAgentRejectedReasons([]);
-    setShowAgentBuyerModal(true);
-    setAgentRunning(true);
-    setAgentSessionStage("scanning");
-    setAgentSelectedPick(null);
-    setAgentSessionInvoice(null);
-    setAgentVerifyResult(null);
-    setAgentTrace([{ text: "Initiating Buyer Agent...", tone: "t-key" }]);
-
-    try {
-      // Parse prompt parameters
-      const promptLower = agentPrompt.toLowerCase();
-      const budgetMatch = promptLower.match(/(?:budget|under|limit|max|price|of)\s*(?:[\$]?)\s*([0-9\.]+)/i);
-      const budgetVal = budgetMatch ? parseFloat(budgetMatch[1]) : 0.010;
-
-      let providerFilter: string | null = null;
-      if (promptLower.includes("oi_memory") || promptLower.includes("open_interest") || promptLower.includes("oi")) {
-        providerFilter = "oi_memory";
-      } else if (promptLower.includes("funding_memory") || promptLower.includes("funding")) {
-        providerFilter = "funding_memory";
-      }
-
-      let tierFilter: string | null = null;
-      if (promptLower.includes("preview")) {
-        tierFilter = "preview";
-      } else if (promptLower.includes("full")) {
-        tierFilter = "full";
-      }
-
-      setAgentTrace((prev) => [
-        ...prev,
-        { text: `Agent goal received: "${agentPrompt}"`, tone: "active" },
-        { text: `Parsing details: Target Budget limit is set to ${budgetVal} USDC. Preferred provider: ${providerFilter || 'any'}. Preferred tier: ${tierFilter || 'any'}.`, tone: "t-dim" }
-      ]);
-
-      const resp = await fetch(`${API_BASE_URL}/api/v1/agent/recommendations?limit=8`);
-      if (!resp.ok) throw new Error(`Agent API returned status ${resp.status}`);
-      const data = await resp.json();
-      let picks = data.recommendations || [];
-
-      if (providerFilter) {
-        picks = picks.filter((p: any) => p.provider_id === providerFilter);
-      }
-
-      const pricing = data.pricing || {};
-      const maxPrice = Math.min(budgetVal, 0.005);
-      const decisionStart = Date.now();
-      const { selected: pick, audit } = agentPolicyPick(
-        picks,
-        budgetVal,
-        maxPrice,
-        pricing,
-        tierFilter as "preview" | "full" | null,
-      );
-      const decisionMs = Date.now() - decisionStart;
-      setAgentDecisionLatency(`${decisionMs}ms`);
-
-      audit.forEach((line: any) => {
-        setAgentTrace((prev) => [...prev, { text: line.text, tone: line.tone }]);
-      });
-
-      // Build selection rationale and rejected reasons from audit
-      const rejectedLines = audit
-        .filter((l: any) => l.tone === "t-error" || (l.text && (l.text.includes("rejected") || l.text.includes("skip") || l.text.includes("exceeded"))))
-        .map((l: any) => l.text);
-      setAgentRejectedReasons(rejectedLines.slice(0, 3));
-
-      if (!pick) {
-        setAgentSessionStage("error");
-        setAgentSelectReason("No candidate met policy constraints within budget.");
-        setAgentTrace((prev) => [
-          ...prev,
-          { text: "Copilot: No anomalies found meeting parameters under budget.", tone: "t-error" },
-        ]);
-        setAgentRunning(false);
-        return;
-      }
-
-      const pickTier = pick.agent_tier || recommendationTier(pick);
-      const pickProviderId = pick.provider_id || "funding_memory";
-      const pickQuery = pick.agent_signal || pick.query || { symbol: pick.symbol };
-
-      // Build human-readable selection rationale
-      const scoredCandidates = picks.filter((p: any) => p !== pick).slice(0, 2);
-      const rationaleWhy = `Highest value density within ${budgetVal} USDC budget (score ${Number(pick.score || 0).toFixed(1)}).`;
-      const rationaleReject = scoredCandidates.length
-        ? scoredCandidates.map((p: any) => `${p.symbol} score ${Number(p.score || 0).toFixed(1)}`).join(", ") + " ranked lower."
-        : "No comparable candidates in this scan.";
-      setAgentSelectReason(`${rationaleWhy} ${rationaleReject}`);
-
-      setAgentSessionStage("selected");
-      setAgentSelectedPick({ ...pick, agent_tier: pickTier, agent_query: pickQuery });
-
-      setAgentTrace((prev) => [
-        ...prev,
-        { text: `Copilot found best deal: ${pick.symbol} (Score: ${Number(pick.score || 0).toFixed(1)}, Price: ${pick.agent_price?.toFixed(3) || "0.000"} USDC, Tier: ${pickTier})`, tone: "t-green" },
-      ]);
-
-      // Connect check
-      if (!wallet) {
-        setAgentSessionStage("error");
-        setAgentTrace((prev) => [...prev, { text: "No wallet address provided. Run cancelled.", tone: "t-error" }]);
-        setAgentRunning(false);
-        return;
-      }
-
-      // Form agent invoice quote
-      setAgentSessionStage("invoicing");
-      setAgentTrace((prev) => [...prev, { text: "invoice: checking resumable payment state...", tone: "t-dim" }]);
-      let invData = await refreshPendingInvoice(pickQuery, pickTier, pickProviderId, wallet);
-      if (invData?.access_status === "expired" || invData?.access_status === "disputed") {
-        clearPendingInvoice(pickQuery, pickTier, pickProviderId, wallet);
-        invData = null;
-      }
-      if (!invData) {
-        setAgentTrace((prev) => [...prev, { text: "invoice: requesting provider-bound payment terms...", tone: "t-dim" }]);
-        invData = await createInvoice({
-          ...pickQuery,
-          symbol: String(pickQuery.symbol || ""),
-          provider_id: pickProviderId,
-          tier: pickTier,
-          buyer_type: "agent",
-          synthetic: true,
-          agent_label: "copilot",
-        });
-      } else {
-        setAgentTrace((prev) => [...prev, { text: `invoice: resumed ${invData.invoice_id.slice(0, 10)}...`, tone: "t-green" }]);
-      }
-      rememberPendingInvoice(invData, pickQuery, pickTier, pickProviderId, wallet);
-      setAgentSessionInvoice(invData);
-      setAgentTrace((prev) => [
-        ...prev,
-        { text: `invoice: ${invData.invoice_id.slice(0, 10)}...  amount=${invData.amount} USDC`, tone: "t-dim" },
-      ]);
-
-      if (invData.status === "paid" && invData.access_token) {
-        setAgentVerifyResult(invData);
-        setSelectedProviderId(pickProviderId);
-        setActiveQuery(pickQuery);
-        setCurrentInvoice(invData);
-        await fetchReportContent(invData.invoice_id, invData.access_token, invData, pickQuery, pickProviderId);
-        clearPendingInvoice(pickQuery, pickTier, pickProviderId, wallet);
-        setAgentTrace((prev) => [...prev, { text: "result:  recovered paid report ok", tone: "t-accent" }]);
-        setAgentSessionStage("unlocked");
-        return;
-      }
-
-      const splitLegs = Array.isArray(invData.split_legs) ? invData.split_legs : [];
-      const splitSettlements: any[] = [];
-      let settlementId = "";
-      let paidAmountUsdc: number | undefined;
-
-      setAgentSessionStage("awaiting_signature");
-      setAgentTrace((prev) => [...prev, { text: "signature: wallet prompt opened for x402 authorization", tone: "t-val" }]);
-      if (splitLegs.length) {
-        let workingSplitLegs = splitLegs;
-        for (const leg of splitLegs.filter((item: any) => item.status !== "paid")) {
-          const paidLeg = await payX402Resource(leg.resource, wallet);
-          const legSettlementId = paidLeg.settlement_id || paidLeg.settlementId;
-          if (!legSettlementId || !paidLeg.sidecar_receipt) {
-            throw new Error(`Split leg ${leg.leg_id} did not return a settlement receipt.`);
-          }
-          splitSettlements.push({
-            leg_id: paidLeg.leg_id || leg.leg_id,
-            settlement_id: legSettlementId,
-            pay_to: paidLeg.pay_to || leg.pay_to,
-            amount_raw: String(paidLeg.amount_raw || leg.amount_raw),
-            sidecar_receipt: paidLeg.sidecar_receipt,
-          });
-          workingSplitLegs = workingSplitLegs.map((item: any) => (
-            item.leg_id === (paidLeg.leg_id || leg.leg_id)
-              ? {
-                ...item,
-                status: "paid",
-                settlement_id: legSettlementId,
-                sidecar_receipt: paidLeg.sidecar_receipt,
-                gateway_status: paidLeg.gateway_status || paidLeg.status || item.gateway_status,
-              }
-              : item
-          ));
-          invData = { ...invData, split_legs: workingSplitLegs };
-          setAgentSessionInvoice(invData);
-          rememberPendingInvoice(invData, pickQuery, pickTier, pickProviderId, wallet);
-        }
-      } else {
-        const paidData = await payX402Resource(invData.arc_gateway_url, wallet);
-        settlementId = paidData.settlement_id || paidData.settlementId;
-        paidAmountUsdc = Number(paidData.amount_usdc || invData.amount);
-        if (!settlementId) throw new Error("Arc Gateway did not return a settlement id.");
-      }
-      setAgentTrace((prev) => [...prev, { text: "pay:     x402 authorization accepted", tone: "t-green" }]);
-
-      // Verify tokens split Leg on backend
-      setAgentSessionStage("verifying");
-      const verifyResp = await fetch(`${API_BASE_URL}/api/v1/payment/verify?invoice_id=${encodeURIComponent(
-        invData.invoice_id
-      )}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          invoice_secret: invData.invoice_secret,
-          payer_address: wallet,
-          ...(settlementId ? { settlement_id: settlementId, amount_usdc: paidAmountUsdc } : {}),
-          ...(splitSettlements.length ? { split_settlements: splitSettlements } : {}),
-        }),
-      });
-
-      const verifyData = await verifyResp.json();
-      if (!verifyResp.ok) {
-        const detail = typeof verifyData.detail === "object" ? JSON.stringify(verifyData.detail) : verifyData.detail;
-        throw new Error(detail || "Verification failed");
-      }
-      setAgentVerifyResult(verifyData);
-      setAgentTrace((prev) => [
-        ...prev,
-        { text: "result:  JSON report unlocked ok", tone: "t-accent" },
-      ]);
-
-      // Load report
-      setSelectedProviderId(pickProviderId);
-      setActiveQuery(pickQuery);
-      setCurrentInvoice(invData);
-      await fetchReportContent(invData.invoice_id, verifyData.access_token, invData, pickQuery, pickProviderId);
-      clearPendingInvoice(pickQuery, pickTier, pickProviderId, wallet);
-      await refreshPlatformTables(1, 1).catch((err) => {
-        console.warn("Platform analytics refresh after Copilot payment failed", err);
-      });
-      setReportCollapsed(false);
-      setAgentSessionStage("unlocked");
-    } catch (err: any) {
-      setAgentSessionStage("error");
-      setAgentTrace((prev) => [...prev, { text: `Error: ${err.message || err}`, tone: "t-error" }]);
-    } finally {
-      setAgentRunning(false);
-      setAgentPrompt("");
-    }
-  };
-
-  const formatPercentage = (val?: number) => {
-    if (val == null) return "0.0%";
-    return `${val >= 0 ? "+" : ""}${(val * 100).toFixed(1)}%`;
-  };
-
-  const formatRawPercent = (val?: number) => {
-    if (val == null) return "+0.00%";
-    return `${val >= 0 ? "+" : ""}${val.toFixed(2)}%`;
-  };
-
-  const formatCompactMoney = (val?: number) => {
-    const num = Number(val || 0);
-    if (!Number.isFinite(num)) return "n/a";
-    if (Math.abs(num) >= 1_000_000_000) return `$${(num / 1_000_000_000).toFixed(1)}B`;
-    if (Math.abs(num) >= 1_000_000) return `$${(num / 1_000_000).toFixed(1)}M`;
-    if (Math.abs(num) >= 1_000) return `$${(num / 1_000).toFixed(1)}K`;
-    return `$${num.toFixed(0)}`;
-  };
-
-  const normalizePercentPoint = (value: any) => {
-    const num = Number(value || 0);
-    if (!Number.isFinite(num)) return 0;
-    return Math.abs(num) <= 1 ? num * 100 : num;
-  };
-
-  const formatCiRange = (values: any, digits = 1, signed = false, normalizeUnit = false) => {
-    if (!Array.isArray(values) || values.length < 2) {
-      return signed ? "+0.0% - +0.0%" : "0.0% - 0.0%";
-    }
-    return values.slice(0, 2).map((item: any) => {
-      const val = normalizeUnit ? normalizePercentPoint(item) : Number(item || 0);
-      const prefix = signed && val >= 0 ? "+" : "";
-      return `${prefix}${val.toFixed(digits)}%`;
-    }).join(" - ");
-  };
-
   const reportAnalogs = (report: any) => {
     const rows = Array.isArray(report?.analogs) && report.analogs.length
       ? report.analogs
@@ -2549,40 +487,6 @@ export function AppPage({
     });
   };
 
-  const formatDateTime = (val?: number | string) => {
-    if (val == null) return "";
-    if (typeof val === "string") {
-      const parsed = Number(val);
-      if (!Number.isNaN(parsed)) return formatDateTime(parsed);
-      const date = new Date(val);
-      return Number.isNaN(date.getTime()) ? "" : date.toLocaleString();
-    }
-    const ms = val > 10_000_000_000 ? val : val * 1000;
-    return new Date(ms).toLocaleString();
-  };
-
-  const formatUsdc = (value: any, digits = 3) => {
-    const num = Number(value || 0);
-    return `${Number.isFinite(num) ? num.toFixed(digits) : "0.000"} USDC`;
-  };
-
-  const tierLabel = (value: any) => {
-    const tier = String(value || "legacy").trim();
-    if (!tier) return "Legacy";
-    return tier.charAt(0).toUpperCase() + tier.slice(1);
-  };
-
-  const gatewayStatusBadge = (status: any) => {
-    const raw = String(status || "received");
-    const normalized = raw.toLowerCase();
-    const color = normalized === "completed" || normalized === "confirmed"
-      ? "var(--green)"
-      : normalized === "received"
-        ? "#f59e0b"
-        : "var(--t2)";
-    return <span style={{ color, fontWeight: 700 }}>{raw}</span>;
-  };
-
   const renderSettlementRef = (event: any) => {
     const txHash = event?.transaction_hash || event?.tx_hash || event?.settlement_tx_hash;
     const settlementId = event?.settlement_id;
@@ -2605,197 +509,14 @@ export function AppPage({
       return (
         <>
           <span className="mono-td" title={`Settlement ID: ${settlementId}`}>{shortAddress(settlementId)}</span>
-          <div style={{ color: isFinalStatus ? "var(--t3)" : "#f59e0b", fontSize: "0.72rem", marginTop: 2 }}>
+          <div className={`settlement-status-note ${isFinalStatus ? "is-final" : "is-pending"}`}>
             {isFinalStatus ? "Arcscan tx unavailable" : "Arcscan tx pending"}
           </div>
         </>
       );
     }
-    return <span style={{ color: "var(--t3)" }}>n/a</span>;
+    return <span className="text-muted-deep">n/a</span>;
   };
-
-  const changePlatformPaymentsPage = async (nextPage: number) => {
-    setPlatformTablesLoading(true);
-    setPlatformTablesError("");
-    try {
-      await loadPlatformPayments(nextPage);
-    } catch (err: any) {
-      setPlatformTablesError(err?.message || "Platform payments unavailable.");
-    } finally {
-      setPlatformTablesLoading(false);
-    }
-  };
-
-  const changePlatformPayersPage = async (nextPage: number) => {
-    setPlatformTablesLoading(true);
-    setPlatformTablesError("");
-    try {
-      await loadPlatformPayers(nextPage);
-    } catch (err: any) {
-      setPlatformTablesError(err?.message || "Platform payers unavailable.");
-    } finally {
-      setPlatformTablesLoading(false);
-    }
-  };
-
-  const selectedProviderEarningsStats = useMemo(() => {
-    const selectedIds = new Set(selectedProviderEarningsIds);
-    return providerEarningsStats.filter((item) => selectedIds.has(item.provider_id));
-  }, [providerEarningsStats, selectedProviderEarningsIds]);
-
-  const allProviderEarningsSelected = providerEarningsStats.length > 0 && selectedProviderEarningsStats.length === providerEarningsStats.length;
-
-  const providerEarningsTotals = useMemo(() => {
-    const scopedStats = selectedProviderEarningsStats;
-    const totalClaimable = scopedStats.reduce((sum, item) => sum + Number(item.creator_claimable_usdc || 0), 0);
-    const totalDirectSettled = scopedStats.reduce((sum, item) => (
-      item.withdrawal_mode === "direct_gateway_split"
-        ? sum + Number(item.creator_earned_usdc || 0)
-        : sum
-    ), 0);
-    const gatewayBalancesByWallet = new Map<string, any>();
-    scopedStats
-      .filter((item) => item.withdrawal_mode === "direct_gateway_split" && item.creator_gateway_balance)
-      .forEach((item) => {
-        const balance = item.creator_gateway_balance;
-        const balanceAddress = balance.address || item.revenue_wallet || wallet || item.provider_id;
-        gatewayBalancesByWallet.set(String(balanceAddress).toLowerCase(), {
-          ...balance,
-          withdraw_address: balanceAddress,
-        });
-      });
-    const gatewayBalances = Array.from(gatewayBalancesByWallet.values());
-    const withdrawableGatewayBalances = gatewayBalances.filter((item) => sameAddress(item.withdraw_address || item.address, wallet));
-    const externalGatewayAvailable = gatewayBalances
-      .filter((item) => !sameAddress(item.withdraw_address || item.address, wallet))
-      .reduce((sum, item) => sum + Number(item.available_usdc || 0), 0);
-    const gatewayAvailable = withdrawableGatewayBalances.reduce((sum, item) => sum + Number(item.available_usdc || 0), 0);
-    const gatewayPending = withdrawableGatewayBalances.reduce((sum, item) => sum + Number(item.pending_batch_usdc || 0), 0);
-    const hasDirectSplit = scopedStats.some((item) => item.withdrawal_mode === "direct_gateway_split");
-    return {
-      totalClaimable,
-      totalDirectSettled,
-      gatewayAvailable,
-      gatewayPending,
-      hasDirectSplit,
-      externalGatewayAvailable,
-      hasExternalGatewayBalance: externalGatewayAvailable > 0,
-    };
-  }, [selectedProviderEarningsStats, wallet]);
-
-  const providerGatewayWithdrawMax = useMemo(() => (
-    Math.max(0, providerEarningsTotals.gatewayAvailable - WITHDRAW_FEE_RESERVE_USDC)
-  ), [providerEarningsTotals.gatewayAvailable]);
-
-  const providerWithdrawDisplayAmount = useMemo(() => {
-    const amount = Number(providerWithdrawAmount);
-    return Number.isFinite(amount) && amount > 0 ? amount : providerGatewayWithdrawMax;
-  }, [providerGatewayWithdrawMax, providerWithdrawAmount]);
-
-  useEffect(() => {
-    if (!showProviderEarningsModal) {
-      setProviderWithdrawAmount("");
-      return;
-    }
-    const suggested = providerGatewayWithdrawMax > 0 ? providerGatewayWithdrawMax.toFixed(6) : "";
-    setProviderWithdrawAmount((current) => {
-      const currentNumber = Number(current);
-      if (!current || !Number.isFinite(currentNumber) || currentNumber > providerGatewayWithdrawMax) {
-        return suggested;
-      }
-      return current;
-    });
-  }, [showProviderEarningsModal, providerGatewayWithdrawMax]);
-
-  const submitProviderGatewayWithdraw = async () => {
-    if (!wallet) {
-      setProviderEarningsError("Connect your creator wallet first.");
-      return;
-    }
-    if (!providerEarningsTotals.hasDirectSplit) {
-      setProviderEarningsError("No direct Gateway split provider is available for this wallet.");
-      return;
-    }
-    if (!gatewayContractAddress) {
-      setProviderEarningsError("Circle Gateway contract address is unknown. Refresh config and try again.");
-      return;
-    }
-    if (providerEarningsTotals.hasExternalGatewayBalance && providerEarningsTotals.gatewayAvailable <= 0) {
-      setProviderEarningsError("Connect the provider revenue wallet to withdraw its direct Gateway balance.");
-      return;
-    }
-    const amount = Number(providerWithdrawAmount);
-    if (!Number.isFinite(amount) || amount <= 0 || amount > providerGatewayWithdrawMax) {
-      setProviderEarningsError(`Enter an amount between 0 and ${providerGatewayWithdrawMax.toFixed(6)} USDC.`);
-      return;
-    }
-    const provider = getInjectedWallet();
-    if (!provider?.request) {
-      setProviderEarningsError("EVM wallet provider required for Gateway withdrawal.");
-      return;
-    }
-
-    const useRelayer = ["platform_relayed", "relayed", "gasless"].includes(String(withdrawMode || "").toLowerCase());
-    setProviderWithdrawSubmitting(true);
-    setProviderEarningsError("");
-    try {
-      if (!useRelayer) {
-        await ensureArcTestnet();
-      }
-      const burnIntent = buildGatewayWithdrawIntent(amount);
-      showToast("Sign the Gateway withdrawal intent in your wallet.", "info");
-      const signature = await provider.request<string>({
-        method: "eth_signTypedData_v4",
-        params: [wallet, JSON.stringify(buildGatewayWithdrawTypedData(burnIntent))],
-      });
-
-      const submitResp = await fetch(`${API_BASE_URL}/api/v1/payment/withdraw`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ burnIntent, signature }),
-      });
-      const submitResult = await submitResp.json().catch(() => ({}));
-      if (!submitResp.ok) {
-        throw new Error(submitResult.detail || submitResult.error || `Gateway withdrawal failed with status ${submitResp.status}`);
-      }
-
-      if (submitResult.relayed) {
-        const txHash = submitResult.mintTxHash || submitResult.transaction_hash;
-        if (!txHash) throw new Error("Relayer completed but did not return a mint transaction hash.");
-        saveLocalAction("withdraw", amount.toFixed(6), txHash);
-        showToast(`Gateway withdrawal relayed: ${amount.toFixed(6)} USDC`, "success");
-      } else {
-        if (!submitResult.attestation || !submitResult.signature) {
-          throw new Error("Circle Gateway did not return a mint attestation. Withdrawal transaction was not sent.");
-        }
-        const txHash = await provider.request<string>({
-          method: "eth_sendTransaction",
-          params: [{
-            from: wallet,
-            to: gatewayMinterAddress,
-            data: encodeGatewayMintCalldata(submitResult.attestation, submitResult.signature),
-            gas: "0x493e0",
-          }],
-        });
-        await waitForTxReceipt(txHash);
-        saveLocalAction("withdraw", amount.toFixed(6), txHash);
-        showToast(`Gateway withdrawal completed: ${amount.toFixed(6)} USDC`, "success");
-      }
-
-      await Promise.all([
-        refreshProviderEarningsModal(),
-        refreshPlatformTables(1, 1).catch((err) => console.warn("Platform refresh after withdraw failed", err)),
-        loadQuickProfileData().catch((err) => console.warn("Quick profile refresh after withdraw failed", err)),
-      ]);
-    } catch (err: any) {
-      console.warn("Gateway withdrawal failed", err);
-      setProviderEarningsError(err?.message || "Gateway withdrawal failed.");
-      showToast(err?.message || "Gateway withdrawal failed.", "error");
-    } finally {
-      setProviderWithdrawSubmitting(false);
-    }
-  };
-
 
   return (
     <div className="body">
@@ -2809,195 +530,21 @@ export function AppPage({
           </div>
         </div>
       ) : null}
-      <header className="header">
-        <div className="logo-section">
-          <a
-            href="/"
-            className="logo-item qma-logo-item"
-            title="QMA"
-            onClick={(e) => {
-              e.preventDefault();
-              onNavigate("landing");
-            }}
-          >
-            <div className="logo-icon">QM</div>
-            <div className="logo-text">QMA</div>
-          </a>
-          <span className="logo-tag">v1.0.0</span>
-
-          <span className="header-divider"></span>
-          <a href="https://thecanteenapp.com/" target="_blank" rel="noopener noreferrer" className="logo-item logo-img-item canteen-logo-item" title="Canteen">
-            <img src="/assets/logos/canteen-logo.png" alt="Canteen" />
-          </a>
-          <a href="https://www.circle.com/" target="_blank" rel="noopener noreferrer" className="logo-item logo-img-item" title="Circle">
-            <img src="/assets/logos/circle-logo-white.svg" alt="Circle" />
-          </a>
-          <a href="https://www.arc.network/" target="_blank" rel="noopener noreferrer" className="logo-item logo-img-item arc-logo-item" title="Arc Testnet">
-            <img src="/assets/logos/arc-logo-white.svg" alt="Arc Testnet" />
-          </a>
-
-        </div>
-
-        <div className="status-indicators">
-          <div className="indicator" id="clock">
-            {timeStr}
-          </div>
-
-          <div className="view-toggle" role="group" aria-label="View mode">
-            <button
-              type="button"
-              className={`view-toggle-btn ${viewMode === "basic" ? "active" : ""}`}
-              onClick={() => setViewModeState("basic")}
-            >
-              Simple
-            </button>
-            <button
-              type="button"
-              className={`view-toggle-btn ${viewMode === "advanced" ? "active" : ""}`}
-              onClick={() => setViewModeState("advanced")}
-            >
-              Pro
-            </button>
-          </div>
-
-          <div className="stats-dropdown-container">
-            <button
-              type="button"
-              className="stats-dropdown-btn"
-              onClick={() => setStatsDropdownOpen(!statsDropdownOpen)}
-            >
-              <svg className="dropdown-btn-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="18" y1="20" x2="18" y2="10"></line>
-                <line x1="12" y1="20" x2="12" y2="4"></line>
-                <line x1="6" y1="20" x2="6" y2="14"></line>
-              </svg>
-              <span className="dropdown-btn-text">Status & Metrics</span>
-              <svg className="dropdown-btn-arrow" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <polyline points="6 9 12 15 18 9"></polyline>
-              </svg>
-            </button>
-
-            {statsDropdownOpen && (
-              <div className="stats-dropdown-panel" style={{ display: "block" }}>
-                <div className="dropdown-section">
-                  <div className="dropdown-title">Engine diagnostics</div>
-                  <div className="dropdown-row">
-                    <span className="indicator-dot"></span>
-                    <span style={{ fontWeight: 600, color: "var(--green)" }}>Ledoit-Wolf Active</span>
-                  </div>
-                  <div className="dropdown-row">
-                    <span className="indicator-label">Time Half-life</span>
-                    <span className="indicator-value">180 days</span>
-                  </div>
-                </div>
-
-                <div className="dropdown-section">
-                  <div className="dropdown-title">Platform Performance</div>
-                  <div className="dropdown-row-single">
-                    <span>Paid: {metrics.paid_count}</span>
-                  </div>
-                  <div className="dropdown-row-single highlight-green" style={{ marginTop: 6 }}>
-                    <span>Rev: {Number(metrics.revenue_usdc).toFixed(3)} USDC</span>
-                  </div>
-                </div>
-
-                <div className="dropdown-section">
-                  <div className="dropdown-title">Seller Treasury (USDC)</div>
-                  <div className="dropdown-row-single" title="Seller Gateway: funds confirmed on-chain and available to withdraw">
-                    <span>Avail: {Number(metrics.available_usdc).toFixed(3)}</span>
-                  </div>
-                  <div className="dropdown-row-single" style={{ marginTop: 6 }}>
-                    <span style={{ color: "var(--t3)" }}>Batch: -</span>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="wallet-area">
-            <button
-              className={`wallet-button ${wallet ? "connected" : ""}`}
-              onClick={wallet ? () => setWalletDropdownOpen(!walletDropdownOpen) : connect}
-              type="button"
-            >
-              <span>{wallet ? shortAddress(wallet) : "Connect Wallet"}</span>
-            </button>
-
-            {walletDropdownOpen && (
-              <div className="wallet-menu open">
-                <div className="wallet-menu-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div className="wallet-menu-identity">
-                    <div className="wallet-menu-identity-row">
-                      <div className="wallet-menu-address" title={wallet}>
-                        {shortAddress(wallet)}
-                      </div>
-                      <div className={`wallet-role-label ${walletRole.className}`}>{walletRole.label}</div>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className={`wallet-menu-icon-btn ${copySuccess ? "copied" : ""}`}
-                    style={{ display: "inline-flex" }}
-                    onClick={handleCopyAddress}
-                    title="Copy address"
-                    aria-label="Copy address"
-                  >
-                    <svg className="wallet-copy-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                    </svg>
-                    <svg className="wallet-copy-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M20 6L9 17l-5-5"></path>
-                    </svg>
-                  </button>
-                </div>
-                <button type="button" className="wallet-menu-item" onClick={() => { setWalletDropdownOpen(false); onNavigate("profile"); }}>
-                  <svg className="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                    <circle cx="12" cy="7" r="4"></circle>
-                  </svg>
-                  <span>View Profile Page</span>
-                </button>
-                <button type="button" className="wallet-menu-item" onClick={openQuickProfileModal}>
-                  <svg className="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                    <line x1="9" y1="9" x2="15" y2="9"></line>
-                    <line x1="9" y1="13" x2="15" y2="13"></line>
-                    <line x1="9" y1="17" x2="13" y2="17"></line>
-                  </svg>
-                  <span>Quick Profile Modal</span>
-                </button>
-                <button type="button" className="wallet-menu-item" onClick={() => { setWalletDropdownOpen(false); onNavigate("marketplace"); }}>
-                  <svg className="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path>
-                    <line x1="3" y1="6" x2="21" y2="6"></line>
-                    <path d="M16 10a4 4 0 0 1-8 0"></path>
-                  </svg>
-                  <span>Marketplace</span>
-                </button>
-                {ownedProviders.length ? (
-                  <button type="button" className="wallet-menu-item wallet-menu-item-green" onClick={openProviderEarningsModal}>
-                    <svg className="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M12 2v20"></path>
-                      <path d="M7 6h8.5a3.5 3.5 0 0 1 0 7H9a3.5 3.5 0 0 0 0 7h8"></path>
-                    </svg>
-                    <span>Creator Gateway Earnings</span>
-                  </button>
-                ) : null}
-                <button type="button" className="wallet-menu-item wallet-menu-item-danger" onClick={disconnect}>
-                  <svg className="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                    <polyline points="16 17 21 12 16 7"></polyline>
-                    <line x1="21" y1="12" x2="9" y2="12"></line>
-                  </svg>
-                  <span>Disconnect</span>
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </header>
-
+      <AppHeader
+        wallet={wallet}
+        viewMode={viewMode}
+        metrics={metrics}
+        walletRole={walletRole}
+        ownedProviders={ownedProviders}
+        onNavigate={onNavigate}
+        onViewModeChange={setViewModeState}
+        onConnect={connect}
+        onDisconnect={disconnect}
+        onCopyAddress={handleCopyAddress}
+        copySuccess={copySuccess}
+        onOpenProfile={openQuickProfileModal}
+        onOpenProviderEarnings={openProviderEarningsModal}
+      />
       <div className="mobile-view-tabs" role="tablist" aria-label="Dashboard sections">
         {[
           ["live-feed-sidebar", "Live Signals"],
@@ -3018,134 +565,28 @@ export function AppPage({
 
       <div className="workspace">
         {/* Left Sidebar */}
-        <div className={`live-feed-sidebar ${mobileActiveView === "live-feed-sidebar" ? "mobile-visible" : ""}`}>
-          <div className="sidebar-header">
-            <span className="sidebar-title">Live Signals</span>
-            <button className="refresh-btn" onClick={() => loadLiveAnomalies()}>
+        <SignalSidebar
+          visible={mobileActiveView === "live-feed-sidebar"}
+          activeQuery={activeQuery}
+          normalizeSignal={normalizeSignalPayload}
+          entitlementBadgeForSignal={entitlementBadgeForSignal}
+          recommendationTier={recommendationTier}
+          onSelectSignal={loadAnomalyIntoQuery}
+          onSelectRecommendation={(item) => {
+            const providerId = item.provider_id || "funding_memory";
+            const signal = normalizeSignalPayload(item.query || { symbol: item.symbol });
+            setSelectedProviderId(providerId);
+            setActiveQuery(signal);
+          }}
+        />{/*
               ↻ Refresh
-            </button>
-          </div>
-
-          {/* Ranked Opportunities */}
-          <div className="agent-picks-panel sidebar-panel">
-            <div className="sidebar-header agent-picks-header">
-              <span className="sidebar-title">Ranked Opportunities</span>
-              <span className="agent-mode-pill">Human review</span>
-            </div>
-            <div className="agent-picks-list">
-              {recommendations.length === 0 ? (
-                <Loader label="Ranking live signals..." compact size="sm" />
-              ) : (
-                recommendations.map((item, idx) => {
-                  const providerId = item.provider_id || "funding_memory";
-                  const signal = normalizeSignalPayload(item.query || { symbol: item.symbol });
-                  const entitlement = entitlementBadgeForSignal(signal, providerId);
-                  return (
-                    <div
-                      className="agent-pick-card"
-                      key={idx}
-                      onClick={() => {
-                        setSelectedProviderId(providerId);
-                        setActiveQuery(signal);
-                        const exact = getCachedReport(signal, "full", providerId) || getCachedReport(signal, "preview", providerId);
-                        if (openCachedReportEntry(exact, signal, providerId)) return;
-                        const history = getCachedReportsForSymbol(signal.symbol, providerId);
-                        if (history[0] && openCachedReportEntry(history[0], signal, providerId)) {
-                          showToast(`Showing previous paid ${signal.symbol} report from ${new Date(history[0].saved_at).toLocaleString()}.`, "info");
-                          return;
-                        }
-                        setUnlockedReport(null);
-                        setReportCollapsed(true);
-                      }}
-                    >
-                      <div className="card-header">
-                        <span className="card-symbol">{item.symbol}</span>
-                        <span className="card-score">Score: {item.score}</span>
-                      </div>
-                      {item.reason && <p className="pick-reason" style={{ fontSize: "0.68rem", color: "var(--t2)", marginTop: 4 }}>{item.reason}</p>}
-                      <div className="card-meta-row" style={{ marginTop: 6 }}>
-                        <span>{entitlement.meta || `Tier: ${recommendationTier(item)}`}</span>
-                        <span className={`signal-badge ${entitlement.className}`}>
-                          {entitlement.className === "unpaid" ? `Tier: ${recommendationTier(item)}` : entitlement.text}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-
-          {/* All Live Signals */}
-          <div className="sidebar-header anomalies-header">
-            <span className="sidebar-title">All Live Signals</span>
-            <span
-              className={`anomalies-count-pill${liveRefreshTone ? ` is-${liveRefreshTone}` : ""}`}
-              title={lastUpdatedTime ? lastUpdatedTime.toLocaleString() : undefined}
-            >
-              {liveRefreshLabel}
-            </span>
-          </div>
-
-          <div className="anomalies-list">
-            {anomaliesLoading ? (
-              <Loader label="Scanning MEXC..." variant="progress" />
-            ) : anomaliesError ? (
-              <div style={{ textAlign: "center", color: "var(--red)", marginTop: 48 }}>{anomaliesError}</div>
-            ) : anomalies.length === 0 ? (
-              <div className="agent-empty">No anomalies found.</div>
-            ) : (
-              anomalies.map((item, idx) => {
-                const isActive = activeQuery?.symbol === item.symbol;
-                const signal = normalizeSignalPayload({
-                  symbol: item.symbol,
-                  fundingRate: item.fundingRate,
-                  marketCap: item.marketCap,
-                  FDV: item.fromATH ? item.marketCap / (1 + item.fromATH / 100) : item.marketCap,
-                  circRatio: item.circRatio,
-                  fromATH: item.fromATH,
-                  volume24h: item.volume24h,
-                  amount: item.amount || item.openInterest,
-                  openInterest: item.openInterest || item.amount,
-                  openInterestChange24h: item.openInterestChange24h,
-                  longShortRatio: item.longShortRatio,
-                  price: item.price,
-                });
-                const entitlement = entitlementBadgeForSignal(signal);
-                return (
-                  <div
-                    className={`anomaly-card ${isActive ? "active" : ""}`}
-                    key={idx}
-                    onClick={() => loadAnomalyIntoQuery(item)}
-                  >
-                    <div className="card-header">
-                      <span className="card-symbol">{item.symbol}</span>
-                      <span className="card-funding">{(item.fundingRate * 100).toFixed(3)}%</span>
-                    </div>
-                    <div className="card-stats">
-                      <div>Mkt Cap: <span className="card-stat-val">${(item.marketCap / 1000000).toFixed(1)}M</span></div>
-                      <div>Circ Ratio: <span className="card-stat-val">{item.circRatio.toFixed(2)}</span></div>
-                      <div>24h Vol: <span className="card-stat-val">${(item.volume24h / 1000000).toFixed(1)}M</span></div>
-                      <div>ATH Dist: <span className="card-stat-val">{item.fromATH.toFixed(2)}%</span></div>
-                    </div>
-                    <div className="card-meta-row">
-                      <span>{entitlement.meta}</span>
-                      <span className={`signal-badge ${entitlement.className}`}>{entitlement.text}</span>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-
-        {/* Right main panel */}
+        */}{/* Right main panel */}
         <div className={`main-panel ${mobileActiveView === "main-panel" ? "mobile-visible" : ""}`}>
           {/* Removed Agent Control Bar */}
           {/* Form / Selected signal card */}
           <div className="query-card-container">
             {viewMode === "basic" ? (
-              <div className="basic-signal-card basic-only" id="basic-signal-card" style={{ display: "block" }}>
+              <div className="basic-signal-card basic-only" id="basic-signal-card">
                 <div className="basic-signal-top">
                   <span className="basic-signal-symbol">{activeQuery?.symbol || "HYPE"}</span>
                   <span className="basic-signal-tag">Selected market setup</span>
@@ -3168,27 +609,41 @@ export function AppPage({
               </div>
             ) : null}
 
+            <div className="query-provider-tier" style={{ display: viewMode === "advanced" || showBasicFields ? "block" : "none" }}>
+              <div className="query-tier-label">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                  <ellipse cx="12" cy="5" rx="7" ry="3" />
+                  <path d="M5 5v7c0 1.7 3.1 3 7 3s7-1.3 7-3V5" />
+                  <path d="M5 12v7c0 1.7 3.1 3 7 3s7-1.3 7-3v-7" />
+                </svg>
+                <span>Data Provider</span>
+              </div>
+              <div className="query-provider-row">
+                <select
+                  className="form-input provider-select"
+                  value={selectedProviderId}
+                  onChange={(e) => handleProviderChange(e.target.value)}
+                >
+                  {providers.map((p) => (
+                    <option value={p.provider_id} key={p.provider_id}>
+                      {p.provider_name || p.provider_id}
+                    </option>
+                  ))}
+                </select>
+                <span className="query-provider-help">Sets the schema for the fields below</span>
+              </div>
+            </div>
+
             <form
               className="query-form-grid"
               onSubmit={(e) => e.preventDefault()}
               style={{ display: viewMode === "advanced" || showBasicFields ? "block" : "none" }}
             >
-              <div className="query-fields-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
-                <div className="form-group provider-select-group">
-                  <label className="form-label">Provider</label>
-                  <select
-                    className="form-input provider-select"
-                    value={selectedProviderId}
-                    onChange={(e) => handleProviderChange(e.target.value)}
-                  >
-                    {providers.map((p) => (
-                      <option value={p.provider_id} key={p.provider_id}>
-                        {p.provider_name || p.provider_id}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
+              <div className="query-fields-heading">
+                <span>Signal inputs</span>
+                <span>{1 + (activeProvider?.ui_schema?.fields?.filter((f) => f.key !== "symbol").length || 0)} fields · editable</span>
+              </div>
+              <div className="query-fields-grid">
                 <div className="form-group">
                   <label className="form-label">Symbol</label>
                   <input
@@ -3199,7 +654,7 @@ export function AppPage({
                   />
                 </div>
 
-                {activeProvider?.ui_schema?.fields?.map((f) => (
+                {activeProvider?.ui_schema?.fields?.filter((f) => f.key !== "symbol").map((f) => (
                   <div className="form-group" key={f.key}>
                     <label className="form-label">{f.label || f.key}</label>
                     <input
@@ -3219,1542 +674,231 @@ export function AppPage({
               </div>
             </form>
 
-            <div className="query-actions-row" style={{ display: "flex", gap: 12, marginTop: 12 }}>
+            <div className="query-actions-row">
               <button
                 type="button"
                 className="submit-btn tier-btn preview-tier"
                 onClick={() => openPaywall("preview")}
               >
-                <span>Preview Report - {quotedPrices.preview ? `${quotedPrices.preview.toFixed(3)} USDC` : "0.001 USDC"}</span>
+                <span>Preview</span>
               </button>
               <button
                 type="button"
                 className="submit-btn tier-btn full-tier"
                 onClick={() => openPaywall("full")}
               >
-                <span>Full Report - {quotedPrices.full ? `${quotedPrices.full.toFixed(3)} USDC` : "0.005 USDC"}</span>
+                <span>Full</span>
               </button>
               <button
                 type="button"
-                className="submit-btn copilot-btn"
+                className="submit-btn copilot-btn copilot-btn-neutral"
                 id="open-copilot-btn"
-                style={{ background: "var(--surface)", color: "var(--t1)", border: "1px solid var(--border-color)" }}
                 onClick={() => {
                   setShowAgentBuyerModal(true);
                   if (!agentRunning) {
-                    setAgentTrace([]);
+                    clearAgentTrace();
                   }
                 }}
               >
-                <span>💭✨</span>
+                <span>Run Agent</span>
               </button>
             </div>
           </div>
 
           {/* Viewport reports */}
           <div
-            className={`report-viewport ${unlockedReport && !reportCollapsed ? "unlocked" : ""}`}
+            className={`report-viewport report-shell ${unlockedReport && !reportCollapsed ? "unlocked" : ""}`}
             id="viewport-container"
-            style={{ position: "relative", minHeight: 300 }}
           >
-            {/* PAYWALL */}
-            {paywallOpen && currentInvoice && (
-              <div className="paywall-overlay" id="paywall-element" style={{ display: "flex" }}>
-                <div className="paywall-card">
-                  <button className="paywall-close" type="button" onClick={() => setPaywallOpen(false)}>
-                    x
-                  </button>
-                  <div className="paywall-layout">
-                    <div className="paywall-main">
-                      <div className="paywall-title">
-                        {paymentSuccess ? "Payment Confirmed" : "Unlock this report"}
-                      </div>
-                      <div className="paywall-desc">
-                        {paymentSuccess
-                          ? "Settlement complete. Your report is ready."
-                          : "QMA matches today's market setup against similar past events and shows how they played out: win rates, typical returns, and historical analogs."}
-                      </div>
+            <PaywallPanel
+              paywallOpen={paywallOpen}
+              setPaywallOpen={setPaywallOpen}
+              currentInvoice={currentInvoice}
+              paymentStep={paymentStep}
+              paymentStepStatus={paymentStepStatus}
+              paymentDetails={paymentDetails}
+              paymentSuccess={paymentSuccess}
+              paySubmitting={paySubmitting}
+              payStatusText={payStatusText}
+              payErrorText={payErrorText}
+              wallet={wallet}
+              gatewayContractAddress={gatewayContractAddress}
+              sellerAddress={sellerAddress}
+              showFundArcModal={showFundArcModal}
+              setShowFundArcModal={setShowFundArcModal}
+              refreshFundingReadiness={refreshFundingReadiness}
+              handleOpenUnlockedReport={handleOpenUnlockedReport}
+              signAndSettleX402={signAndSettleX402}
+              handleDepositToGateway={handleDepositToGateway}
+              activeQuery={activeQuery}
+            />
+            <DepositModal
+              open={showDepositModal}
+              onClose={() => setShowDepositModal(false)}
+              depositAmountInput={depositAmountInput}
+              onDepositAmountChange={setDepositAmountInput}
+              exactCost={Number(currentInvoice?.amount || 0.005)}
+              payStatusText={payStatusText}
+              onDeposit={handleDepositToGateway}
+            />
 
-                      <div className="circle-invoice-details">
-                        <div className="invoice-row">
-                          <span className="invoice-label">Signal</span>
-                          <span className="invoice-val">{currentInvoice.symbol || activeQuery.symbol}</span>
-                        </div>
-                        <div className="invoice-row invoice-row--amount">
-                          <span className="invoice-label">Amount</span>
-                          <span className="invoice-val">{Number(currentInvoice.amount).toFixed(3)} USDC</span>
-                        </div>
-                        <div className="invoice-row">
-                          <span className="invoice-label">Tier</span>
-                          <span className="invoice-val">{currentInvoice.tier === "preview" ? "Preview Report" : "Full Report"}</span>
-                        </div>
-                        <div className="invoice-row">
-                          <span className="invoice-label">Network</span>
-                          <span className="invoice-val">Arc Testnet</span>
-                        </div>
-                      </div>
-
-                      {/* Payment step timeline progress */}
-                      <div className="payment-flow-panel" style={{ display: "block", marginTop: 12 }}>
-                        <div className="pf-header-label">Payment Progress</div>
-                        <div className="pf-timeline">
-                          <div className={`pf-row ${paymentClass(paymentStepStatus.wallet.status)} ${paymentStep === "wallet" ? "is-current" : ""}`} data-payment-step="wallet">
-                            <div className="pf-step-icon" />
-                            <div className="pf-body">
-                              <div className="pf-step-top">
-                                <div className="pf-label">Wallet Connected</div>
-                                <span className={`pf-badge ${paymentClass(paymentStepStatus.wallet.status)}`}>
-                                  {paymentStepStatus.wallet.label}
-                                </span>
-                              </div>
-                              <div className="pf-val">
-                                {wallet ? `Connected as ${shortAddress(wallet)}` : "Connect wallet to continue."}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className={`pf-row ${paymentClass(paymentStepStatus.gateway.status)} ${paymentStep === "gateway" ? "is-current" : ""}`} data-payment-step="gateway">
-                            <div className="pf-step-icon" />
-                            <div className="pf-body">
-                              <div className="pf-step-top">
-                                <div className="pf-label">Deposit USDC</div>
-                                <span className={`pf-badge ${paymentClass(paymentStepStatus.gateway.status)}`}>
-                                  {paymentStepStatus.gateway.label}
-                                </span>
-                              </div>
-                              <div className="pf-val">
-                                {paymentDetails.buyerGatewayBalance
-                                  ? `Gateway balance checked: ${paymentDetails.buyerGatewayBalance}`
-                                  : "Gateway balance is checked when you pay."}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className={`pf-row ${paymentClass(paymentStepStatus.settlement.status)} ${paymentStep === "settlement" ? "is-current" : ""}`} data-payment-step="settlement">
-                            <div className="pf-step-icon" />
-                            <div className="pf-body">
-                              <div className="pf-step-top">
-                                <div className="pf-label">Settlement</div>
-                                <span className={`pf-badge ${paymentClass(paymentStepStatus.settlement.status)}`}>
-                                  {paymentStepStatus.settlement.label}
-                                </span>
-                              </div>
-                              <div className="pf-val">
-                                {paymentDetails.settlementId
-                                  ? `Settlement ID: ${shortAddress(paymentDetails.settlementId)}`
-                                  : "Awaiting payment."}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className={`pf-row ${paymentClass(paymentStepStatus.report.status)} ${paymentStep === "report" ? "is-current" : ""}`} data-payment-step="report">
-                            <div className="pf-step-icon" />
-                            <div className="pf-body">
-                              <div className="pf-step-top">
-                                <div className="pf-label">Report Unlocked</div>
-                                <span className={`pf-badge ${paymentClass(paymentStepStatus.report.status)}`}>
-                                  {paymentStepStatus.report.label}
-                                </span>
-                              </div>
-                              <div className="pf-val">
-                                {paymentSuccess ? "Wallet-bound report access issued." : "Report opens after QMA verifies the settlement."}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="status-messages" style={{ marginTop: 8 }}>
-                        {payStatusText && <p style={{ fontSize: "0.76rem", color: "var(--t2)" }}>{payStatusText}</p>}
-                        {payErrorText && <p style={{ fontSize: "0.76rem", color: "var(--red)" }}>{payErrorText}</p>}
-                      </div>
-                      <div className="testnet-help">
-                        <div className="testnet-help-copy">
-                          <strong className="testnet-help-title">Need Arc USDC?</strong>
-                        </div>
-                        <button type="button" className="testnet-help-action" onClick={() => { setShowFundArcModal(true); refreshFundingReadiness(); }}>
-                          Open Funding Assistant
-                        </button>
-                      </div>
-                      <p className="paywall-snapshot-note">
-                        This exact paid snapshot is saved to Wallet History. If the live signal changes later, reopen this snapshot or unlock the new one.
-                      </p>
-                      <div className="paywall-trust-layer">
-                        <div className="paywall-trust-title">Wallet connection only exposes your public address.</div>
-                        <div className="paywall-trust-links">
-                          <a href={`${API_BASE_URL}/docs`} target="_blank" rel="noreferrer">API docs</a>
-                          <a href="https://testnet.arcscan.app/" target="_blank" rel="noreferrer">Arcscan</a>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Paywall Side Details */}
-                    <div className="paywall-side">
-                      <div className="paywall-advanced-card">
-                        <div className="paywall-advanced-title">Advanced Payment Details</div>
-                        <div className="paywall-detail-row">
-                          <span className="paywall-detail-label">Invoice ID</span>
-                          <span className="paywall-detail-value">{currentInvoice.invoice_id}</span>
-                        </div>
-                        <div className="paywall-detail-row">
-                          <span className="paywall-detail-label">Gateway Contract</span>
-                          <span className="paywall-detail-value">{shortAddress(gatewayContractAddress)}</span>
-                        </div>
-                        <div className="paywall-detail-row">
-                          <span className="paywall-detail-label">Seller Treasury</span>
-                          <span className="paywall-detail-value">{shortAddress(sellerAddress)}</span>
-                        </div>
-                        <div className="paywall-detail-row">
-                          <span className="paywall-detail-label">Settlement ID</span>
-                          <span className="paywall-detail-value">{paymentDetails.settlementId ? shortAddress(paymentDetails.settlementId) : "-"}</span>
-                        </div>
-                        <div className="paywall-detail-row">
-                          <span className="paywall-detail-label">Gateway Balance</span>
-                          <span className="paywall-detail-value">{paymentDetails.buyerGatewayBalance || "-"}</span>
-                        </div>
-                        <div className="paywall-detail-row">
-                          <span className="paywall-detail-label">Available Balance</span>
-                          <span className="paywall-detail-value">{paymentDetails.sellerAvailable || "-"}</span>
-                        </div>
-                        <div className="paywall-detail-row">
-                          <span className="paywall-detail-label">Pending Balance</span>
-                          <span className="paywall-detail-value">{paymentDetails.sellerPending || "-"}</span>
-                        </div>
-                        <div className="paywall-detail-row">
-                          <span className="paywall-detail-label">Wallet Address</span>
-                          <span className="paywall-detail-value">{wallet ? shortAddress(wallet) : "-"}</span>
-                        </div>
-                        {paymentDetails.txHash ? (
-                          <div className="paywall-detail-row">
-                            <span className="paywall-detail-label">Arcscan Tx</span>
-                            <a className="paywall-detail-value tx-link" href={paymentDetails.explorerUrl || `https://testnet.arcscan.app/tx/${paymentDetails.txHash}`} target="_blank" rel="noreferrer">
-                              {shortAddress(paymentDetails.txHash)}
-                            </a>
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                  {paymentSuccess ? (
-                    <button className="simulate-pay-btn" onClick={handleOpenUnlockedReport}>
-                      <span>Open Report</span>
-                    </button>
-                  ) : (
-                    <button
-                      className="simulate-pay-btn"
-                      onClick={signAndSettleX402}
-                      disabled={
-                        paymentStepStatus.gateway.status !== "completed" ||
-                        paySubmitting ||
-                        paymentStepStatus.report.status === "active"
-                      }
-                    >
-                      <span>
-                        {paySubmitting || paymentStepStatus.report.status === "active" ? (
-                          <Loader label="Confirming settlement" compact variant="spinner" size="xs" className="button-loader" />
-                        ) : paymentStepStatus.settlement.status === "active" ? (
-                          "Sign Settlement"
-                        ) : (
-                          "Pay on Arc Testnet"
-                        )}
-                      </span>
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* TOP UP MODAL */}
-            {showDepositModal && (
-              <div className="modal-backdrop open">
-                <div className="modal-panel withdraw-modal" style={{ width: 420 }}>
-                  <div className="modal-header">
-                    <span className="modal-title">Deposit USDC to Circle Gateway</span>
-                    <button type="button" className="icon-button" onClick={() => setShowDepositModal(false)}>
-                      x
-                    </button>
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                    <p style={{ fontSize: "0.78rem", color: "var(--t2)" }}>
-                      Your Circle Gateway balance is insufficient for this purchase. Choose an amount to deposit.
-                    </p>
-                    <label>
-                      <span className="withdraw-label">Deposit amount (USDC)</span>
-                      <input
-                        type="number"
-                        className="withdraw-input"
-                        value={depositAmountInput}
-                        onChange={(e) => setDepositAmountInput(e.target.value)}
-                      />
-                    </label>
-                    <div className="deposit-quick-row">
-                      <button
-                        type="button"
-                        className="deposit-quick-btn"
-                        onClick={() => setDepositAmountInput(Number(currentInvoice?.amount || 0.005).toFixed(6))}
-                      >
-                        Exact Cost
-                      </button>
-                      <button type="button" className="deposit-quick-btn" onClick={() => setDepositAmountInput("0.005")}>
-                        0.005 USDC
-                      </button>
-                      <button type="button" className="deposit-quick-btn" onClick={() => setDepositAmountInput("0.1")}>
-                        0.10 USDC
-                      </button>
-                    </div>
-
-                    {payStatusText && (
-                      <p style={{ fontSize: "0.76rem", color: "var(--t2)", marginTop: 6 }}>{payStatusText}</p>
-                    )}
-
-                    <div className="withdraw-actions" style={{ marginTop: 12 }}>
-                      <button type="button" className="submit-btn" onClick={handleDepositToGateway}>
-                        Deposit
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* REPORT VIEW */}
-            {unlockedReport && !reportCollapsed ? (
-              <div className="report-container" id="report-view-element" style={{ display: "grid" }}>
-                {/* Simple summary */}
-                <div className="report-section section-span-all basic-summary-section">
-                  <div className="section-header">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                      <polyline points="14 2 14 8 20 8" />
-                      <line x1="16" y1="13" x2="8" y2="13" />
-                      <line x1="16" y1="17" x2="8" y2="17" />
-                    </svg>
-                    Your result at a glance
-                  </div>
-                  <p className="plain-summary">
-                    {unlockedReport.query_symbol || activeQuery.symbol} is being compared with{" "}
-                    {unlockedReport.matched_k || reportAnalogs(unlockedReport).length || 0} similar historical events in a{" "}
-                    {unlockedReport.regime_cluster || "regime cluster"} context. In those past cases, outcomes were{" "}
-                    {reportWinRateValue(unlockedReport) >= 60
-                      ? "mostly positive"
-                      : "mixed"}{" "}
-                    with a {reportWinRateValue(unlockedReport).toFixed(1)}% win
-                    rate.
-                  </p>
-                  <div className="summary-card-grid">
-                    <div className="summary-card">
-                      <span className="summary-card-label">Confidence</span>
-                      <strong className="summary-card-value">
-                        {unlockedReport.is_ood ? "Low" : "High"}
-                      </strong>
-                      <small className="summary-card-desc">How familiar this setup looks in history</small>
-                    </div>
-                    <div className="summary-card">
-                      <span className="summary-card-label">Similar events</span>
-                      <strong className="summary-card-value">
-                        {(unlockedReport.matched_k ?? reportAnalogs(unlockedReport).length) ?? 0}
-                      </strong>
-                      <small className="summary-card-desc">Historical matches in QMA's dataset</small>
-                    </div>
-                    <div className="summary-card">
-                      <span className="summary-card-label">Win rate</span>
-                      <strong className="summary-card-value">
-                        {reportWinRateValue(unlockedReport).toFixed(1)}%
-                      </strong>
-                      <small className="summary-card-desc">How often similar cases finished positive</small>
-                    </div>
-                    <div className="summary-card">
-                      <span className="summary-card-label">Typical outcome</span>
-                      <strong className="summary-card-value">
-                        {isPreviewReport(unlockedReport)
-                          ? "Full"
-                          : unlockedReport.percentiles?.P50_median
-                          ? `${unlockedReport.percentiles.P50_median.toFixed(2)}%`
-                          : "n/a"}
-                      </strong>
-                      <small className="summary-card-desc">Median peak result in past analogs</small>
-                    </div>
-                  </div>
-                  <p className="plain-summary-disclaimer">
-                    Past performance does not guarantee future results. This is historical context, not trading advice.
-                  </p>
-                </div>
-
-                {/* Weighted outcome KPI */}
-                <div className="report-section section-span-2 advanced-control">
-                  <div className="section-header">Historical Analog Outcome (Weighted)</div>
-                  <div className="kpi-grid">
-                    <div className="kpi-card">
-                      <span className="kpi-title">Analog Win Rate</span>
-                      <div className="kpi-value" style={{ color: "var(--green)" }}>
-                        {reportWinRateValue(unlockedReport).toFixed(1)}%
-                      </div>
-                      <span className="kpi-sub">{reportWinRateCiLabel(unlockedReport)}</span>
-                    </div>
-                    <div className="kpi-card">
-                      <span className="kpi-title">Avg Historical Peak PnL</span>
-                      <div className="kpi-value" style={{ color: "var(--green)" }}>
-                        {reportAvgProfitLabel(unlockedReport)}
-                      </div>
-                      <span className="kpi-sub">{reportAvgProfitCiLabel(unlockedReport)}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Regime details */}
-                <div className="report-section advanced-control">
-                  <div className="section-header">Similar Historical Regime</div>
-                  <div className="info-list">
-                    <div className="info-item">
-                      <span className="info-label" style={{ fontWeight: 600, fontSize: "0.9rem", color: "var(--t1)" }}>
-                        {unlockedReport.regime_cluster || "n/a"}
-                      </span>
-                    </div>
-                    <div className="info-desc" style={{ fontSize: "0.76rem", lineHeight: 1.5 }}>
-                      {unlockedReport.regime_description || "Regime details loaded from matching catalogs."}
-                    </div>
-                    <div style={{ borderTop: "1px solid var(--bdr)", paddingTop: 10, marginTop: 4 }}>
-                      <div className="info-item">
-                        <span className="info-label">OOD Status</span>
-                        <span className="pnl-badge" style={{ fontSize: "0.68rem" }}>
-                          {unlockedReport.is_ood ? "Out-of-Distribution" : "In-Distribution"}
-                        </span>
-                      </div>
-                      <div className="info-item" style={{ marginTop: 6 }}>
-                        <span className="info-label">Chi2 p-value</span>
-                        <span className="mono-td" style={{ color: "var(--t1)", fontSize: "0.78rem" }}>
-                          {(unlockedReport.ood_chi2_p || 1.0).toFixed(5)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Advanced details toggler */}
-                <div className="advanced-only section-span-all advanced-dropdown-wrapper" style={{ marginTop: 12 }}>
-                  <button
-                    type="button"
-                    className={`advanced-dropdown-trigger ${reportDetailsOpen ? "expanded" : ""}`}
-                    onClick={() => setReportDetailsOpen((open) => !open)}
-                  >
-                    <span className="trigger-label">
-                      {reportDetailsOpen ? "Hide" : "Show"} Detailed Quant Diagnostics & Analogs
-                    </span>
-                    <svg className="trigger-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <polyline points="6 9 12 15 18 9"></polyline>
-                    </svg>
-                  </button>
-                  <div className="advanced-dropdown-content" style={{ display: reportDetailsOpen ? "grid" : "none" }}>
-                  <div className="report-section">
-                    <div className="section-header">Historical Outcome Percentiles</div>
-                    <div className="dist-chart">
-                      {reportPercentileRows(unlockedReport).map((percentile) => {
-                        return (
-                          <div className="dist-row" key={percentile.key}>
-                            <span className="dist-label">{percentile.label}</span>
-                            <div className="dist-bar-bg">
-                              <div className="dist-bar-fill" style={{ width: `${percentile.width}%` }}></div>
-                            </div>
-                            <span className="dist-val">{percentile.text}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="report-section section-span-2">
-                    <div className="section-header">Closest Historical Funding Events</div>
-                    <div className="table-wrap">
-                      <table className="analogs-table">
-                        <thead>
-                          <tr>
-                            <th>Asset</th>
-                            <th>Historical Funding</th>
-                            <th>Market Cap</th>
-                            <th>Settle Age</th>
-                            <th>Decay Wt.</th>
-                            <th>Similarity</th>
-                            <th>Outcome PnL</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {reportAnalogs(unlockedReport).map((analog: any, analogIdx: number) => (
-                            <tr key={analogIdx}>
-                              <td className="mono-td" style={{ fontWeight: 600 }}>{analog.symbol || "n/a"}</td>
-                              <td className="mono-td">{analog.fundingRate != null ? `${(Number(analog.fundingRate) * 100).toFixed(3)}%` : "n/a"}</td>
-                              <td className="mono-td">{isPreviewReport(unlockedReport) ? "Preview" : analog.marketCap != null ? formatCompactMoney(Number(analog.marketCap)) : "n/a"}</td>
-                              <td className="mono-td">{isPreviewReport(unlockedReport) ? "Preview" : analog.age_days != null ? `${Math.round(Number(analog.age_days))}d ago` : formatDateTime(analog.timestamp || analog.time)}</td>
-                              <td className="mono-td">{isPreviewReport(unlockedReport) ? "Preview" : analog.decay_weight != null ? Number(analog.decay_weight).toFixed(3) : "n/a"}</td>
-                              <td className="mono-td">{analog.similarity != null ? `${(Number(analog.similarity) * 100).toFixed(2)}%` : "n/a"}</td>
-                              <td>
-                                <span className={`pnl-badge ${Number(analog.profit_pct ?? analog.peak_pnl ?? analog.pnl ?? 0) >= 0 ? "win" : "loss"}`}>
-                                  {formatRawPercent(analog.profit_pct ?? analog.peak_pnl ?? analog.pnl)}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                          {!reportAnalogs(unlockedReport).length ? (
-                            <tr>
-                              <td className="mono-td" colSpan={7}>No historical analog rows returned for this report.</td>
-                            </tr>
-                          ) : null}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  <div className="report-section section-span-all" style={{ marginTop: 12 }}>
-                    <div className="section-header">Evidence Quality Diagnostics</div>
-                    <div className="diagnostic-grid">
-                      <div className="diagnostic-tile">
-                        <span className="diagnostic-label">Clean Joined Rows</span>
-                        <span className="diagnostic-value">
-                          {`${unlockedReport.data_quality?.clean_joined_rows || 0} / ${unlockedReport.data_quality?.historical_feature_rows || 0}`}
-                        </span>
-                      </div>
-                      <div className="diagnostic-tile">
-                        <span className="diagnostic-label">Matched K / ESS</span>
-                        <span className="diagnostic-value">
-                          {`${unlockedReport.matched_k || 0} / ${Number(unlockedReport.effective_sample_size || 0).toFixed(1)}`}
-                        </span>
-                      </div>
-                      <div className="diagnostic-tile">
-                        <span className="diagnostic-label">Nearest Distance</span>
-                        <span className="diagnostic-value">
-                          {`${Number(unlockedReport.distance_summary?.nearest || 0).toFixed(3)} nearest`}
-                        </span>
-                      </div>
-                      <div className="diagnostic-tile">
-                        <span className="diagnostic-label">Empirical OOD %ile</span>
-                        <span className="diagnostic-value">
-                          {`${Number(unlockedReport.ood_empirical_percentile || 0).toFixed(1)}%`}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="risk-list">
-                      {unlockedReport.provider_note ? <div className="risk-item">{unlockedReport.provider_note}</div> : null}
-                      {unlockedReport.analysis_focus ? <div className="risk-item">Analysis focus: {unlockedReport.analysis_focus}</div> : null}
-                      {unlockedReport.invoice?.explorer_url && unlockedReport.invoice?.transaction_hash ? (
-                        <div className="risk-item">
-                          <span style={{ color: "var(--green)" }}>Arcscan batch tx confirmed:</span>{" "}
-                          <a className="tx-link" href={unlockedReport.invoice.explorer_url} target="_blank" rel="noreferrer">
-                            {shortAddress(unlockedReport.invoice.transaction_hash)}
-                          </a>
-                        </div>
-                      ) : unlockedReport.invoice?.settlement_id ? (
-                        <div className="risk-item">
-                          <span style={{ color: "#f59e0b" }}>Circle accepted payment.</span> Arcscan batch tx is pending. Settlement ID:{" "}
-                          <span className="mono-td">{shortAddress(unlockedReport.invoice.settlement_id)}</span>
-                        </div>
-                      ) : null}
-                      {[...(unlockedReport.risk_flags || []), ...(unlockedReport.validation_warnings || [])].map((item: string, idx: number) => (
-                        <div className="risk-item" key={idx}>{item}</div>
-                      ))}
-                      {!(unlockedReport.risk_flags || []).length && !(unlockedReport.validation_warnings || []).length && !unlockedReport.provider_note ? (
-                        <div className="risk-item">No additional provider warnings for this report.</div>
-                      ) : null}
-                    </div>
-                  </div>
-                  </div>
-                </div>
-
-                <details
-                  className="report-section section-span-all platform-stats-section"
-                  style={{ paddingBottom: 0 }}
-                  onToggle={(event) => {
-                    if ((event.currentTarget as HTMLDetailsElement).open) {
-                      refreshPlatformTables(1, 1);
-                    }
-                  }}
-                >
-                  <summary className="section-header" style={{ cursor: "pointer", userSelect: "none" }}>
-                    Platform Analytics & Payment Activity <span style={{ fontSize: "0.65rem", color: "var(--t3)", fontWeight: 400 }}>(Click to view)</span>
-                  </summary>
-                  {platformTablesError ? (
-                    <div className="risk-item" style={{ marginTop: 12, color: "var(--orange)" }}>{platformTablesError}</div>
-                  ) : null}
-                  <div className="seller-balance-grid" style={{ marginTop: 16 }}>
-                    <div className="balance-tile green">
-                      <span className="balance-tile-label">Seller Gateway - Available</span>
-                      <span className="balance-tile-val">
-                        {platformSummary?.seller_gateway_balance?.available_usdc != null
-                          ? formatUsdc(platformSummary.seller_gateway_balance.available_usdc, 6)
-                          : paymentDetails.sellerAvailable || "n/a"}
-                      </span>
-                      <span className="balance-tile-sub">On-chain confirmed, withdrawable</span>
-                    </div>
-                    <div className="balance-tile amber">
-                      <span className="balance-tile-label">Seller Gateway - Pending Batch</span>
-                      <span className="balance-tile-val">
-                        {platformSummary?.seller_gateway_balance?.pending_batch_usdc != null
-                          ? formatUsdc(platformSummary.seller_gateway_balance.pending_batch_usdc, 6)
-                          : paymentDetails.sellerPending || "n/a"}
-                      </span>
-                      <span className="balance-tile-sub">Circle accepted, awaiting on-chain batch</span>
-                    </div>
-                    <div className="balance-tile neutral">
-                      <span className="balance-tile-label">Seller Treasury Wallet</span>
-                      <span className="balance-tile-val">{platformSummary?.seller_address || sellerAddress ? shortAddress(platformSummary?.seller_address || sellerAddress) : "n/a"}</span>
-                      <span className="balance-tile-sub">Final destination after batch settlement</span>
-                    </div>
-                  </div>
-                  <div className="split-tables">
-                    <div className="split-table-col split-table-col--settlements">
-                      <div className="subsection-title">
-                        Recent Settlements
-                        {platformPaymentsTotal ? <span style={{ color: "var(--t3)", marginLeft: 8 }}>({platformPaymentsTotal})</span> : null}
-                      </div>
-                      <div style={{ overflowX: "auto" }}>
-                        <table className="activity-table">
-                          <thead>
-                            <tr>
-                              <th>Symbol</th>
-                              <th>Provider</th>
-                              <th>Payer</th>
-                              <th>Amount</th>
-                              <th>Circle Status</th>
-                              <th>Settlement / Arcscan Tx</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {platformTablesLoading && !platformPayments.length ? (
-                              <tr><td colSpan={6}><Loader label="Loading payments..." compact size="sm" className="table-loader" /></td></tr>
-                            ) : platformPayments.length ? (
-                              platformPayments.map((event, idx) => (
-                                <tr key={event.event_id || event.settlement_id || event.invoice_id || idx}>
-                                  <td className="mono-td">
-                                    {event.symbol || "n/a"}
-                                    <div style={{ color: "var(--t3)", fontSize: "0.66rem", marginTop: 2 }}>{formatDateTime(event.paid_at)}</div>
-                                  </td>
-                                  <td><span className="provider-badge">{event.provider_id || "funding_memory"}</span></td>
-                                  <td title={event.payer_address || ""}>{event.payer_address ? shortAddress(event.payer_address) : "n/a"}</td>
-                                  <td>
-                                    {formatUsdc(event.amount_usdc)}
-                                    <div style={{ color: "var(--t3)", fontSize: "0.66rem" }}>{tierLabel(event.tier_category || event.tier)}</div>
-                                  </td>
-                                  <td>{gatewayStatusBadge(event.gateway_status)}</td>
-                                  <td className="mono-td">{renderSettlementRef(event)}</td>
-                                </tr>
-                              ))
-                            ) : (
-                              <tr><td colSpan={6} style={{ color: "var(--t3)", textAlign: "center" }}>No payments yet.</td></tr>
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                      <div className="table-pager profile-pager">
-                        <button type="button" className="refresh-btn" disabled={platformPaymentsPage <= 1 || platformTablesLoading} onClick={() => changePlatformPaymentsPage(Math.max(1, platformPaymentsPage - 1))}>
-                          Prev
-                        </button>
-                        <span style={{ margin: "0 10px", fontSize: "0.8rem" }}>Page {platformPaymentsPage} / {platformPaymentsTotalPages}</span>
-                        <button type="button" className="refresh-btn" disabled={platformPaymentsPage >= platformPaymentsTotalPages || platformTablesLoading} onClick={() => changePlatformPaymentsPage(Math.min(platformPaymentsTotalPages, platformPaymentsPage + 1))}>
-                          Next
-                        </button>
-                      </div>
-                    </div>
-                    <div className="split-table-col split-table-col--wallets">
-                      <div className="subsection-title">Wallet Usage</div>
-                      <div style={{ overflowX: "auto" }}>
-                        <table className="activity-table">
-                          <thead>
-                            <tr>
-                              <th>Wallet</th>
-                              <th>Providers</th>
-                              <th>Signals</th>
-                              <th>Spent</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {platformTablesLoading && !platformPayers.length ? (
-                              <tr><td colSpan={4}><Loader label="Loading wallets..." compact size="sm" className="table-loader" /></td></tr>
-                            ) : platformPayers.length ? (
-                              platformPayers.map((payer, idx) => {
-                                const symbols = (payer.symbols || []).slice(0, 5).join(", ") || "n/a";
-                                const overflow = (payer.symbols || []).length > 5 ? ` +${payer.symbols.length - 5}` : "";
-                                const providers = (payer.providers || []).join(", ") || "funding_memory";
-                                return (
-                                  <tr key={payer.payer_address || idx} title={`Last paid: ${formatDateTime(payer.last_paid_at)}`}>
-                                    <td className="mono-td" title={payer.payer_address || ""}>{payer.payer_address ? shortAddress(payer.payer_address) : "n/a"}</td>
-                                    <td style={{ fontSize: "0.75rem" }}>{providers}</td>
-                                    <td>{payer.payments || 0} / {symbols}{overflow}</td>
-                                    <td>
-                                      {formatUsdc(payer.spent_usdc)}
-                                      <div style={{ color: "var(--t3)", fontSize: "0.66rem" }}>P:{payer.preview_count || 0} F:{payer.full_count || 0}</div>
-                                    </td>
-                                  </tr>
-                                );
-                              })
-                            ) : (
-                              <tr><td colSpan={4} style={{ color: "var(--t3)", textAlign: "center" }}>No wallet activity yet.</td></tr>
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                      <div className="table-pager profile-pager">
-                        <button type="button" className="refresh-btn" disabled={platformPayersPage <= 1 || platformTablesLoading} onClick={() => changePlatformPayersPage(Math.max(1, platformPayersPage - 1))}>
-                          Prev
-                        </button>
-                        <span style={{ margin: "0 10px", fontSize: "0.8rem" }}>Page {platformPayersPage} / {platformPayersTotalPages}{platformPayersTotal ? ` (${platformPayersTotal})` : ""}</span>
-                        <button type="button" className="refresh-btn" disabled={platformPayersPage >= platformPayersTotalPages || platformTablesLoading} onClick={() => changePlatformPayersPage(Math.min(platformPayersTotalPages, platformPayersPage + 1))}>
-                          Next
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="split-table-col creator-split-ledger">
-                    <div className="subsection-title">Marketplace Revenue Ledger</div>
-                    <div style={{ overflowX: "auto" }}>
-                      <table className="activity-table">
-                        <thead>
-                          <tr>
-                            <th>Provider</th>
-                            <th>Gross</th>
-                            <th>Creator Earned</th>
-                            <th>Platform Fee</th>
-                            <th>Claimable</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(platformSummary?.revenue_by_provider || []).length ? (
-                            platformSummary.revenue_by_provider.map((row: any, idx: number) => {
-                              const sharePct = Number(row.creator_share_bps || 0) / 100;
-                              return (
-                                <tr key={row.provider_id || idx} title={row.split_note || "Ledger estimate only."}>
-                                  <td className="mono-td" title={row.owner_wallet || ""}>
-                                    {row.provider_name || row.provider_id || "provider"}
-                                    <div style={{ color: "var(--t3)", fontSize: "0.66rem" }}>{row.owner_wallet ? shortAddress(row.owner_wallet) : "n/a"}</div>
-                                  </td>
-                                  <td>{formatUsdc(row.revenue_usdc)}<div style={{ color: "var(--t3)", fontSize: "0.66rem" }}>{row.payments || 0} sales</div></td>
-                                  <td>{formatUsdc(row.creator_earned_usdc)}<div style={{ color: "var(--t3)", fontSize: "0.66rem" }}>{sharePct.toFixed(1)}%</div></td>
-                                  <td>{formatUsdc(row.platform_fee_usdc)}</td>
-                                  <td>{formatUsdc(row.creator_claimable_usdc)}<div style={{ color: "var(--t3)", fontSize: "0.66rem" }}>ledger only</div></td>
-                                </tr>
-                              );
-                            })
-                          ) : (
-                            <tr><td colSpan={5} style={{ color: "var(--t3)", textAlign: "center" }}>No creator revenue yet.</td></tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </details>
-              </div>
-            ) : (
-              <div className="empty-state" style={{ textAlign: "center", color: "var(--t3)", marginTop: 80 }}>
-                No signal selected yet or payment pending.
-              </div>
-            )}
+            <ReportWorkspace
+              activeQuery={activeQuery}
+              unlockedReport={unlockedReport}
+              reportCollapsed={reportCollapsed}
+              reportDetailsOpen={reportDetailsOpen}
+              setReportDetailsOpen={setReportDetailsOpen}
+              reportAnalogs={reportAnalogs}
+              isPreviewReport={isPreviewReport}
+              formatCompactMoney={formatCompactMoney}
+              formatDateTime={formatDateTime}
+              formatRawPercent={formatRawPercent}
+              shortAddress={shortAddress}
+              paymentDetails={paymentDetails}
+              refreshPlatformTables={refreshPlatformTables}
+              platformTablesError={platformTablesError}
+              platformSummary={platformSummary}
+              sellerAddress={sellerAddress}
+              platformPaymentsTotal={platformPaymentsTotal}
+              platformTablesLoading={platformTablesLoading}
+              platformPayments={platformPayments}
+              gatewayStatusBadge={gatewayStatusBadge}
+              renderSettlementRef={renderSettlementRef}
+              platformPaymentsPage={platformPaymentsPage}
+              platformPaymentsTotalPages={platformPaymentsTotalPages}
+              changePlatformPaymentsPage={changePlatformPaymentsPage}
+              tierLabel={tierLabel}
+              formatUsdc={formatUsdc}
+              platformPayers={platformPayers}
+              platformPayersPage={platformPayersPage}
+              platformPayersTotalPages={platformPayersTotalPages}
+              platformPayersTotal={platformPayersTotal}
+              changePlatformPayersPage={changePlatformPayersPage}
+              reportWinRateValue={reportWinRateValue}
+              reportWinRateCiLabel={reportWinRateCiLabel}
+              reportAvgProfitLabel={reportAvgProfitLabel}
+              reportAvgProfitCiLabel={reportAvgProfitCiLabel}
+              reportPercentileRows={reportPercentileRows}
+            />
           </div>
         </div>
       </div>
+        {showAgentBuyerModal && (
+        <AgentBuyerModal
+          open={showAgentBuyerModal}
+          startedAt={agentStartTime}
+          elapsed={agentElapsed}
+          decisionLatency={agentDecisionLatency}
+          agentRejectedReasons={agentRejectedReasons}
+          onClose={() => setShowAgentBuyerModal(false)}
+        >
 
-      {/* Render Modals */}
-      {showProviderEarningsModal && (
-        <div className="modal-backdrop open" style={{ display: "flex" }}>
-          <div className="wallet-profile-modal withdraw-modal" role="dialog" aria-modal="true" aria-labelledby="creator-earnings-title" style={{ display: "block", maxWidth: 720 }}>
-            <div className="modal-header">
-              <div>
-                <div className="modal-title" id="creator-earnings-title">Creator Earnings</div>
-                <div className="modal-subtitle">
-                  Provider-owner revenue, direct Gateway split balances, and claimable QMA ledger earnings.
-                </div>
-              </div>
-              <button className="icon-button" type="button" title="Close" onClick={() => setShowProviderEarningsModal(false)}>x</button>
-            </div>
+          <AgentBuyerModalContent
+            agentSessionStage={agentSessionStage}
+            stageContainerRef={stageContainerRef}
+            progressBarStyle={progressBarStyle}
+            agentTrace={agentTrace}
+            agentSelectedPick={agentSelectedPick}
+            recommendationTier={recommendationTier}
+            agentSelectReason={agentSelectReason}
+            agentRejectedReasons={agentRejectedReasons}
+            agentSessionInvoice={agentSessionInvoice}
+            formatUsdc={formatUsdc}
+            agentVerifyResult={agentVerifyResult}
+            agentRunning={agentRunning}
+            handleAgentRetry={handleAgentRetry}
+            handleAgentCancelSession={handleAgentCancelSession}
+            setShowAgentBuyerModal={setShowAgentBuyerModal}
+            firstDotRef={firstDotRef}
+            lastDotRef={lastDotRef}
+            wallet={wallet}
+            shortAddress={shortAddress}
+            agentChatLogRef={agentChatLogRef}
+            handleOpenUnlockedReport={handleOpenUnlockedReport}
+            handleAgentRun={handleAgentRun}
+            agentPrompt={agentPrompt}
+            setAgentPrompt={setAgentPrompt}
+            tierLabel={tierLabel}
+          />
+        </AgentBuyerModal>
+        )}
 
-            <div className="profile-grid withdraw-summary-grid">
-              <div className="profile-stat">
-                <span className="profile-label">Owner wallet</span>
-                <span className="profile-value" title={wallet}>{wallet ? shortAddress(wallet) : "n/a"}</span>
-              </div>
-              <div className="profile-stat">
-                <span className="profile-label">Providers</span>
-                <span className="profile-value">{selectedProviderEarningsStats.length}/{providerEarningsStats.length || ownedProviders.length}</span>
-              </div>
-              <div className="profile-stat">
-                <span className="profile-label">Claimable ledger</span>
-                <span className="profile-value">{formatUsdc(providerEarningsTotals.totalClaimable, 6)}</span>
-              </div>
-              <div className="profile-stat">
-                <span className="profile-label">Withdrawable gateway</span>
-                <span className="profile-value">{formatUsdc(providerEarningsTotals.gatewayAvailable, 6)}</span>
-              </div>
-            </div>
-
-            {providerEarningsError ? (
-              <div className="action-note" style={{ color: "var(--red)" }}>{providerEarningsError}</div>
-            ) : null}
-
-            <div className="provider-selection-bar">
-              <div>
-                <span>Provider batch</span>
-                <strong>{selectedProviderEarningsStats.length} selected</strong>
-              </div>
-              <div className="provider-selection-actions">
-                <button
-                  className="refresh-btn"
-                  type="button"
-                  onClick={selectAllProviderEarnings}
-                  disabled={!providerEarningsStats.length || allProviderEarningsSelected || creatorClaimSubmitting || providerWithdrawSubmitting}
-                >
-                  All
-                </button>
-                <button
-                  className="refresh-btn"
-                  type="button"
-                  onClick={clearProviderEarningsSelection}
-                  disabled={!selectedProviderEarningsStats.length || creatorClaimSubmitting || providerWithdrawSubmitting}
-                >
-                  Clear
-                </button>
-              </div>
-            </div>
-
-            {providerEarningsLoading && !providerEarningsStats.length ? (
-              <Loader label="Loading creator earnings..." compact size="sm" />
-            ) : (
-              <div className="creator-earnings-list">
-                {providerEarningsStats.length ? providerEarningsStats.map((item) => {
-                  const selected = selectedProviderEarningsIds.includes(item.provider_id);
-                  return (
-                    <label className={`creator-earnings-item ${selected ? "selected" : ""}`} key={item.provider_id}>
-                      <input
-                        type="checkbox"
-                        checked={selected}
-                        onChange={() => toggleProviderEarningsSelection(item.provider_id)}
-                        disabled={creatorClaimSubmitting || providerWithdrawSubmitting}
-                      />
-                      <div>
-                        <strong>{item.provider_name || item.provider_id}</strong>
-                        <span>
-                          {item.provider_id}
-                          {item.revenue_wallet ? ` / ${shortAddress(item.revenue_wallet)}` : ""}
-                        </span>
-                        <span>{item.withdrawal_mode || "ledger"}</span>
-                      </div>
-                      <div className="creator-earnings-amount">
-                        {formatUsdc(
-                          item.withdrawal_mode === "direct_gateway_split"
-                            ? item.creator_earned_usdc
-                            : item.creator_claimable_usdc,
-                          6
-                        )}
-                        {item.creator_gateway_balance ? (
-                          <span>Gateway {formatUsdc(item.creator_gateway_balance.available_usdc, 6)}</span>
-                        ) : null}
-                      </div>
-                    </label>
-                  );
-                }) : (
-                  <div className="agent-empty">No provider earnings for this wallet yet.</div>
-                )}
-              </div>
-            )}
-
-            {providerEarningsTotals.hasDirectSplit ? (
-              <div className="gateway-withdraw-panel">
-                <div className="gateway-withdraw-head">
-                  <div>
-                    <span>Gateway withdraw amount</span>
-                    <strong>{formatUsdc(providerEarningsTotals.gatewayAvailable, 6)} available</strong>
-                  </div>
-                  <button
-                    className="refresh-btn"
-                    type="button"
-                    onClick={() => setProviderWithdrawAmount(providerGatewayWithdrawMax.toFixed(6))}
-                    disabled={providerGatewayWithdrawMax <= 0 || providerWithdrawSubmitting}
-                  >
-                    Max
-                  </button>
-                </div>
-                <div className="gateway-withdraw-row">
-                  <input
-                    className="form-input gateway-withdraw-input"
-                    type="number"
-                    min="0"
-                    step="0.000001"
-                    max={providerGatewayWithdrawMax.toFixed(6)}
-                    value={providerWithdrawAmount}
-                    onChange={(event) => setProviderWithdrawAmount(event.target.value)}
-                    disabled={providerWithdrawSubmitting}
-                    placeholder="0.000000"
-                  />
-                  <span>USDC</span>
-                </div>
-                <div className="gateway-withdraw-help">
-                  {providerEarningsTotals.hasExternalGatewayBalance && providerEarningsTotals.gatewayAvailable <= 0
-                    ? `This provider has ${formatUsdc(providerEarningsTotals.externalGatewayAvailable, 6)} in a different revenue wallet. Connect that wallet to withdraw. `
-                    : ""}
-                  Max withdraw leaves about {WITHDRAW_FEE_RESERVE_USDC.toFixed(4)} USDC as Circle Gateway fee reserve.
-                  Pending batch: {formatUsdc(providerEarningsTotals.gatewayPending, 6)}.
-                </div>
-              </div>
-            ) : null}
-
-            <div className="action-note">
-              {providerEarningsTotals.hasDirectSplit
-                ? "Direct split providers settle creator earnings straight into the provider revenue wallet's Circle Gateway balance. Use Withdraw Gateway Balance to mint wallet USDC; ledger claim is only needed for legacy treasury-ledger earnings."
-                : "Provider earnings are tracked in the QMA split ledger. Claiming signs an intent, then the backend verifies and pays USDC through the configured payout executor."}
-              <br />
-              Claim executor: {creatorClaimConfig?.configured
-                ? shortAddress(creatorClaimConfig.executor || creatorClaimConfig.relayer || creatorClaimConfig.treasury)
-                : (creatorClaimConfig?.error || "not configured")}
-              <br />
-              Withdraw mode: {withdrawMode || "seller_wallet"}.
-            </div>
-
-            <div className="withdraw-actions">
-              <button className="refresh-btn" type="button" onClick={refreshProviderEarningsModal} disabled={providerEarningsLoading || creatorClaimSubmitting || providerWithdrawSubmitting}>
-                Refresh
-              </button>
-              <button className="refresh-btn" type="button" onClick={() => setShowProviderEarningsModal(false)} disabled={creatorClaimSubmitting || providerWithdrawSubmitting}>
-                Close
-              </button>
-              {providerEarningsTotals.hasDirectSplit ? (
-                <button
-                  className="submit-btn"
-                  type="button"
-                  onClick={submitProviderGatewayWithdraw}
-                  disabled={
-                    providerEarningsLoading ||
-                    providerWithdrawSubmitting ||
-                    providerGatewayWithdrawMax <= 0
-                  }
-                  title={
-                    providerEarningsTotals.hasExternalGatewayBalance && providerEarningsTotals.gatewayAvailable <= 0
-                      ? "Connect the provider revenue wallet to withdraw this Gateway balance."
-                      : providerGatewayWithdrawMax <= 0
-                        ? "Gateway available balance is not enough after the fee reserve."
-                        : "Withdraw direct split earnings from Circle Gateway to this wallet."
-                  }
-                >
-                  {providerWithdrawSubmitting
-                    ? <Loader label="Withdrawing" compact variant="spinner" size="xs" className="button-loader" />
-                    : providerGatewayWithdrawMax > 0
-                      ? `Withdraw ${providerWithdrawDisplayAmount.toFixed(6)} USDC`
-                      : "Nothing to Withdraw"}
-                </button>
-              ) : null}
-              <button
-                className="submit-btn"
-                type="button"
-                onClick={submitCreatorClaim}
-                disabled={
-                  providerEarningsLoading ||
-                  creatorClaimSubmitting ||
-                  providerWithdrawSubmitting ||
-                  !creatorClaimConfig?.configured ||
-                  providerEarningsTotals.totalClaimable <= 0
-                }
-                title={
-                  !creatorClaimConfig?.configured
-                    ? (creatorClaimConfig?.error || "Creator claim payout executor is not configured.")
-                    : providerEarningsTotals.totalClaimable <= 0
-                      ? "No ledger earnings are claimable right now."
-                      : "Claim all available creator ledger earnings."
-                }
-              >
-                {creatorClaimSubmitting
-                  ? <Loader label="Claiming" compact variant="spinner" size="xs" className="button-loader" />
-                  : providerEarningsTotals.totalClaimable > 0
-                    ? `Claim ${providerEarningsTotals.totalClaimable.toFixed(6)} USDC`
-                    : providerEarningsTotals.hasDirectSplit
-                      ? "No Claim Needed"
-                      : "Claim Not Live"}
-              </button>
-            </div>
-          </div>
+      <ProviderEarningsModal
+        open={showProviderEarningsModal}
+        onClose={() => setShowProviderEarningsModal(false)}
+      >
+        <div className="profile-grid withdraw-summary-grid">
+          <div className="profile-stat"><span className="profile-label">Owner wallet</span><span className="profile-value" title={wallet}>{wallet ? shortAddress(wallet) : "n/a"}</span></div>
+          <div className="profile-stat"><span className="profile-label">Providers</span><span className="profile-value">{selectedProviderEarningsStats.length}/{providerEarningsStats.length || ownedProviders.length}</span></div>
+          <div className="profile-stat"><span className="profile-label">Claimable ledger</span><span className="profile-value">{formatUsdc(providerEarningsTotals.totalClaimable, 6)}</span></div>
+          <div className="profile-stat"><span className="profile-label">Withdrawable gateway</span><span className="profile-value">{formatUsdc(providerEarningsTotals.gatewayAvailable, 6)}</span></div>
         </div>
-      )}
-
-      {showAgentBuyerModal && (
-        <div className="modal-backdrop open agent-buyer-backdrop" style={{ display: "flex" }}>
-          <div className="agent-buyer-modal" role="dialog" aria-modal="true" aria-labelledby="agent-buyer-title">
-
-            {/* HEADER */}
-            <div className="agent-buyer-header">
-              <div>
-                <div className="agent-buyer-eyebrow">QMA Buyer Agent</div>
-                <div className="agent-buyer-title" id="agent-buyer-title">Live report purchase session</div>
-                <div className="agent-buyer-subtitle">
-                  The agent evaluates live opportunities, selects the best report under your policy, creates a provider-bound invoice, and requests wallet authorization for x402 payment.
-                </div>
-              </div>
-              <div className="agent-header-right">
-                {agentStartTime && (
-                  <div className="agent-timing-strip">
-                    <span className="agent-timing-item">
-                      <span className="agent-timing-label">Started</span>
-                      <span className="agent-timing-val">{new Date(agentStartTime).toLocaleTimeString()}</span>
-                    </span>
-                    <span className="agent-timing-item">
-                      <span className="agent-timing-label">Elapsed</span>
-                      <span className="agent-timing-val">{agentElapsed}</span>
-                    </span>
-                    {agentDecisionLatency && (
-                      <span className="agent-timing-item">
-                        <span className="agent-timing-label">Decision</span>
-                        <span className="agent-timing-val">{agentDecisionLatency}</span>
-                      </span>
-                    )}
-                  </div>
-                )}
-                <button
-                  className="icon-button"
-                  type="button"
-                  title="Close"
-                  onClick={() => setShowAgentBuyerModal(false)}
-                >
-                  <i className="ti ti-x" />
-                </button>
-              </div>
-            </div>
-
-            {/* PIPELINE STAGES */}
-            <div className={`agent-session-stage stage-${agentSessionStage}`} ref={stageContainerRef}>
-              <div className="agent-stage-progress-bar" style={progressBarStyle}>
-                <div className="agent-stage-progress-fill" />
-              </div>
-              {([
-                ["scanning", "Scan"],
-                ["selected", "Pick"],
-                ["invoicing", "Invoice"],
-                ["awaiting_signature", "Signature"],
-                ["verifying", "Verify"],
-                ["unlocked", "Unlocked"],
-              ] as [string, string][]).map(([stage, label]) => {
-                const order = ["scanning", "selected", "invoicing", "awaiting_signature", "verifying", "unlocked"];
-                const current = order.indexOf(agentSessionStage);
-                const index = order.indexOf(stage);
-                const isDone = agentSessionStage !== "error" && (current > index || agentSessionStage === "unlocked");
-                const isActive = agentSessionStage === stage;
-                // A stage is failed if we errored out and it was the active stage
-                const isFailed = agentSessionStage === "error" && isActive;
-                return (
-                  <div
-                    className={`agent-stage-dot ${isDone ? "done" : ""} ${isActive && agentSessionStage !== "error" ? "active" : ""} ${isFailed ? "failed" : ""}`}
-                    key={stage}
-                  >
-                    <span
-                      ref={
-                        stage === "scanning"
-                          ? firstDotRef
-                          : stage === "unlocked"
-                            ? lastDotRef
-                            : undefined
-                      }
-                    >
-                      {stage === "unlocked" && agentSessionStage === "unlocked" && (
-                        <>
-                          <span className="fw-particle p1" />
-                          <span className="fw-particle p2" />
-                          <span className="fw-particle p3" />
-                          <span className="fw-particle p4" />
-                          <span className="fw-particle p5" />
-                          <span className="fw-particle p6" />
-                          <span className="fw-particle p7" />
-                          <span className="fw-particle p8" />
-                        </>
-                      )}
-                    </span>
-                    {label}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* MAIN GRID */}
-            <div className="agent-buyer-grid">
-
-              {/* LEFT: EXECUTION TRACE */}
-              <section className="agent-chat-panel">
-                <div className="agent-chat-topline">
-                  <span className={`agent-live-pill ${agentRunning ? "active" : agentSessionStage === "error" ? "error" : ""}`}>
-                    {agentRunning ? "agent running" : agentSessionStage === "error" ? "needs attention" : agentSessionStage === "unlocked" ? "session complete" : "session ready"}
-                  </span>
-                  <span className="agent-chat-wallet">{wallet ? shortAddress(wallet) : "wallet not connected"}</span>
-                </div>
-                <div className="agent-chat-log" role="log" aria-live="polite" ref={agentChatLogRef}>
-                  {agentTrace.length ? (
-                    agentTrace.map((line, idx) => (
-                      <div className={`agent-chat-message ${line.tone || ""}`} key={idx}>
-                        <span className="agent-message-speaker">{line.tone === "t-error" ? "System" : "Agent"}</span>
-                        <span>{line.text}</span>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="agent-chat-message t-dim">
-                      <span className="agent-message-speaker">Agent</span>
-                      <span>Ready to scan live opportunities.</span>
-                    </div>
-                  )}
-
-                  {agentSessionStage === "unlocked" && (
-                    <div className="agent-success-chat-card">
-                      <div className="agent-chat-message t-green" style={{ border: "none", padding: 0, margin: 0, width: "100%", maxWidth: "100%", boxShadow: "none" }}>
-                        <span className="agent-message-speaker" style={{ color: "var(--green)" }}>System</span>
-                        <span>Report unlocked successfully! Access token issued.</span>
-                      </div>
-                      <div className="agent-success-chat-actions">
-                        <button
-                          type="button"
-                          className="agent-modal-primary animate-pulse"
-                          onClick={() => {
-                            setShowAgentBuyerModal(false);
-                            handleOpenUnlockedReport();
-                          }}
-                        >
-                          <i className="ti ti-book-open" /> Open Unlocked Report
-                        </button>
-                        {agentVerifyResult?.settlement_id && (
-                          <span className="agent-chat-settlement-ref">
-                            Ref: {shortAddress(agentVerifyResult.settlement_id)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <div className="agent-input-label">Refine agent instruction</div>
-                <form onSubmit={handleAgentRun} className="agent-bar-input-wrap">
-                  <input
-                    type="text"
-                    className="agent-bar-input"
-                    value={agentPrompt}
-                    onChange={(e) => setAgentPrompt(e.target.value)}
-                    placeholder="Find the best preview under 0.010 USDC"
-                  />
-                  <button type="submit" className="submit-btn" disabled={agentRunning} title="Send">
-                    {agentRunning ? <Loader compact variant="spinner" size="xs" className="button-loader" /> : <i className="ti ti-send"></i>}
-                  </button>
-                </form>
-                <div className="agent-bar-presets">
-                  <button
-                    type="button"
-                    className="preset-btn"
-                    onClick={() => setAgentPrompt("find best funding_memory signal under 0.010 USDC")}
-                  >
-                    Best Funding
-                  </button>
-                  <button
-                    type="button"
-                    className="preset-btn"
-                    onClick={() => setAgentPrompt("find best oi_memory signal under 0.005 USDC")}
-                  >
-                    Best OI
-                  </button>
-                </div>
-              </section>
-
-              {/* RIGHT: DECISION PACKET (3 blocks) */}
-              <aside className="agent-decision-panel">
-
-                {/* BLOCK 1: DECISION */}
-                <div className="agent-dp-block">
-                  <div className="agent-dp-block-label">Decision</div>
-                  {agentSelectedPick ? (
-                    <div className="agent-pick-card">
-                      <div>
-                        <span className="agent-card-kicker">Selected signal</span>
-                        <strong>{agentSelectedPick.symbol}</strong>
-                      </div>
-                      <div className="agent-score-orb">{Number(agentSelectedPick.score || 0).toFixed(1)}</div>
-                      <div className="agent-pick-meta">
-                        <span>{recommendationTier(agentSelectedPick)} report</span>
-                        <span>{agentSelectedPick.provider_id || "funding_memory"}</span>
-                      </div>
-                      <p>{(agentSelectedPick.reasons || ["fresh live anomaly"]).join(" | ")}</p>
-                      {agentSelectReason && (
-                        <div className="agent-rationale">
-                          <span className="agent-rationale-icon">›</span>
-                          {agentSelectReason}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="agent-empty-card">Waiting for the agent to pick a report.</div>
-                  )}
-                </div>
-
-                {/* BLOCK 2: PAYMENT */}
-                <div className="agent-dp-block">
-                  <div className="agent-dp-block-label">Payment</div>
-                  {agentSessionInvoice ? (
-                    <div className="agent-invoice-card">
-                      <div className="agent-invoice-shine" />
-                      <div className="agent-invoice-head">
-                        <span>Invoice ready</span>
-                        <strong>{formatUsdc(agentSessionInvoice.amount, 6)}</strong>
-                      </div>
-                      <div className="agent-invoice-row">
-                        <span>Invoice</span>
-                        <strong>{shortAddress(agentSessionInvoice.invoice_id)}</strong>
-                      </div>
-                      <div className="agent-invoice-row">
-                        <span>Tier</span>
-                        <strong>{tierLabel(agentSessionInvoice.tier)}</strong>
-                      </div>
-                      <div className="agent-invoice-row">
-                        <span>Provider</span>
-                        <strong>{agentSessionInvoice.provider_id || "funding_memory"}</strong>
-                      </div>
-                      <div className="agent-invoice-row">
-                        <span>Buyer</span>
-                        <strong>{wallet ? shortAddress(wallet) : "n/a"}</strong>
-                      </div>
-                      {Array.isArray(agentSessionInvoice.split_legs) && agentSessionInvoice.split_legs.length ? (
-                        <div className="agent-split-note">
-                          <span className="agent-split-badge">{agentSessionInvoice.split_legs.length} split payment legs</span>
-                          <span className="agent-split-sub">Creator leg + platform leg · Both must settle before report unlock</span>
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <div className="agent-empty-card">Invoice appears here after selection.</div>
-                  )}
-
-                  {/* Funding readiness compact row */}
-                  {/* <div className="agent-funding-bar">
-                    <div className="agent-funding-row">
-                      <span className="agent-funding-label">Wallet USDC</span>
-                      <span className="agent-funding-val">{profileChainUsdc}</span>
-                    </div>
-                    <div className="agent-funding-row">
-                      <span className="agent-funding-label">Gateway balance</span>
-                      <span className="agent-funding-val">{profileGatewayUsdc}</span>
-                    </div>
-                    {agentSessionInvoice?.amount && (
-                      <div className="agent-funding-row">
-                        <span className="agent-funding-label">Required</span>
-                        <span className="agent-funding-val">{formatUsdc(agentSessionInvoice.amount, 6)}</span>
-                      </div>
-                    )}
-                    <div className="agent-funding-row">
-                      <span className="agent-funding-label">Status</span>
-                      <span className={`agent-funding-status ${agentSessionStage === "unlocked" ? "ready" :
-                          agentSessionStage === "error" ? "failed" :
-                            profileGatewayUsdc !== "n/a" && agentSessionInvoice?.amount &&
-                              parseFloat(profileGatewayUsdc) >= parseFloat(agentSessionInvoice.amount)
-                              ? "ready" : "checking"
-                        }`}>
-                        {agentSessionStage === "unlocked" ? "Settled" :
-                          agentSessionStage === "error" ? "Rejected" :
-                            profileGatewayUsdc !== "n/a" ? "Ready" : "Checking"}
-                      </span>
-                    </div>
-                  </div> */}
-                </div>
-
-                {/* BLOCK 3: SESSION STATUS */}
-                <div className="agent-dp-block">
-                  <div className="agent-dp-block-label">Session Status</div>
-                  <div className={`agent-signature-card ${agentSessionStage}`}>
-                    <span className="agent-signature-dot" />
-                    {agentSessionStage === "awaiting_signature"
-                      ? "Wallet signature requested. Confirm in your wallet."
-                      : agentSessionStage === "verifying"
-                        ? "Payment accepted. Verifying report access."
-                        : agentSessionStage === "unlocked"
-                          ? "Report unlocked and analytics refreshed."
-                          : agentSessionStage === "error"
-                            ? "Signature was rejected. No funds were spent and no report was unlocked."
-                            : "Signature step will start after invoice creation."}
-                  </div>
-
-                  <div className="agent-modal-actions">
-                    {agentSessionStage === "unlocked" ? (
-                      <button
-                        type="button"
-                        className="agent-modal-secondary"
-                        onClick={() => setShowAgentBuyerModal(false)}
-                        style={{ width: "100%" }}
-                      >
-                        Close Window
-                      </button>
-                    ) : agentSessionStage === "error" ? (
-                      <>
-                        <button
-                          type="button"
-                          className="agent-modal-retry"
-                          disabled={!agentSessionInvoice || agentRunning}
-                          onClick={handleAgentRetry}
-                          title="Resume with existing invoice — no funds charged yet"
-                        >
-                          <i className="ti ti-refresh" /> Retry Signature
-                        </button>
-                        <button
-                          type="button"
-                          className="agent-modal-cancel"
-                          onClick={handleAgentCancelSession}
-                          title="Void invoice and clear session"
-                        >
-                          <i className="ti ti-x" /> Cancel Session
-                        </button>
-                      </>
-                    ) : (
-                      <button type="button" className="agent-modal-secondary" onClick={() => setShowAgentBuyerModal(false)}>
-                        Keep Running in Background
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-              </aside>
-            </div>
+        {providerEarningsError ? <div className="action-note" style={{ color: "var(--red)" }}>{providerEarningsError}</div> : null}
+        {providerEarningsLoading && !providerEarningsStats.length ? <Loader label="Loading creator earnings..." compact size="sm" /> : (
+          <div className="creator-earnings-list">
+            {providerEarningsStats.length ? providerEarningsStats.map((item) => {
+              const selected = selectedProviderEarningsIds.includes(item.provider_id);
+              return <label className={`creator-earnings-item ${selected ? "selected" : ""}`} key={item.provider_id}>
+                <input type="checkbox" checked={selected} onChange={() => toggleProviderEarningsSelection(item.provider_id)} disabled={creatorClaimSubmitting || providerWithdrawSubmitting} />
+                <div><strong>{item.provider_name || item.provider_id}</strong><span>{item.provider_id}{item.revenue_wallet ? ` / ${shortAddress(item.revenue_wallet)}` : ""}</span></div>
+                <div className="creator-earnings-amount">{formatUsdc(item.withdrawal_mode === "direct_gateway_split" ? item.creator_earned_usdc : item.creator_claimable_usdc, 6)}</div>
+              </label>;
+            }) : <div className="agent-empty">No provider earnings for this wallet yet.</div>}
           </div>
+        )}
+        <div className="withdraw-actions">
+          <button className="refresh-btn" type="button" onClick={refreshProviderEarningsModal} disabled={providerEarningsLoading || creatorClaimSubmitting || providerWithdrawSubmitting}>Refresh</button>
+          {providerEarningsTotals.hasDirectSplit ? <button className="submit-btn" type="button" onClick={submitProviderGatewayWithdraw} disabled={providerWithdrawSubmitting || providerGatewayWithdrawMax <= 0}>{providerWithdrawSubmitting ? "Withdrawing..." : `Withdraw ${providerWithdrawDisplayAmount.toFixed(6)} USDC`}</button> : null}
+          <button className="submit-btn" type="button" onClick={submitCreatorClaim} disabled={providerEarningsLoading || creatorClaimSubmitting || providerWithdrawSubmitting || !creatorClaimConfig?.configured || providerEarningsTotals.totalClaimable <= 0}>{creatorClaimSubmitting ? "Claiming..." : `Claim ${providerEarningsTotals.totalClaimable.toFixed(6)} USDC`}</button>
         </div>
-      )}
+      </ProviderEarningsModal>
 
-      {showProfileModal && (
-        <div className="modal-backdrop open" style={{ display: "flex" }}>
-          <div className="wallet-profile-modal quick-profile-modal" role="dialog" aria-modal="true" aria-labelledby="wallet-profile-title" style={{ display: "block" }}>
-            <div className="modal-header">
-              <div>
-                <div className="modal-title" id="wallet-profile-title">Wallet Profile</div>
-                <div className="modal-subtitle" id="wallet-profile-address">{wallet}</div>
-              </div>
-              <button className="icon-button" type="button" title="Close" onClick={() => setShowProfileModal(false)}>✕</button>
-            </div>
-            <div className="profile-grid">
-              <div className="profile-tile">
-                <span className="profile-label">Wallet On-chain USDC</span>
-                <span className="profile-value">
-                  {profileChainUsdc === "loading..." ? <Loader compact variant="spinner" size="xs" className="inline" /> : profileChainUsdc}
-                </span>
-              </div>
-              <div className="profile-tile">
-                <span className="profile-label">Buyer Gateway Balance</span>
-                <span className="profile-value">
-                  {profileGatewayUsdc === "loading..." ? <Loader compact variant="spinner" size="xs" className="inline" /> : profileGatewayUsdc}
-                </span>
-              </div>
-              <div className="profile-tile">
-                <span className="profile-label">Reports Bought</span>
-                <span className="profile-value">{profileReportsCount}</span>
-              </div>
-              <div className="profile-tile">
-                <span className="profile-label">Total Spent</span>
-                <span className="profile-value">
-                  {profileTotalSpent === "loading..." ? <Loader compact variant="spinner" size="xs" className="inline" /> : profileTotalSpent}
-                </span>
-              </div>
-            </div>
-            <div className="subsection-title">Purchased Signals</div>
-            <div className="token-list">
-              {profilePurchasedSymbols.length === 0 ? (
-                <span className="token-chip">None yet</span>
-              ) : (
-                profilePurchasedSymbols.map((sym, idx) => (
-                  <span className="token-chip" key={idx}>{sym}</span>
-                ))
-              )}
-            </div>
-            <div className="subsection-title">Verified Web Payments</div>
-            <div className="quick-profile-table-wrap">
-              <table className="activity-table">
-                <thead>
-                  <tr>
-                    <th>Signal</th>
-                    <th>Amount</th>
-                    <th>Status</th>
-                    <th>Settlement / Tx</th>
-                    <th>Report</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {profilePaymentsLoading ? (
-                    <tr>
-                      <td colSpan={5}><Loader label="Loading payments..." compact size="sm" className="table-loader" /></td>
-                    </tr>
-                  ) : profilePaymentsError ? (
-                    <tr>
-                      <td colSpan={5} style={{ color: "var(--orange)", textAlign: "center" }}>{profilePaymentsError}</td>
-                    </tr>
-                  ) : profileVerifiedPayments.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} style={{ color: "var(--t3)", textAlign: "center" }}>No verified payments.</td>
-                    </tr>
-                  ) : (
-                    profileVerifiedPayments.map((payment: any, idx) => {
-                      const status = payment.gateway_status || payment.status || "completed";
-                      const amount = payment.amount_usdc ?? payment.amount ?? payment.price_usdc;
-                      const txHash = payment.transaction_hash || payment.tx_hash || payment.settlement_tx_hash;
-                      const settlementLabel = txHash || payment.settlement_id || payment.invoice_id;
-                      return (
-                        <tr key={payment.entitlement_id || payment.settlement_id || payment.invoice_id || idx}>
-                          <td>{payment.symbol || payment.query_symbol || "n/a"}</td>
-                          <td className="mono-td">{amount != null ? `${Number(amount).toFixed(3)} USDC` : "-"}</td>
-                          <td>
-                            <span className={`pnl-badge ${status === "completed" || status === "received" ? "win" : "loss"}`}>
-                              {status}
-                            </span>
-                          </td>
-                          <td className="mono-td settlement-cell">
-                            {txHash ? (
-                              <a className="tx-link" href={payment.explorer_url || `https://testnet.arcscan.app/tx/${txHash}`} target="_blank" rel="noopener noreferrer">
-                                {shortAddress(txHash)}
-                              </a>
-                            ) : settlementLabel ? (
-                              <span className="settlement-ref">{shortAddress(settlementLabel)}</span>
-                            ) : "n/a"}
-                          </td>
-                          <td>
-                            {payment.has_report || status === "completed" || status === "received" ? (
-                              <button type="button" className="refresh-btn" onClick={() => {
-                                setShowProfileModal(false);
-                                setSelectedProviderId(payment.provider_id || "funding_memory");
-                                setActiveQuery(payment.query || { symbol: payment.symbol || payment.query_symbol });
-                                setUnlockedReport(payment.report || payment);
-                                setReportCollapsed(false);
-                                setPaywallOpen(false);
-                              }}>
-                                Open
-                              </button>
-                            ) : "n/a"}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-            <div className="table-pager profile-pager">
-              <button type="button" className="refresh-btn" disabled={profileVerifiedPaymentsPage <= 1} onClick={() => setProfileVerifiedPaymentsPage(p => Math.max(1, p - 1))}>
-                Prev
-              </button>
-              <span style={{ margin: "0 10px", fontSize: "0.8rem" }}>Page {profileVerifiedPaymentsPage} / {profileVerifiedPaymentsTotalPages}</span>
-              <button type="button" className="refresh-btn" disabled={profileVerifiedPaymentsPage >= profileVerifiedPaymentsTotalPages} onClick={() => setProfileVerifiedPaymentsPage(p => Math.min(profileVerifiedPaymentsTotalPages, p + 1))}>
-                Next
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ProfileModal
+        open={showProfileModal}
+        wallet={wallet}
+        onClose={() => setShowProfileModal(false)}
+        profileChainUsdc={profileChainUsdc}
+        profileGatewayUsdc={profileGatewayUsdc}
+        profileReportsCount={profileReportsCount}
+        profileTotalSpent={profileTotalSpent}
+        profilePurchasedSymbols={profilePurchasedSymbols}
+        profilePaymentsLoading={profilePaymentsLoading}
+        profilePaymentsError={profilePaymentsError}
+        profileVerifiedPayments={profileVerifiedPayments}
+        profileVerifiedPaymentsPage={profileVerifiedPaymentsPage}
+        profileVerifiedPaymentsTotalPages={profileVerifiedPaymentsTotalPages}
+        onPreviousPage={() => setProfileVerifiedPaymentsPage((page) => Math.max(1, page - 1))}
+        onNextPage={() => setProfileVerifiedPaymentsPage((page) => Math.min(profileVerifiedPaymentsTotalPages, page + 1))}
+        onOpenReport={(payment) => {
+          setShowProfileModal(false);
+          setSelectedProviderId(payment.provider_id || "funding_memory");
+          setActiveQuery(payment.query || { symbol: payment.symbol || payment.query_symbol });
+          setUnlockedReport(payment.report || payment);
+          setReportCollapsed(false);
+          setPaywallOpen(false);
+        }}
+      />
 
-      {showFundArcModal && (
-        <div className="modal-backdrop open" style={{ display: "flex" }}>
-          <div className="wallet-profile-modal funding-modal" role="dialog" aria-modal="true" aria-labelledby="fund-arc-title" style={{ display: "block" }}>
-            <div className="funding-modal-header">
-              <div>
-                <div className="modal-title" id="fund-arc-title">Fund Arc Wallet</div>
-                <div className="modal-subtitle">
-                  {fundReadinessTone === "ready" ? "Gateway balance covers this report." : "Top up your Gateway balance to unlock this report."}
-                </div>
-              </div>
-              <button className="funding-close-btn" type="button" title="Close" aria-label="Close" onClick={() => setShowFundArcModal(false)}>✕</button>
-            </div>
-            <div className="funding-body funding-modal-body">
-              <section className="funding-section">
-                <div className="funding-balance-head">
-                  <span className="funding-item-label">Gateway balance</span>
-                  <span className={`funding-status-pill ${fundReadinessTone}`}>
-                    {fundReadinessTone === "ready" ? "✓ " : ""}{fundReadinessTone === "ready" ? "Ready" : fundReadinessStatus}
-                  </span>
-                </div>
-                <div className="funding-balance-values">
-                  <strong>{fundGatewayBalance}</strong>
-                  <span>needs {fundRequiredAmount}</span>
-                </div>
-                <div className={`funding-progress ${fundReadinessTone}`}>
-                  <span style={{ width: fundGatewayBalance !== "n/a" && fundRequiredAmount !== "n/a" ? `${Math.min((Number.parseFloat(fundGatewayBalance) / Number.parseFloat(fundRequiredAmount)) * 100, 100)}%` : "0%" }} />
-                </div>
-              </section>
-              <div className="funding-wallet-identity">
-                <span className="funding-wallet-icon">◈</span>
-                <div>
-                  <strong title={wallet}>{fundWalletStatus}</strong>
-                  <span>{fundProviderStatus} · {fundChainStatus}</span>
-                </div>
-                <strong className="funding-wallet-usdc">{fundWalletUsdc}</strong>
-              </div>
-              <section className="funding-section">
-                {fundReadinessTone === "ready" || fundPrimaryAction.action === "close" ? (
-                  <div className="funding-ready-actions">
-                    <button type="button" className="funding-continue-btn" onClick={() => setShowFundArcModal(false)}>
-                      Continue to payment
-                    </button>
-                    <button type="button" className="funding-details-toggle" onClick={() => setFundShowAdvanced((value) => !value)}>
-                      Network details <span className={fundShowAdvanced ? "expanded" : ""}>⌄</span>
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <div className="funding-section-title">Funding options</div>
-                    <div className="funding-route-grid">
-                      <a className="funding-route-card" href="https://faucet.circle.com/" target="_blank" rel="noopener noreferrer">
-                        <span className="funding-option-icon">↯</span><span><strong>Circle Faucet</strong><small>Free Arc Testnet USDC for demos and testing.</small></span>
-                      </a>
-                      <a className="funding-route-card" href="https://developers.circle.com/" target="_blank" rel="noopener noreferrer">
-                        <span className="funding-option-icon">⇄</span><span><strong>Bridge via CCTP</strong><small>Move USDC from another chain into Arc.</small></span>
-                      </a>
-                      <div className="funding-route-card funding-route-card-highlight">
-                        <span className="funding-option-icon">＋</span><span><strong>Deposit to Gateway</strong><small>Move Arc USDC into your Gateway balance.</small></span>
-                      </div>
-                    </div>
-                    <div className="funding-next-step"><span className="funding-item-label">Next step</span><strong className="funding-item-value">{fundNextStep}</strong><div className="funding-primary-action">
-                      {fundPrimaryAction.action === "connect" && (
-                        <button type="button" className="funding-action-btn" onClick={connect}>
-                          Connect wallet first
-                        </button>
-                      )}
-                      {fundPrimaryAction.action === "switch" && (
-                        <button type="button" className="funding-action-btn" onClick={async () => {
-                          const provider = getInjectedWallet();
-                          if (provider) {
-                            await provider.request({
-                              method: "wallet_switchEthereumChain",
-                              params: [{ chainId: "0x4cef52" }],
-                            });
-                            refreshFundingReadiness();
-                          }
-                        }}>
-                          Switch Network
-                        </button>
-                      )}
-                      {fundPrimaryAction.action === "refresh" && (
-                        <button type="button" className="funding-action-btn" onClick={refreshFundingReadiness}>
-                          Retry check
-                        </button>
-                      )}
-                      {fundPrimaryAction.action === "faucet" && (
-                        <a className="funding-action-btn" href="https://faucet.circle.com/" target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", textAlign: "center", display: "inline-block" }}>
-                          Open Circle Faucet
-                        </a>
-                      )}
-                      {fundPrimaryAction.action === "close" && (
-                        <button type="button" className="funding-action-btn" onClick={() => setShowFundArcModal(false)}>
-                          Close
-                        </button>
-                      )}
-                    </div></div>
-                  </>
-                )}
-                {(fundShowAdvanced || (fundReadinessTone !== "ready" && fundPrimaryAction.action !== "close")) && <div className="funding-network-details">
-                  <span className="funding-network-title">Arc Testnet network details</span>
-                  <div className="funding-network-row">
-                    <strong className="funding-network-label">Chain ID</strong>
-                    <code>5042002 / 0x4cef52</code>
-                  </div>
-                  <div className="funding-network-row">
-                    <strong className="funding-network-label">RPC URL</strong>
-                    <code>https://rpc.testnet.arc.network</code>
-                  </div>
-                  <div className="funding-network-row">
-                    <strong className="funding-network-label">Currency</strong>
-                    <code>USDC</code>
-                  </div>
-                  <div className="funding-network-row">
-                    <strong className="funding-network-label">Explorer</strong>
-                    <code>https://testnet.arcscan.app</code>
-                  </div>
-                </div>}
-              </section>
-            </div>
-          </div>
-        </div>
-      )}
+      <FundArcWalletModal open={showFundArcModal} onClose={() => setShowFundArcModal(false)}>
+        <FundArcWalletModalContent
+          fundReadinessTone={fundReadinessTone}
+          fundReadinessStatus={fundReadinessStatus}
+          fundGatewayBalance={fundGatewayBalance}
+          fundRequiredAmount={fundRequiredAmount}
+          wallet={wallet}
+          fundWalletStatus={fundWalletStatus}
+          fundProviderStatus={fundProviderStatus}
+          fundChainStatus={fundChainStatus}
+          fundWalletUsdc={fundWalletUsdc}
+          fundPrimaryAction={fundPrimaryAction}
+          fundNextStep={fundNextStep}
+          fundShowAdvanced={fundShowAdvanced}
+          setFundShowAdvanced={setFundShowAdvanced}
+          setShowFundArcModal={setShowFundArcModal}
+          connect={connect}
+          refreshFundingReadiness={refreshFundingReadiness}
+        />
+      </FundArcWalletModal>
     </div >
   );
 }

@@ -1,6 +1,17 @@
 export type Tier = "preview" | "full";
 export type BuyerType = "human" | "agent";
 export type PaymentStatus = "pending" | "partial_paid" | "paid" | "expired" | "disputed";
+export type PaymentStepState = "waiting" | "active" | "completed" | "failed";
+export type PaymentStepKey = "wallet" | "gateway" | "settlement" | "report";
+export type AgentSessionStage =
+  | "idle"
+  | "scanning"
+  | "selected"
+  | "invoicing"
+  | "awaiting_signature"
+  | "verifying"
+  | "unlocked"
+  | "error";
 export type AccessStatus =
   | "pending"
   | "partial_paid"
@@ -9,6 +20,57 @@ export type AccessStatus =
   | "disputed"
   | "settlement_confirmed"
   | "access_issued_pending_batch";
+
+export interface Provider {
+  provider_id: string;
+  provider_name: string;
+  description: string;
+  owner_wallet: string;
+  revenue_wallet?: string;
+  revenue_share_bps?: number;
+  pricing?: {
+    preview?: { amount_usdc: number };
+    full?: { amount_usdc: number };
+  };
+  ui_schema?: {
+    display_mode?: string;
+    fields?: {
+      key: string;
+      label: string;
+      type: string;
+      step?: string;
+      required?: boolean;
+      default?: any;
+    }[];
+  };
+  category?: string;
+}
+
+export interface Anomaly {
+  symbol: string;
+  fundingRate: number;
+  marketCap: number;
+  circRatio: number;
+  volume24h: number;
+  fromATH: number;
+  amount?: number;
+  openInterest?: number;
+  openInterestChange24h?: number;
+  longShortRatio?: number;
+  price?: number;
+}
+
+export interface Recommendation {
+  symbol: string;
+  score: number;
+  tier?: string;
+  suggested_tier?: string;
+  suggested_price_usdc?: number;
+  provider_id: string;
+  reason?: string;
+  reasons?: string[];
+  query?: Record<string, any>;
+}
 
 export interface QmaQuery {
   symbol: string;
@@ -57,6 +119,10 @@ export interface SplitLeg {
   status?: "pending" | "paid" | string;
   settlement_id?: string;
   sidecar_receipt?: string;
+  payer_address?: string;
+  gateway_status?: string;
+  transaction_hash?: string;
+  explorer_url?: string;
   expires_at?: number;
 }
 
@@ -101,6 +167,8 @@ export interface SplitSettlementProof {
   pay_to: string;
   amount_raw: string;
   sidecar_receipt: string;
+  payer_address?: string;
+  gateway_status?: string;
 }
 
 export interface PaymentVerifyRequest {

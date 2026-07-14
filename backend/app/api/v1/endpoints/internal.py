@@ -69,6 +69,11 @@ def create_internal_router(deps: SimpleNamespace) -> APIRouter:
                 if not leg:
                     raise HTTPException(status_code=404, detail="Split leg not found.")
                 if leg.get("status") == "paid" and leg.get("settlement_id"):
+                    same_settlement = str(payload.get("settlement_id") or "") == str(leg.get("settlement_id"))
+                    same_amount = deps.raw_usdc_str(payload.get("amount_raw") or payload.get("settled_amount_raw") or "0") == deps.raw_usdc_str(leg.get("amount_raw"))
+                    same_recipient = deps.normalize_address(payload.get("pay_to")) == deps.normalize_address(leg.get("pay_to"))
+                    if same_settlement and same_amount and same_recipient:
+                        return {"status": "already_recorded", "invoice_id": invoice_id, "leg_id": leg_id, "invoice_status": invoice.get("status"), "leg": leg}
                     raise HTTPException(status_code=409, detail="Split leg is already settled.")
                 processing_until = float(leg.get("processing_until") or 0)
                 if leg.get("status") == "processing" and processing_until > time.time():
@@ -130,14 +135,27 @@ def create_internal_router(deps: SimpleNamespace) -> APIRouter:
                 if deps.settlement_id_already_claimed(settlement_id, exclude_invoice_id=invoice_id):
                     raise HTTPException(status_code=409, detail="settlement_id is already claimed by another invoice/leg.")
                 receipt = str(payload.get("sidecar_receipt") or "")
-                if not deps.verify_split_receipt(
+                has_authoritative_gateway_claims = bool(payload.get("payer_address") and payload.get("gateway_status"))
+                receipt_valid = deps.verify_split_receipt(
                     invoice_id=invoice_id,
                     leg_id=leg_id,
                     pay_to=leg.get("pay_to"),
                     settled_amount_raw=settled_amount_raw,
                     settlement_id=settlement_id,
                     receipt=receipt,
-                ):
+                    payer_address=payload.get("payer_address"),
+                    gateway_status=payload.get("gateway_status"),
+                ) if has_authoritative_gateway_claims else False
+                if not receipt_valid:
+                    receipt_valid = deps.verify_split_receipt(
+                        invoice_id=invoice_id,
+                        leg_id=leg_id,
+                        pay_to=leg.get("pay_to"),
+                        settled_amount_raw=settled_amount_raw,
+                        settlement_id=settlement_id,
+                        receipt=receipt,
+                    )
+                if not receipt_valid:
                     raise HTTPException(status_code=400, detail="Invalid split leg sidecar receipt.")
                 leg.update({
                     "status": "paid",

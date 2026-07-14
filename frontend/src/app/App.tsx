@@ -4,6 +4,7 @@ import { AppPage } from "../components/reports/AppPage";
 import { MarketplaceReview } from "../components/marketplace/MarketplaceReview";
 import { ProfileOrdersPage } from "../components/profile/ProfileOrdersPage";
 import { routeFromPath, type QmaRoute } from "./routes";
+import { WalletProvider } from "../state/walletStore";
 
 export function App() {
   const initialRoute = useMemo(() => routeFromPath(window.location.pathname), []);
@@ -44,11 +45,11 @@ export function App() {
   }, [route]);
 
   return (
-    <>
+    <WalletProvider>
       {route === "landing" && <LandingPage onNavigate={navigate} />}
       {route === "app" && <AppPage onNavigate={navigate} />}
       {route === "marketplace" && <MarketplaceReview onNavigate={navigate} />}
       {route === "profile" && <ProfileOrdersPage />}
-    </>
+    </WalletProvider>
   );
 }
