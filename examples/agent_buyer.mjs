@@ -11,6 +11,7 @@
  *   AGENT_PRIVATE_KEY=0x... node examples/agent_buyer.mjs --live --tier preview
  */
 import crypto from "node:crypto";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { createPublicClient, createWalletClient, http } from "viem";
@@ -60,6 +61,18 @@ function argValue(name, fallback = null) {
 
 function hasFlag(name) {
   return process.argv.includes(`--${name}`);
+}
+
+function runChildProcess(args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, args, { stdio: "inherit", env: process.env });
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (signal) reject(new Error(`Child agent stopped by ${signal}.`));
+      else if (code === 0) resolve();
+      else reject(new Error(`Payment executor exited with code ${code}.`));
+    });
+  });
 }
 
 function apiUrl(path) {
@@ -543,13 +556,13 @@ async function fetchReport(invoice, verifyData, pick) {
 }
 
 const CONFIG = {
-  apiUrl: String(process.env.QMA_API_URL || argValue("api", DEFAULT_API)).replace(/\/$/, ""),
+  apiUrl: String(argValue("api") || process.env.QMA_API_URL || DEFAULT_API).replace(/\/$/, ""),
   privateKey: process.env.AGENT_PRIVATE_KEY || process.env.QMA_AGENT_PRIVATE_KEY || argValue("private-key"),
-  budgetUsdc: Number(process.env.AGENT_BUDGET_USDC || argValue("budget", "0.01")),
-  maxPriceUsdc: Number(process.env.AGENT_MAX_PRICE_USDC || argValue("max-price", "0.005")),
-  depositUsdc: Number(process.env.AGENT_GATEWAY_DEPOSIT_USDC || argValue("deposit", "1")),
-  approveUsdc: Number(process.env.AGENT_GATEWAY_APPROVE_USDC || argValue("approve", "10")),
-  rpcUrl: process.env.ARC_TESTNET_RPC || argValue("rpc", "https://rpc.testnet.arc.network"),
+  budgetUsdc: Number(argValue("budget") || process.env.AGENT_BUDGET_USDC || "0.01"),
+  maxPriceUsdc: Number(argValue("max-price") || process.env.AGENT_MAX_PRICE_USDC || "0.005"),
+  depositUsdc: Number(argValue("deposit") || process.env.AGENT_GATEWAY_DEPOSIT_USDC || "1"),
+  approveUsdc: Number(argValue("approve") || process.env.AGENT_GATEWAY_APPROVE_USDC || "10"),
+  rpcUrl: argValue("rpc") || process.env.ARC_TESTNET_RPC || "https://rpc.testnet.arc.network",
   policyWallet: process.env.AGENT_WALLET_ADDRESS || process.env.QMA_AGENT_WALLET_ADDRESS || argValue("wallet") || argValue("buyer-wallet"),
   providerId: process.env.PROVIDER_ID || argValue("provider"),
   tier: argValue("tier") ? normalizeTier(argValue("tier")) : null,
@@ -635,7 +648,174 @@ async function main() {
   }, null, 2));
 }
 
-main().catch((err) => {
+async function requestBackendDecision(prompt, wallet) {
+  const response = await fetch(`${CONFIG.apiUrl}/api/v1/agent/decision`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      prompt,
+      wallet,
+      budget_usdc: CONFIG.budgetUsdc,
+      max_price_usdc: CONFIG.maxPriceUsdc,
+      limit: CONFIG.limit,
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(`Agent decision API returned HTTP ${response.status}: ${data.detail || "unknown error"}`);
+  return data;
+}
+
+function cliUsdc(value) {
+  return Number(value || 0).toFixed(6);
+}
+
+function printAgentDecision(result, prompt) {
+  const plan = result.plan;
+  const resolved = result.resolved_candidate;
+  if (hasFlag("json")) {
+    console.log(JSON.stringify(result));
+    return;
+  }
+  if (hasFlag("quiet")) {
+    console.log(resolved
+      ? `Selected ${resolved.symbol} at ${cliUsdc(resolved.price_usdc)} USDC\nDry run complete`
+      : `No candidate selected\nDry run complete`);
+    return;
+  }
+
+  console.log("\nQMA LLM plan validated");
+  console.log(`Goal: ${prompt}`);
+  console.log(`Candidates evaluated: ${result.candidate_count}`);
+  if (resolved) {
+    console.log(`\nSelected: ${resolved.symbol}`);
+    console.log(`Provider: ${resolved.provider_id}`);
+    console.log(`Tier: ${resolved.tier}`);
+    console.log(`Score: ${Number(resolved.score).toFixed(1)}`);
+    console.log(`Validated price: ${cliUsdc(resolved.price_usdc)} USDC`);
+    console.log(`Max price: ${cliUsdc(plan.max_price_usdc)} USDC`);
+    console.log(`Budget remaining: ${cliUsdc(Number(plan.budget_usdc) - Number(resolved.price_usdc))} USDC`);
+    console.log(`\nReason:\n${plan.reason}`);
+  } else {
+    console.log(`\nAction: ${plan.action}`);
+    console.log(`Reason:\n${plan.reason}`);
+  }
+  if (result.rejected_candidates?.length) {
+    console.log("\nRejected:");
+    result.rejected_candidates.slice(0, 3).forEach((item) => {
+      console.log(`- ${item.candidate_id}: ${item.reason_code}`);
+    });
+  }
+  if (hasFlag("verbose")) {
+    console.log("\nPolicy checks:");
+    Object.entries(result.policy_check || {}).forEach(([key, value]) => console.log(`- ${key}: ${value}`));
+    console.log("\nCandidates:");
+    (result.evaluated_candidates || []).forEach((item, index) => {
+      console.log(`${index + 1}. ${item.symbol} | ${item.provider_id} | ${item.tier} | score=${Number(item.score).toFixed(1)} | price=${cliUsdc(item.price_usdc)} | ${item.status}`);
+    });
+    if (result.canonical_query) {
+      console.log("\nCanonical query:");
+      console.log(JSON.stringify(result.canonical_query, null, 2));
+    }
+  }
+  console.log(`\nMode: ${CONFIG.live ? "Live executor" : "Dry run"}`);
+  console.log(CONFIG.live ? "Payment executor will use the canonical resolved candidate." : "No invoice created. No USDC spent.");
+}
+
+async function runLlmMode() {
+  const prompt = argValue("prompt", process.env.AGENT_PROMPT || "Find the best affordable report opportunity.");
+  const planningWallet = CONFIG.privateKey
+    ? privateKeyToAccount(CONFIG.privateKey).address
+    : CONFIG.policyWallet || undefined;
+  let result;
+
+  if (!hasFlag("local-llm")) {
+    const serverDecision = await requestBackendDecision(prompt, planningWallet);
+    result = serverDecision;
+  } else {
+    const { QmaClient, OpenAiDecisionGenerator, executeDryRun, planWithLlm } = await import("../agents/dist/index.js");
+    const context = await new QmaClient(CONFIG.apiUrl).loadDecisionContext({
+      prompt,
+      budgetUsdc: CONFIG.budgetUsdc,
+      maxPriceUsdc: CONFIG.maxPriceUsdc,
+      wallet: planningWallet,
+      limit: CONFIG.limit,
+    });
+    const localPlan = await planWithLlm(new OpenAiDecisionGenerator(), context);
+    const dryRun = executeDryRun(localPlan, context);
+    const publicPlan = {
+      action: localPlan.action,
+      candidate_id: localPlan.candidateId,
+      requested_tier: localPlan.requestedTier,
+      budget_usdc: localPlan.budgetUsdc,
+      max_price_usdc: localPlan.maxPriceUsdc,
+      reason: localPlan.reason,
+      rejected_candidate_ids: localPlan.rejectedCandidateIds,
+    };
+    result = {
+      plan: publicPlan,
+      validation: dryRun.validation,
+      resolved_candidate: dryRun.validation.candidate ? {
+        candidate_id: dryRun.validation.candidate.candidateId,
+        provider_id: dryRun.validation.candidate.providerId,
+        symbol: dryRun.validation.candidate.symbol,
+        tier: localPlan.requestedTier === "auto" ? dryRun.validation.candidate.suggestedTier : localPlan.requestedTier,
+        score: dryRun.validation.candidate.score,
+        price_usdc: dryRun.validation.priceUsdc || 0,
+        value_density: dryRun.validation.priceUsdc ? dryRun.validation.candidate.score / dryRun.validation.priceUsdc : 0,
+      } : null,
+      policy_check: {},
+      rejected_candidates: localPlan.rejectedCandidateIds.map((candidateId) => ({ candidate_id: candidateId, reason_code: "POLICY_REJECTED", reason: "Model-suggested rejection; canonical reason unavailable in local mode." })),
+      evaluated_candidates: [],
+      candidate_count: context.candidates.length,
+      decision_source: "llm",
+    };
+  }
+
+  if (!result.validation.valid) {
+    if (hasFlag("json")) {
+      console.log(JSON.stringify(result));
+    } else {
+      console.error("\nLLM plan rejected");
+      result.validation.errors.forEach((error) => console.error(`- ${error}`));
+      console.error("No invoice created. No USDC spent.");
+    }
+    return;
+  }
+  if (hasFlag("json") && CONFIG.live) {
+    throw new Error("--json is supported for dry-run output only; omit --json for live execution.");
+  }
+  printAgentDecision(result, prompt);
+  const plan = result.plan;
+  const resolved = result.resolved_candidate;
+  if (plan.action !== "purchase" || !resolved) {
+    return;
+  }
+  if (!CONFIG.live) {
+    console.log("LLM dry-run complete. No invoice was created and no USDC was spent.");
+    return;
+  }
+
+  // Transitional bridge: the validated LLM decision constrains the existing
+  // QMA split-payment executor, which refreshes recommendations before paying.
+  // Circle Agent Wallet signing is not silently substituted here.
+  const childArgs = [
+    process.argv[1],
+    "--no-llm",
+    "--live",
+    "--symbol", resolved.symbol,
+    "--provider", resolved.provider_id,
+    "--tier", resolved.tier,
+    "--budget", String(plan.budget_usdc),
+    "--max-price", String(plan.max_price_usdc),
+    "--api", CONFIG.apiUrl,
+  ];
+  if (hasFlag("auto-deposit")) childArgs.push("--auto-deposit");
+  else childArgs.push("--no-auto-deposit");
+  await runChildProcess(childArgs);
+}
+
+const entrypoint = hasFlag("llm") && !hasFlag("no-llm") ? runLlmMode : main;
+entrypoint().catch((err) => {
   console.error(`\nAgent failed: ${err.message}`);
   process.exitCode = 1;
 });

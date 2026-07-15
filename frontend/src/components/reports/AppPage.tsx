@@ -307,6 +307,7 @@ export function AppPage({
     setSelectedProviderId,
     currentInvoice,
     setCurrentInvoice,
+    clearUnlockedReport: () => setUnlockedReport(null),
     setReportCollapsed,
     fetchReportContent,
     recommendationTier,

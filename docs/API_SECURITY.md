@@ -136,7 +136,8 @@ Set `QMA_ADMIN_TOKEN` in production. If the env value is empty, local demo revie
 
 ## Marketplace payment flow
 
-1. User selects a provider on `/marketplace` or in the app query bar.
+1. User or agent selects a provider on `/marketplace`, `/app`, or through the
+   agent decision endpoint.
 2. Frontend creates an invoice with:
 
 ```json
@@ -148,8 +149,10 @@ Set `QMA_ADMIN_TOKEN` in production. If the env value is empty, local demo revie
 }
 ```
 
-3. User pays through Circle Gateway/x402 on Arc Testnet.
-4. Backend verifies settlement and returns a short-lived access token.
+3. Buyer pays the required creator and platform x402 split legs through Circle
+   Gateway on Arc Testnet.
+4. Backend verifies every required leg against the invoice and returns a
+   short-lived access token only for an accepted/final payment state.
 5. Frontend calls:
 
 ```http
@@ -166,7 +169,7 @@ Authorization: Bearer <access_token>
 
 6. Backend records a wallet/provider/tier/query entitlement in Supabase/JSON.
 
-## Revenue split
+## Revenue split and creator access
 
 Current implementation records revenue split in stats:
 
@@ -175,7 +178,15 @@ creator_earned_usdc = revenue_usdc * provider.revenue_share_bps / 10000
 platform_fee_usdc   = revenue_usdc - creator_earned_usdc
 ```
 
-For hackathon speed, funds still settle to the platform seller treasury. Provider withdraw/vault automation is a V2 upgrade.
+The default `x402_direct_split` mode binds the creator leg to the provider
+revenue wallet and the platform leg to the platform treasury. Those are
+independent Gateway balances. Legacy `treasury_ledger` providers may still
+account creator revenue in the QMA ledger and use the creator claim endpoint.
+
+A direct-split creator withdrawal is wallet-level: the signed Gateway
+withdrawal operates on the connected revenue wallet's Gateway balance, not on
+an arbitrary provider row. Selecting provider rows filters accounting display
+and does not change the wallet-level withdrawal authorization.
 
 Recommended roadmap:
 

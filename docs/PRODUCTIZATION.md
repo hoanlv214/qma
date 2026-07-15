@@ -248,7 +248,8 @@ Keep the API product-facing and provider-neutral.
 ### Milestone 4: Settlement Evolution
 
 - Add `settlement_mode` to provider config.
-- Keep `treasury_ledger` as default.
+- Keep `x402_direct_split` as the active default; retain `treasury_ledger` as a
+  legacy/fallback mode until its remaining creator-claim use cases are retired.
 - Prototype `provider_gateway` for one provider owner wallet.
 - Add contract design only after direct provider and ledger modes are stable.
 

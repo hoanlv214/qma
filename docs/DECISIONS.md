@@ -13,6 +13,27 @@ Reversibility:
 
 ---
 
+## D-05 - Settlement - `x402_direct_split` is the current rebuild default
+
+Why:
+The active rebuild configuration and payment flow create independent creator
+and platform x402 legs. Direct split keeps provider revenue bound to the
+provider revenue wallet while preserving the treasury-ledger path for legacy or
+fallback providers.
+
+Impact:
+New backend, frontend, agent, and deployment documentation must describe
+`x402_direct_split` as the current default. `treasury_ledger` remains a
+supported legacy/fallback mode and must not be described as the active default
+without an environment-specific check.
+
+Reversibility:
+Medium. The invoice carries settlement mode, so a coordinated configuration
+change can select another mode, but payment and entitlement tests must be run
+before changing it.
+
+---
+
 ## D-04 - Product - QMA is a paid intelligence marketplace, not a scanner
 
 Why:
@@ -26,10 +47,14 @@ Medium. The code can still serve a scanner UI, but the product story and data mo
 
 ---
 
-## D-03 - Settlement - Keep `treasury_ledger` as the default vNext settlement mode
+## D-03 - Settlement - Keep `treasury_ledger` as the default vNext settlement mode (superseded by D-05)
 
 Why:
 Circle Gateway payments currently settle to the platform treasury. This is simpler and safer while provider onboarding, claim accounting, and payout history are still being hardened.
+
+Status:
+Superseded for the active rebuild by D-05. The treasury-ledger behavior remains
+supported as a legacy/fallback settlement mode.
 
 Impact:
 Creators earn ledger balances first, then claim through QMA. Direct provider settlement and split contracts remain future modes, not blockers.

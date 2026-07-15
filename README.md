@@ -12,7 +12,51 @@ Humans and AI agents can buy historical crypto market-memory reports one query a
 - Marketplace: `/marketplace`
 - Core flow: Agent Picks -> Preview or Full invoice -> Circle Gateway/x402 payment -> wallet-bound entitlement -> paid JSON report.
 - Agent demo: see [docs/AGENT_API.md](docs/AGENT_API.md) and `examples/agent_buyer.mjs`.
+- Bounded autonomous session: see [docs/AUTONOMOUS_AGENT.md](docs/AUTONOMOUS_AGENT.md) and `npm run agent`.
 - Security model: frontend cache is convenience only; backend verifies invoice secret, query hash, tier, provider, payer wallet, x402 settlement, access token expiry, rate limits, and wallet-bound entitlements.
+
+## Current branch and deployment truth
+
+This repository intentionally contains a legacy production line and a rebuild
+line. The current working branch is `frontend/vite-react-rebuild`:
+
+| Boundary | Current rebuild source/deployment | Legacy/main source/deployment |
+| --- | --- | --- |
+| Frontend | `frontend/src/` -> `frontend/dist/`, Vercel Vite project | root `*.html` + `public/` |
+| API | `backend/app/` through root `main.py` shim, Render `qma-api-rebuild` | same shim on the legacy Render service |
+| Gateway | `arc_gateway/`, Render `qma-arc-gateway-rebuild` | `arc_gateway/` on the legacy service |
+| API base | `https://qma-api-rebuild.onrender.com` when configured in Vercel/CLI | `https://qma-api.onrender.com` |
+
+The rebuild URLs are deployment targets from `render.yaml`; a successful
+repository build does not by itself prove that a Render/Vercel service has
+deployed the current branch or environment variables. Use
+[`docs/DEPLOYMENT_SETUP.md`](docs/DEPLOYMENT_SETUP.md) for the preview and
+cutover checklist. The CLI reads `QMA_API_URL` from the root `.env`; pass
+`--api` when choosing between legacy, rebuild, and local APIs.
+
+## System flow at a glance
+
+```mermaid
+flowchart TD
+    User[Human or external agent] --> UI[React UI or CLI]
+    UI --> Decision[Backend agent decision]
+    Decision --> Candidate[Canonical provider/query/tier/price]
+    Candidate --> Invoice[Provider-bound invoice]
+    Invoice --> Payment[Circle Gateway/x402 split legs]
+    Payment --> Verify[Settlement verification]
+    Verify --> Entitlement[Wallet-bound entitlement + short-lived token]
+    Entitlement --> Report[Paid preview/full report JSON]
+    Report --> UI
+```
+
+Detailed ownership and sequences are documented in:
+
+- [`backend/README.md`](backend/README.md): FastAPI route/service/persistence and payment flow.
+- [`frontend/README.md`](frontend/README.md): React routes, state/services, and browser agent flow.
+- [`agents/README.md`](agents/README.md): typed policy/session package and bounded loop.
+- [`examples/README.md`](examples/README.md): external buyer and CLI commands.
+- [`docs/AUTONOMOUS_AGENT.md`](docs/AUTONOMOUS_AGENT.md): session policy and safety bounds.
+- [`docs/AGENT_API.md`](docs/AGENT_API.md): public agent decision and purchase contract.
 
 Try:
 
@@ -71,6 +115,10 @@ build `frontend/dist/`, but permanent cutover has not been confirmed.
 
 - [docs/AGENT_API.md](docs/AGENT_API.md): external autonomous buyer example.
 - [examples/README.md](examples/README.md): CLI buyer demo commands.
+- [frontend/README.md](frontend/README.md): React route, state, service, and deployment boundary.
+- [backend/README.md](backend/README.md): active FastAPI composition and payment invariants.
+- [agents/README.md](agents/README.md): typed agent policy/session package.
+- [docs/AUTONOMOUS_AGENT.md](docs/AUTONOMOUS_AGENT.md): bounded task delegation, session policy, loop, accounting, and reports.
 - [docs/ARC_PAYMENT.md](docs/ARC_PAYMENT.md): Circle Gateway/x402 payment lifecycle.
 - [docs/SUPABASE.md](docs/SUPABASE.md): durable payment/entitlement/creator storage.
 - [docs/API_SECURITY.md](docs/API_SECURITY.md): backend authorization, rate limits, and marketplace endpoints.
@@ -78,6 +126,7 @@ build `frontend/dist/`, but permanent cutover has not been confirmed.
 - [docs/PRODUCTIZATION.md](docs/PRODUCTIZATION.md): vNext product architecture and marketplace roadmap.
 - [docs/DECISIONS.md](docs/DECISIONS.md): product and architecture decision log.
 - [docs/TRACTION.md](docs/TRACTION.md): metrics/proof policy for real usage and creator claims.
+- [docs/README.md](docs/README.md): documentation ownership map and verification commands.
 
 ## Product Flow
 
@@ -319,13 +368,13 @@ https://qma-three.vercel.app -> https://qma-api.onrender.com
 Local terminal 1:
 
 ```powershell
-python qma\main.py
+python main.py
 ```
 
 To run the React rebuild locally instead of the live legacy pages:
 
 ```powershell
-cd qma\frontend
+cd frontend
 npm.cmd install
 npm.cmd run dev
 ```

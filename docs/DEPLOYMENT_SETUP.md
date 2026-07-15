@@ -118,19 +118,144 @@ Cross-link the preview services:
 ```env
 # qma-api-rebuild
 QMA_ARC_GATEWAY_URL=https://qma-arc-gateway-rebuild.onrender.com
+QMA_ARC_GATEWAY_INTERNAL_SECRET=<same-random-value-as-gateway>
 QMA_SPLIT_LEG_URL_SECRET=<same-random-value-as-gateway>
 QMA_SPLIT_RECEIPT_SECRET=<same-random-value-as-gateway>
 
 # qma-arc-gateway-rebuild
 QMA_BACKEND_INTERNAL_URL=https://qma-api-rebuild.onrender.com
+QMA_ARC_GATEWAY_INTERNAL_SECRET=<same-random-value-as-api>
 QMA_SPLIT_LEG_URL_SECRET=<same-random-value-as-api>
 QMA_SPLIT_RECEIPT_SECRET=<same-random-value-as-api>
 ```
 
-These two HMAC secrets must be entered manually with identical values in both
-Render services. Do not use separate `generateValue` values: each service
-would then sign and verify with different keys, producing `403 invalid split
-leg signature`.
+These three shared secrets must be entered manually with identical values in
+both Render services. Do not use separate `generateValue` values: each service
+would then sign or authenticate with different keys, producing `403` errors.
+
+### Canonical preview environment blocks
+
+Use these as the complete setup checklist. Replace placeholders in the Render
+dashboard; do not commit the resulting values.
+
+#### `qma-api-rebuild` — FastAPI
+
+```env
+# Startup data
+QMA_HISTORICAL_DB_PATH=data/sample_funding_historical_analysis.csv
+QMA_BACKTEST_OUTCOME_PATH=data/sample_trading_analysis.csv
+
+# Public payment/application identity
+QMA_ARC_SELLER_ADDRESS=0xYourPlatformTreasuryWallet
+QMA_FUNDING_MEMORY_OWNER_WALLET=0xYourFundingProviderOwnerWallet
+QMA_OI_MEMORY_OWNER_WALLET=0xYourOiProviderOwnerWallet
+QMA_ARC_GATEWAY_URL=https://qma-arc-gateway-rebuild.onrender.com
+
+# Shared with qma-arc-gateway-rebuild — identical values required
+QMA_ARC_GATEWAY_INTERNAL_SECRET=<shared-internal-secret>
+QMA_SPLIT_LEG_URL_SECRET=<shared-split-url-secret>
+QMA_SPLIT_RECEIPT_SECRET=<shared-split-receipt-secret>
+
+# API-only secrets and persistence
+QMA_ACCESS_TOKEN_SECRET=<api-access-token-secret>
+QMA_ADMIN_WALLET=0xYourAdminWallet
+QMA_ADMIN_TOKEN=<admin-review-token>
+SUPABASE_URL=https://your-preview-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=<preview-service-role-key>
+SUPABASE_SCHEMA=public
+
+# Payment contract and lifecycle
+QMA_DEFAULT_SETTLEMENT_MODE=x402_direct_split
+QMA_SETTLEMENT_RAIL=circle_gateway_x402
+QMA_PAYMENT_RESOURCE_TYPE=qma_signal_report
+QMA_PAYMENT_NETWORK=eip155:5042002
+QMA_PAYMENT_NETWORK_NAME=Arc Testnet
+QMA_PAYMENT_AMOUNT_USDC=0.005
+QMA_PRICE_PREVIEW_USDC=0.001
+QMA_PRICE_FULL_USDC=0.005
+QMA_PRICE_COMPLEXITY_UPLIFT_MAX=0.25
+QMA_INVOICE_TTL_SECONDS=900
+QMA_SPLIT_INVOICE_TTL_SECONDS=1800
+QMA_ACCESS_TOKEN_TTL_SECONDS=300
+
+# Arc/Circle public configuration
+QMA_CIRCLE_GATEWAY_API=https://gateway-api-testnet.circle.com
+QMA_ARC_EXPLORER=https://testnet.arcscan.app
+QMA_ARC_GATEWAY_WALLET=0x0077777d7EBA4688BDeF3E311b846F25870A19B9
+QMA_ARC_USDC_ADDRESS=0x3600000000000000000000000000000000000000
+QMA_ARC_GATEWAY_MINTER=0x0022222ABE238Cc2C7Bb1f21003F0a260052475B
+
+# Optional provider/market behavior
+QMA_MARKET_DATA_SOURCE=mexc_futures
+QMA_WITHDRAW_MODE=platform_relayed
+QMA_WITHDRAW_RELAYER_ADDRESS=0xYourRelayerAddress
+QMA_MIN_PROVIDER_WITHDRAW_USDC=0
+QMA_PROVIDER_WITHDRAW_DAILY_LIMIT=1
+QMA_RATE_LIMIT_ENABLED=true
+```
+
+`QMA_WITHDRAW_RELAYER_PRIVATE_KEY` does not belong on the API service. The
+gateway owns the transaction-signing key. If using `seller_wallet` mode,
+omit the relayer-specific variables.
+
+#### `qma-arc-gateway-rebuild` — Node sidecar
+
+```env
+# API callback and shared authentication
+QMA_BACKEND_INTERNAL_URL=https://qma-api-rebuild.onrender.com
+QMA_ARC_GATEWAY_INTERNAL_SECRET=<same-value-as-api>
+QMA_SPLIT_LEG_URL_SECRET=<same-value-as-api>
+QMA_SPLIT_RECEIPT_SECRET=<same-value-as-api>
+
+# Treasury and Circle Gateway
+QMA_ARC_SELLER_ADDRESS=0xYourPlatformTreasuryWallet
+QMA_CIRCLE_GATEWAY_API=https://gateway-api-testnet.circle.com
+ARC_TESTNET_RPC=https://rpc.testnet.arc.network
+QMA_ARC_EXPLORER=https://testnet.arcscan.app
+
+# Only if overriding the Arc defaults
+GATEWAY_WALLET=0x0077777d7EBA4688BDeF3E311b846F25870A19B9
+QMA_ARC_GATEWAY_MINTER=0x0022222ABE238Cc2C7Bb1f21003F0a260052475B
+
+# Public pricing/funding defaults used by the sidecar
+QMA_ARC_AMOUNT=$0.005
+QMA_PRICE_PREVIEW_USDC=0.001
+QMA_PRICE_FULL_USDC=0.005
+QMA_ARC_DEFAULT_DEPOSIT_USDC=1.00
+QMA_ARC_APPROVE_USDC=10.00
+
+# Only for enabled server-side payout/withdraw execution
+QMA_WITHDRAW_RELAYER_ADDRESS=0xYourRelayerAddress
+QMA_WITHDRAW_RELAYER_PRIVATE_KEY=<gateway-only-relayer-private-key>
+# QMA_CREATOR_CLAIM_PAYOUT_PRIVATE_KEY=<gateway-only-claim-private-key>
+```
+
+The gateway reads `GATEWAY_WALLET`; `QMA_ARC_GATEWAY_WALLET` is the backend
+configuration name and is not the gateway-side override. `PORT` is supplied by
+Render automatically. With explicit split and internal secrets configured, do
+not add `QMA_ACCESS_TOKEN_SECRET` to the gateway.
+
+#### Vercel — React frontend
+
+Set these non-secret variables in both Production and Preview environments:
+
+```env
+VITE_QMA_API_BASE_URL=https://qma-api-rebuild.onrender.com
+VITE_QMA_ENV=preview
+VITE_QMA_SYNTHETIC_RUN=false
+```
+
+Vercel must not receive `QMA_ACCESS_TOKEN_SECRET`, any split/internal secret,
+Supabase service-role key, admin token, relayer private key, Circle secret, or
+agent private key. The frontend obtains the gateway URL from the API config;
+there is no separate Vercel gateway-secret variable.
+
+The rebuild frontend's agent UI calls
+`POST /api/v1/agent/decision` on the configured API base. Confirm this route
+exists on `qma-api-rebuild` before testing the agent UI or CLI against that
+deployment. The CLI is independent of Vercel and reads `QMA_API_URL` from the
+repository-root `.env`; use `--api https://qma-api-rebuild.onrender.com` to
+avoid accidentally calling the legacy API.
 
 Use separate secrets and, preferably, separate Supabase/persistence for the
 preview services. Never copy production service-role keys or a funded relay

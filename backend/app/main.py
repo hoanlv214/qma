@@ -186,12 +186,14 @@ from backend.app.services.payment_events_service import (
     merge_payment_sources,
     load_platform_payment_events,
 )
+from backend.app.services.agent_recommendations import build_agent_recommendations
 from backend.app.repositories import storage as repo
 
 # Route factories
 from backend.app.api.v1.endpoints.chat import create_chat_router
 from backend.app.api.v1.endpoints.health import create_health_router
 from backend.app.api.v1.endpoints.internal import create_internal_router
+from backend.app.api.v1.endpoints.agent import create_agent_router
 from backend.app.api.v1.endpoints.market import create_market_router
 from backend.app.api.v1.endpoints.payments import create_payments_router
 from backend.app.api.v1.endpoints.platform import create_platform_router
@@ -268,6 +270,9 @@ def _load_paid_reports():
 
 def _load_paid_reports_for_wallet(address, *, symbol=None, provider_id=None):
     return repo.load_paid_reports_for_wallet(storage_backend, address, normalize_address, symbol=symbol, provider_id=provider_id)
+
+def _load_wallet_entitlements(address):
+    return paid_kit.list_wallet_entitlements(_load_paid_reports_for_wallet(address), address)
 
 def _load_paid_report_summaries_for_wallet(address, *, symbol=None, provider_id=None):
     return repo.load_paid_report_summaries_for_wallet(storage_backend, address, normalize_address, symbol=symbol, provider_id=provider_id)
@@ -1035,6 +1040,19 @@ def _provider_metadata(provider):
 def _settlement_id_already_claimed(sid, *, exclude_invoice_id=None):
     return settlement_id_already_claimed(sid, exclude_invoice_id=exclude_invoice_id, load_invoices_fn=_load_invoices, invoices_db=state.invoices_db)
 
+def _get_agent_recommendations(limit=25):
+    return build_agent_recommendations(SimpleNamespace(
+        cache_ttl_seconds=CACHE_TTL_SECONDS,
+        live_anomalies_cache=state.live_anomalies_cache,
+        live_scan_lock=state.live_scan_lock,
+        logger=logger,
+        normalize_query_for_provider=normalize_query_for_provider,
+        pricing_config=paid_kit.pricing_config,
+        provider_control=provider_control,
+        provider_registry=provider_registry,
+        scan_mexc_live=scan_mexc_live,
+    ), limit)
+
 
 # ---------------------------------------------------------------------------
 # Register routers
@@ -1131,6 +1149,12 @@ app.include_router(create_market_router(SimpleNamespace(
     provider_control=provider_control,
     provider_registry=provider_registry,
     scan_mexc_live=scan_mexc_live,
+)))
+
+app.include_router(create_agent_router(SimpleNamespace(
+    get_agent_recommendations=_get_agent_recommendations,
+    load_wallet_entitlements=_load_wallet_entitlements,
+    provider_registry=provider_registry,
 )))
 
 app.include_router(create_chat_router(SimpleNamespace(

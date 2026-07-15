@@ -14,6 +14,9 @@ services:
         value: data/sample_trading_analysis.csv
       - key: QMA_ARC_GATEWAY_URL
         value: https://qma-arc-gateway-rebuild.onrender.com
+      # Must be the same value on qma-arc-gateway-rebuild.
+      - key: QMA_ARC_GATEWAY_INTERNAL_SECRET
+        sync: false
       - key: QMA_ARC_SELLER_ADDRESS
         sync: false
       - key: QMA_FUNDING_MEMORY_OWNER_WALLET
@@ -51,6 +54,9 @@ services:
     envVars:
       - key: QMA_BACKEND_INTERNAL_URL
         value: https://qma-api-rebuild.onrender.com
+      # Must exactly match qma-api-rebuild.
+      - key: QMA_ARC_GATEWAY_INTERNAL_SECRET
+        sync: false
       # Must exactly match qma-api-rebuild.
       - key: QMA_SPLIT_LEG_URL_SECRET
         sync: false

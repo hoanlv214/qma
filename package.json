@@ -5,6 +5,10 @@
   "type": "module",
   "scripts": {
     "agent:dry": "node examples/agent_buyer.mjs --dry-run",
+    "agent:llm:dry": "node examples/agent_buyer.mjs --llm --dry-run",
+    "agent:llm:live": "node examples/agent_buyer.mjs --llm --live --no-auto-deposit",
+    "agent": "node examples/agent_session.mjs",
+    "agent:build": "tsc -p agents/tsconfig.json",
     "agent:preview": "node examples/agent_buyer.mjs --live --tier preview",
     "agent:full": "node examples/agent_buyer.mjs --live --tier full",
     "agent:swarm": "node scripts/qma_agent_swarm.mjs",

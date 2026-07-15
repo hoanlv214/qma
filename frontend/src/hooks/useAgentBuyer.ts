@@ -2,7 +2,9 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { API_BASE_URL } from "../services/api";
 import { payX402Resource, prepareX402Payment, submitX402Payment, X402PaymentError, type PreparedX402Payment } from "../services/x402";
 import { createInvoice } from "../services/invoices";
+import { requestAgentDecision, type AgentDecisionResponse } from "../services/agent";
 import type { AgentSessionStage } from "../types/qma";
+import { normalizeTierForCache } from "../utils/format";
 
 type Signal = Record<string, any>;
 type AgentTraceEntry = { text: string; tone?: string };
@@ -15,6 +17,7 @@ interface UseAgentBuyerOptions {
   setSelectedProviderId: (providerId: string) => void;
   currentInvoice: any;
   setCurrentInvoice: (invoice: any) => void;
+  clearUnlockedReport: () => void;
   setReportCollapsed: (collapsed: boolean) => void;
   fetchReportContent: (invoiceId: string, accessToken: string, invoiceOverride?: any, queryOverride?: Signal, providerOverride?: string) => Promise<void>;
   recommendationTier: (pick: any) => "preview" | "full";
@@ -34,6 +37,7 @@ export function useAgentBuyer({
   setSelectedProviderId,
   currentInvoice,
   setCurrentInvoice,
+  clearUnlockedReport,
   setReportCollapsed,
   fetchReportContent,
   recommendationTier,
@@ -116,7 +120,35 @@ export function useAgentBuyer({
 
   const getLatestCachedReportForSymbolTier = (symbol: string, tier: "preview" | "full", providerId: string) => {
     const list = getCachedReportsForSymbol(symbol, providerId);
-    return list.find((entry) => entry.tier === tier) || null;
+    return list.find((entry) => normalizeTierForCache(entry.tier || entry.report?.tier || entry.report?.invoice?.tier) === tier) || null;
+  };
+
+  const entitlementSymbol = (entry: any) => String(
+    entry?.symbol
+      || entry?.query?.symbol
+      || entry?.report?.query_symbol
+      || entry?.report?.query?.symbol
+      || "",
+  ).trim().toUpperCase();
+
+  const findWalletEntitlement = (entitlements: any[], symbol: string, tier: "preview" | "full") => {
+    const normalizedSymbol = String(symbol || "").trim().toUpperCase();
+    return entitlements.find((entry) => (
+      entitlementSymbol(entry) === normalizedSymbol
+      && normalizeTierForCache(entry?.tier || entry?.report?.tier || entry?.report?.invoice?.tier) === tier
+    )) || null;
+  };
+
+  const loadWalletEntitlements = async () => {
+    if (!wallet) return [];
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/entitlements/wallet/${encodeURIComponent(wallet)}`);
+      const data = await response.json().catch(() => ({}));
+      return response.ok && Array.isArray(data.entitlements) ? data.entitlements : [];
+    } catch (err) {
+      console.warn("Could not load wallet entitlements for agent policy:", err);
+      return [];
+    }
   };
 
   // INSERT AGENT LOGIC
@@ -126,6 +158,7 @@ export function useAgentBuyer({
     maxPrice = 0.005,
     pricing = {},
     preferredTier: "preview" | "full" | null = null,
+    walletEntitlements: any[] = [],
   ) => {
     const audit: any[] = [];
     const candidates = recommendationsList.map((pick) => {
@@ -134,10 +167,15 @@ export function useAgentBuyer({
       const providerId = pick.provider_id || selectedProviderId || "funding_memory";
 
       const fullEntry = getCachedReport(signal, "full", providerId);
-      const exactPreviewEntry = fullEntry ? null : getCachedReport(signal, "preview", providerId);
-      const symbolPreviewEntry = exactPreviewEntry || getLatestCachedReportForSymbolTier(signal.symbol, "preview", providerId);
+      const symbolFullEntry = getLatestCachedReportForSymbolTier(signal.symbol, "full", providerId);
+      const walletFullEntry = findWalletEntitlement(walletEntitlements, signal.symbol, "full");
+      const fullEntitlement = fullEntry || symbolFullEntry || walletFullEntry;
+      const exactPreviewEntry = fullEntitlement ? null : getCachedReport(signal, "preview", providerId);
+      const symbolPreviewEntry = exactPreviewEntry
+        || getLatestCachedReportForSymbolTier(signal.symbol, "preview", providerId)
+        || findWalletEntitlement(walletEntitlements, signal.symbol, "preview");
 
-      const shouldUpgrade = !preferredTier && tier === "preview" && symbolPreviewEntry?.report && !fullEntry?.report;
+      const shouldUpgrade = !preferredTier && tier === "preview" && symbolPreviewEntry && !fullEntitlement;
       if (shouldUpgrade) {
         tier = "full";
       }
@@ -148,8 +186,13 @@ export function useAgentBuyer({
 
       if (price <= 0) {
         skippedReason = "missing price";
-      } else if (fullEntry?.report) {
+      } else if (fullEntitlement) {
         skippedReason = "Full Report already purchased";
+      } else if (preferredTier && (
+        findWalletEntitlement(walletEntitlements, signal.symbol, tier)
+        || getLatestCachedReportForSymbolTier(signal.symbol, tier, providerId)
+      )) {
+        skippedReason = `${tier} already purchased`;
       } else if (pendingInvoice) {
         skippedReason = `invoice is already waiting for payment`;
       } else if (price > budget) {
@@ -202,6 +245,8 @@ export function useAgentBuyer({
   const handleAgentRetry = () => {
     // Resume: keep existing invoice (don't cancel), re-trigger signature step
     if (!agentSessionInvoice) return;
+    clearUnlockedReport();
+    setReportCollapsed(true);
     setAgentSessionStage("awaiting_signature");
     setAgentTrace((prev) => [
       ...prev,
@@ -333,6 +378,8 @@ export function useAgentBuyer({
   const handleAgentRun = async (e: FormEvent) => {
     e.preventDefault();
     if (!agentPrompt.trim()) return;
+    clearUnlockedReport();
+    setReportCollapsed(true);
     const sessionStart = Date.now();
     setAgentStartTime(sessionStart);
     setAgentElapsed("0.0s");
@@ -373,25 +420,52 @@ export function useAgentBuyer({
         { text: `Parsing details: Target Budget limit is set to ${budgetVal} USDC. Preferred provider: ${providerFilter || 'any'}. Preferred tier: ${tierFilter || 'any'}.`, tone: "t-dim" }
       ]);
 
-      const resp = await fetch(`${API_BASE_URL}/api/v1/agent/recommendations?limit=8`);
-      if (!resp.ok) throw new Error(`Agent API returned status ${resp.status}`);
-      const data = await resp.json();
-      let picks = data.recommendations || [];
-
-      if (providerFilter) {
-        picks = picks.filter((p: any) => p.provider_id === providerFilter);
+      const decisionStart = Date.now();
+      let backendDecision: AgentDecisionResponse | null = null;
+      try {
+        backendDecision = await requestAgentDecision(agentPrompt, wallet);
+        setAgentTrace((prev) => [...prev, { text: `Decision service: ${backendDecision?.decision_source || "server"} policy accepted.`, tone: "t-dim" }]);
+      } catch (err) {
+        setAgentTrace((prev) => [...prev, { text: "Decision service unavailable; local demo policy only. Live autonomous execution is blocked.", tone: "t-dim" }]);
+        console.warn("Agent decision endpoint unavailable; falling back to local policy", err);
       }
 
-      const pricing = data.pricing || {};
-      const maxPrice = Math.min(budgetVal, 0.005);
-      const decisionStart = Date.now();
-      const { selected: pick, audit } = agentPolicyPick(
-        picks,
-        budgetVal,
-        maxPrice,
-        pricing,
-        tierFilter as "preview" | "full" | null,
-      );
+      let picks: any[] = [];
+      let pick: any = backendDecision?.resolved_candidate ? {
+        ...backendDecision.resolved_candidate,
+        provider_id: backendDecision.resolved_candidate.provider_id,
+        symbol: backendDecision.resolved_candidate.symbol,
+        score: backendDecision.resolved_candidate.score,
+        agent_tier: backendDecision.resolved_candidate.tier,
+        agent_price: Number(backendDecision.resolved_candidate.price_usdc || 0),
+        agent_query: backendDecision.canonical_query || { symbol: backendDecision.resolved_candidate.symbol },
+      } : null;
+      let audit: any[] = backendDecision?.rejected_candidates?.map((item) => ({
+        text: `Skipped ${item.candidate_id}: ${item.reason_code} — ${item.reason}`,
+        tone: "muted",
+      })) || [];
+
+      if (!backendDecision) {
+        if (wallet) {
+          setAgentSessionStage("error");
+          setAgentTrace((prev) => [...prev, { text: "Decision service is required before a live wallet action.", tone: "t-error" }]);
+          setAgentRunning(false);
+          return;
+        }
+        const [resp, walletEntitlements] = await Promise.all([
+          fetch(`${API_BASE_URL}/api/v1/agent/recommendations?limit=25`),
+          loadWalletEntitlements(),
+        ]);
+        if (!resp.ok) throw new Error(`Agent API returned status ${resp.status}`);
+        const data = await resp.json();
+        picks = data.recommendations || [];
+        if (providerFilter) picks = picks.filter((p: any) => p.provider_id === providerFilter);
+        const pricing = data.pricing || {};
+        const maxPrice = Math.min(budgetVal, 0.005);
+        const localDecision = agentPolicyPick(picks, budgetVal, maxPrice, pricing, tierFilter as "preview" | "full" | null, walletEntitlements);
+        pick = localDecision.selected;
+        audit = localDecision.audit;
+      }
       const decisionMs = Date.now() - decisionStart;
       setAgentDecisionLatency(`${decisionMs}ms`);
 
@@ -400,14 +474,12 @@ export function useAgentBuyer({
       });
 
       // Build selection rationale and rejected reasons from audit
-      const rejectedLines = audit
-        .filter((l: any) => l.tone === "t-error" || (l.text && (l.text.includes("rejected") || l.text.includes("skip") || l.text.includes("exceeded"))))
-        .map((l: any) => l.text);
+      const rejectedLines = audit.map((line: any) => line.text);
       setAgentRejectedReasons(rejectedLines.slice(0, 3));
 
       if (!pick) {
         setAgentSessionStage("error");
-        setAgentSelectReason("No candidate met policy constraints within budget.");
+        setAgentSelectReason(backendDecision?.plan.reason || "No candidate met policy constraints within budget.");
         setAgentTrace((prev) => [
           ...prev,
           { text: "Copilot: No anomalies found meeting parameters under budget.", tone: "t-error" },
@@ -422,10 +494,10 @@ export function useAgentBuyer({
 
       // Build human-readable selection rationale
       const scoredCandidates = picks.filter((p: any) => p !== pick).slice(0, 2);
-      const rationaleWhy = `Highest value density within ${budgetVal} USDC budget (score ${Number(pick.score || 0).toFixed(1)}).`;
+      const rationaleWhy = backendDecision?.plan.reason || `Highest value density within ${budgetVal} USDC budget (score ${Number(pick.score || 0).toFixed(1)}).`;
       const rationaleReject = scoredCandidates.length
         ? scoredCandidates.map((p: any) => `${p.symbol} score ${Number(p.score || 0).toFixed(1)}`).join(", ") + " ranked lower."
-        : "No comparable candidates in this scan.";
+        : backendDecision ? "Server policy validated this candidate against current entitlements." : "No comparable candidates in this scan.";
       setAgentSelectReason(`${rationaleWhy} ${rationaleReject}`);
 
       setAgentSessionStage("selected");
@@ -611,11 +683,11 @@ export function useAgentBuyer({
       setCurrentInvoice(invData);
       await fetchReportContent(invData.invoice_id, verifyData.access_token, invData, pickQuery, pickProviderId);
       clearPendingInvoice(pickQuery, pickTier, pickProviderId, wallet);
-      await refreshPlatformTables(1, 1).catch((err) => {
-        console.warn("Platform analytics refresh after Copilot payment failed", err);
-      });
       setReportCollapsed(false);
       setAgentSessionStage("unlocked");
+      void refreshPlatformTables(1, 1).catch((err) => {
+        console.warn("Platform analytics refresh after Copilot payment failed", err);
+      });
     } catch (err: any) {
       setAgentSessionStage("error");
       setAgentTrace((prev) => [...prev, { text: `Error: ${err.message || err}`, tone: "t-error" }]);

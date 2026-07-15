@@ -23,6 +23,12 @@ Default URLs:
 - Circle facilitator: `https://gateway-api-testnet.circle.com`
 - Arc explorer: `https://testnet.arcscan.app`
 
+The React rebuild runs separately with Vite and uses the same backend payment
+contract. Start it with `cd frontend && npm.cmd run dev`, then set
+`VITE_QMA_API_BASE_URL` when the API is not same-origin. The legacy root HTML
+pages and the rebuild frontend are different clients; a successful legacy page
+load does not prove that the rebuild deployment is configured.
+
 New buyer wallets can request Arc Testnet USDC from the Circle Faucet:
 
 ```text
@@ -52,13 +58,16 @@ The platform treasury receives the platform leg of direct split payments. Keep b
 
 ## Demo Flow
 
-1. Open `http://127.0.0.1:8000`.
+1. Open `http://127.0.0.1:8000` for the legacy shell, or the Vite dev URL for
+   the rebuild.
 2. Submit a QMA query as either Preview or Full Report to create a tier-bound invoice.
 3. Click `Pay on Arc Testnet`.
 4. Wallet switches/adds Arc Testnet and asks you to sign `TransferWithAuthorization`.
 5. The Arc Gateway sidecar settles the signed authorization through Circle Gateway.
 6. QMA verifies the returned settlement UUID through Circle's transfer API.
-7. The report unlocks once Circle accepts the settlement.
+7. The report unlocks only after the backend settlement policy accepts all
+   required payment legs. A pending, expired, failed, or disputed invoice does
+   not issue a new access token.
 
 If your Circle Gateway balance on Arc is lower than the report price, the UI now asks wallet to send two real transactions first:
 

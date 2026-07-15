@@ -1,9 +1,13 @@
 *.log
 *.pyc
 .env
+qma-api-rebuild.env
+qma-arc-gateway-rebuild.env
 node_modules/
 arc_gateway/node_modules/
 _refs/
+agents/dist/
+agents/*.tsbuildinfo
 __pycache__/
 */__pycache__/
 .pytest_cache/

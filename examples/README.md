@@ -18,6 +18,114 @@ The example agent:
 
 The web dashboard is not required for this flow.
 
+## Bounded autonomous session
+
+For repeated observations under one explicit spending policy, use the session
+command. It performs one bounded policy parse, polls the backend decision
+source, and reuses the existing payment executor only in live mode:
+
+```powershell
+npm run agent:build
+npm run agent -- --dry-run --run-once --budget 0.05 --max-price 0.005
+npm run agent -- --live --budget 0.05 --max-purchases 5 --duration 30m --poll 60 --no-auto-deposit
+```
+
+Use `--until-stopped` only when an unlimited runtime is intentional. The
+session writes a final report; `--json`, `--report-file`, and `--event-log` are
+available for automation. Dry-run mode simulates purchases and creates no
+invoice.
+
+## LLM planner mode
+
+The regular command uses the deterministic policy directly. The `--llm` mode
+sends the prompt to the shared backend agent service before the same payment
+executor:
+
+```text
+prompt
+  -> recommendations + entitlements
+  -> backend OpenAI structured decision JSON (or regex fallback)
+  -> canonical candidate/budget/entitlement validation
+  -> existing split-payment executor
+```
+
+The LLM returns only a minimal plan (`action`, `candidate_id`, requested tier,
+budget, max price, reason, and rejected IDs). QMA resolves the authoritative
+provider, symbol, price, query, and entitlement state before an invoice can be
+created. The LLM never supplies an invoice secret, settlement ID, access token,
+recipient, or payment payload.
+
+Build the new package first:
+
+```powershell
+& .\frontend\node_modules\.bin\tsc.cmd -p agents\tsconfig.json
+```
+
+Dry-run (no invoice, no payment):
+
+```powershell
+$env:QMA_API_URL="http://127.0.0.1:8000"
+node examples/agent_buyer.mjs --llm --dry-run --prompt "Find the best opportunity under 0.002 USDC"
+```
+
+`examples/agent_session.mjs` and `examples/agent_buyer.mjs` load
+`QMA_API_URL` from the repository-root `.env`. The `agents/.env` file is for
+the TypeScript package and is not used to override the CLI's root setting. Use
+`--api http://127.0.0.1:8000` for local testing, or set the root
+`QMA_API_URL` to the deployed backend that contains
+`POST /api/v1/agent/decision`.
+
+By default, a session with no loop bound performs one safe poll and stops.
+For repeated autonomous polling, provide an explicit bound, for example:
+
+```powershell
+node examples/agent_session.mjs --api http://127.0.0.1:8000 --dry-run --duration 10m --poll 60
+```
+
+Use `--until-stopped` for a session that continues until Ctrl+C, or
+`--max-purchases 3` to stop after at most three purchases.
+
+Session sequence:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant CLI as agent_session.mjs
+    participant API as QMA /agent/decision
+    participant Buyer as agent_buyer.mjs
+    participant Gateway as Arc Gateway/x402
+
+    CLI->>API: Poll with policy, budget, provider/tier allowlist
+    API-->>CLI: Canonical candidate or rejection set
+    alt dry-run
+        CLI-->>CLI: Simulate purchase; no invoice or funds
+    else live
+        CLI->>Buyer: Execute selected candidate
+        Buyer->>API: Create provider-bound invoice
+        Buyer->>Gateway: Sign and settle required split legs
+        Gateway-->>Buyer: Receipts
+        Buyer->>API: Verify and fetch paid report
+        Buyer-->>CLI: Purchase result
+    end
+    CLI-->>CLI: Update spend, cooldown, failures, and stop conditions
+```
+
+The default output is compact. Use `--verbose` for policy checks, the
+evaluated candidate table, and the canonical query; use `--json` for the
+machine-readable backend response, or `--quiet` for a one-line result.
+
+Live Arc Testnet payment using an existing Gateway balance:
+
+```powershell
+$env:AGENT_PRIVATE_KEY="0x..."
+node examples/agent_buyer.mjs --llm --live --no-auto-deposit --prompt "Buy the best affordable preview report"
+```
+
+This bridge still signs with the existing test-wallet path. Circle Agent Wallet
+CLI integration is a separate signer adapter and is not enabled by `--llm`.
+For an isolated local TypeScript planner test, add `--local-llm`; that path
+requires `OPENAI_API_KEY` and does not share the backend decision execution.
+
 ## Install
 
 From the `qma/` directory:
@@ -28,7 +136,9 @@ npm install
 
 ## Dry Run
 
-Dry run is safe for demos. It creates an invoice but does not sign or spend USDC.
+Dry run is safe for demos. It does not sign or spend USDC. The regular
+non-LLM dry-run path may still create a quote invoice for compatibility; the
+`--llm --dry-run` planner path does not create an invoice.
 
 ```powershell
 npm run agent:dry
@@ -126,7 +236,8 @@ node examples/agent_buyer.mjs --live --tier preview --no-auto-deposit
 Supported environment variables:
 
 ```env
-QMA_API_URL=https://qma-api.onrender.com
+# Use qma-api-rebuild for the current rebuild branch; qma-api is the legacy/main service.
+QMA_API_URL=https://qma-api-rebuild.onrender.com
 AGENT_PRIVATE_KEY=0x...
 AGENT_WALLET_ADDRESS=0x... # optional dry-run policy wallet when no private key is loaded
 AGENT_BUDGET_USDC=0.01
