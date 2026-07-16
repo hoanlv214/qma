@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { API_BASE_URL } from "../../services/api";
 
+type RequestState = "loading" | "loaded" | "unavailable";
+
 interface Metrics {
   unique_payers: number;
   paid_count: number;
@@ -8,6 +10,7 @@ interface Metrics {
   revenue_usdc: number;
   preview_count: number;
   full_count: number;
+  state: RequestState;
 }
 
 export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }) {
@@ -18,6 +21,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
     revenue_usdc: 0,
     preview_count: 0,
     full_count: 0,
+    state: "loading",
   });
 
   useEffect(() => {
@@ -31,15 +35,17 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
         const tierCounts = data.tier_counts || {};
         const buyerTypes = data.buyer_type_counts || {};
         setMetrics({
-          unique_payers: data.unique_payers || 0,
+          unique_payers: data.unique_payers ?? 0,
           paid_count: data.current_paid_count ?? data.paid_count ?? 0,
-          agent_unlocks: buyerTypes.agent || 0,
-          revenue_usdc: data.revenue_usdc || 0,
-          preview_count: tierCounts.preview || 0,
-          full_count: tierCounts.full || 0,
+          agent_unlocks: buyerTypes.agent ?? 0,
+          revenue_usdc: data.revenue_usdc ?? 0,
+          preview_count: tierCounts.preview ?? 0,
+          full_count: tierCounts.full ?? 0,
+          state: "loaded",
         });
       } catch (err) {
         console.warn("Landing traction unavailable", err);
+        setMetrics((prev) => ({ ...prev, state: "unavailable" }));
       }
     }
     loadLandingTraction();
@@ -50,6 +56,16 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
       notation: value >= 10000 ? "compact" : "standard",
       maximumFractionDigits: 1,
     }).format(value);
+  }
+
+  function formatRevenue(value: number) {
+    if (value === 0) return "0";
+    if (value < 1) return value.toFixed(3);
+    return compactNumber(value);
+  }
+
+  function renderMetricValue(value: number) {
+    return metrics.state === "loaded" ? compactNumber(value) : "—";
   }
 
   return (
@@ -83,7 +99,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
           <div className="new-hero-label">Evidence-Based Market Research</div>
           <h1 className="new-hero-title">See what happened the last time the market looked like this</h1>
           <p className="new-hero-subtitle">
-            QMA retrieves similar historical market situations and generates evidence-backed reports. Compare today's signals with past events and unlock detailed memory reports with pay-per-query payments.
+            Match live market signals to historical analogs. Access lightweight Preview reports or comprehensive Full analysis via pay-per-query x402 payments. Built for traders, researchers, and bounded AI agents.
           </p>
           <div className="new-hero-actions">
             <button type="button" className="new-btn new-btn-primary" onClick={() => onNavigate("app")}>
@@ -137,19 +153,19 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
       <section className="new-stats">
         <div className="new-stats-container">
           <div className="new-stat-item">
-            <div className="new-stat-value">{compactNumber(metrics.unique_payers)}</div>
-            <div className="new-stat-label">Active Wallets</div>
+            <div className="new-stat-value">{renderMetricValue(metrics.unique_payers)}</div>
+            <div className="new-stat-label">Paying Wallets</div>
           </div>
           <div className="new-stat-item">
-            <div className="new-stat-value">{compactNumber(metrics.paid_count)}</div>
+            <div className="new-stat-value">{renderMetricValue(metrics.paid_count)}</div>
             <div className="new-stat-label">Reports Unlocked</div>
           </div>
           <div className="new-stat-item">
-            <div className="new-stat-value">{compactNumber(metrics.agent_unlocks)}</div>
-            <div className="new-stat-label">API Integrations</div>
+            <div className="new-stat-value">{renderMetricValue(metrics.agent_unlocks)}</div>
+            <div className="new-stat-label">Agent Unlocks</div>
           </div>
           <div className="new-stat-item">
-            <div className="new-stat-value">{Number(metrics.revenue_usdc).toFixed(0)}</div>
+            <div className="new-stat-value">{metrics.state === "loaded" ? formatRevenue(metrics.revenue_usdc) : "—"}</div>
             <div className="new-stat-label">USDC Volume</div>
           </div>
         </div>
@@ -161,77 +177,125 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
           <div className="new-info-content">
             <h2>A Marketplace for Market Intelligence</h2>
             <p>
-              QMA operates as a decentralized platform for historical market context. Independent intelligence providers package private datasets as paid APIs that users and autonomous agents can query instantly.
+              QMA operates as a decentralized platform for historical market context. Independent intelligence providers publish priced report tiers as APIs. Users and bounded agents query instantly, and entitlements persist on-chain.
             </p>
             <div className="new-info-list">
               <div className="new-info-item">
-                <span className="new-info-label">Active Providers</span>
-                <span className="new-info-value">Funding Memory, OI Memory</span>
+                <span className="new-info-label">Reports Bound To</span>
+                <span className="new-info-value">Provider, Signal, and Tier</span>
               </div>
               <div className="new-info-item">
-                <span className="new-info-label">Coming Soon</span>
-                <span className="new-info-value">Whale Memory, Social Memory</span>
+                <span className="new-info-label">Settlement Model</span>
+                <span className="new-info-value">Creator 80% / Platform 20% split (on Arc Testnet)</span>
               </div>
               <div className="new-info-item">
-                <span className="new-info-label">Settlement</span>
-                <span className="new-info-value">Instant USDC on Arc Testnet</span>
+                <span className="new-info-label">Payment & Entitlements</span>
+                <span className="new-info-value">Tracked and settled for each purchase</span>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* How It Works */}
+      {/* How Market-Memory Works */}
       <section className="new-how-it-works">
         <div className="new-how-container">
-          <h2>How It Works</h2>
+          <h2>How Market-Memory Retrieval Works</h2>
           <div className="new-steps">
             <div className="new-step">
               <div className="new-step-number">1</div>
-              <h3>Pick a Signal</h3>
-              <p>Select a live market anomaly or input custom parameters.</p>
+              <h3>Submit Signal</h3>
+              <p>Describe a live market condition: price level, volume spike, volatility shift, or custom parameters.</p>
             </div>
             <div className="new-step">
               <div className="new-step-number">2</div>
-              <h3>Pay for Report</h3>
-              <p>Pay a small USDC amount for exactly the report you want.</p>
+              <h3>Match to History</h3>
+              <p>QMA finds historical events with similar characteristics and retrieves provider data.</p>
             </div>
             <div className="new-step">
               <div className="new-step-number">3</div>
-              <h3>View Comparison</h3>
-              <p>View historical analog reports linked to your wallet.</p>
+              <h3>Pay and Unlock</h3>
+              <p>Pay once per report (Preview or Full tier). Entitlement persists in your wallet.</p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Who It's For */}
-      <section className="new-audience">
-        <div className="new-audience-container">
-          <h2>Who It&apos;s For</h2>
-          <div className="new-audience-grid">
-            <div className="new-audience-card">
-              <h3>Traders</h3>
-              <p>Want historical context before making decisions—not price predictions.</p>
+      {/* Preview vs Full Tiers */}
+      <section className="new-tiers">
+        <div className="new-tiers-container">
+          <h2>Report Tiers</h2>
+          <div className="new-tiers-grid">
+            <div className="new-tier-card">
+              <h3>Preview</h3>
+              <p className="new-tier-desc">Lightweight snapshot—signal match metadata, outcome distribution, win rate.</p>
+              <div className="new-tier-use">For exploratory queries and automated agent scanning.</div>
             </div>
-            <div className="new-audience-card">
-              <h3>Researchers</h3>
-              <p>Need evidence and statistical distributions, not speculation.</p>
+            <div className="new-tier-card">
+              <h3>Full</h3>
+              <p className="new-tier-desc">Comprehensive report—event timeline, correlation analysis, detailed distributions, provider notes.</p>
+              <div className="new-tier-use">For traders, researchers, and high-confidence trading decisions.</div>
             </div>
-            <div className="new-audience-card">
-              <h3>AI Agents</h3>
-              <p>Query via API, pay per call in USDC. {compactNumber(metrics.agent_unlocks)} agent unlocks on Arc testnet.</p>
+          </div>
+          <div className="new-tiers-note">
+            Agents can upgrade Preview to Full for the incremental price difference.
+          </div>
+        </div>
+      </section>
+
+      {/* Human Purchase Flow */}
+      <section className="new-human-flow">
+        <div className="new-flow-container">
+          <h2>For Traders & Researchers</h2>
+          <div className="new-flow-steps">
+            <div className="new-flow-step">
+              <div className="new-flow-label">1. Connect Wallet</div>
+              <p>Link your wallet (Arc Testnet). Entitlements are bound to your address.</p>
+            </div>
+            <div className="new-flow-step">
+              <div className="new-flow-label">2. Submit Signal</div>
+              <p>Describe market conditions or pick from live signals. Choose Preview or Full tier.</p>
+            </div>
+            <div className="new-flow-step">
+              <div className="new-flow-label">3. Approve Payment</div>
+              <p>Pay one-time USDC amount. No subscriptions—pay only for reports you want.</p>
+            </div>
+            <div className="new-flow-step">
+              <div className="new-flow-label">4. Access Anytime</div>
+              <p>Report unlocked permanently to your wallet. Re-query for free, upgrade to Full anytime.</p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Agent API */}
+      {/* Bounded Agent Purchase Flow */}
       <section className="new-agent-api">
         <div className="new-agent-container">
           <div className="new-agent-content">
-            <h2>Agent-Native API</h2>
-            <p>External agents can evaluate signals, settle payments, and receive structured JSON reports within their budget.</p>
+            <h2>Bounded-Agent Purchase Flow</h2>
+            <p>Agents query the market-memory API within enforced policy boundaries. Reports are bound to the agent wallet and callable by permission.</p>
+            <div className="new-agent-policies">
+              <div className="new-policy-item">
+                <span className="new-policy-label">Budget Cap</span>
+                <span className="new-policy-desc">Per-purchase maximum spend enforced before query execution.</span>
+              </div>
+              <div className="new-policy-item">
+                <span className="new-policy-label">Maximum Price Per Query</span>
+                <span className="new-policy-desc">Reject reports exceeding max_price_usdc threshold.</span>
+              </div>
+              <div className="new-policy-item">
+                <span className="new-policy-label">Provider & Tier Allowlist</span>
+                <span className="new-policy-desc">Query only approved providers and report tiers.</span>
+              </div>
+              <div className="new-policy-item">
+                <span className="new-policy-label">Duplicate Prevention</span>
+                <span className="new-policy-desc">Skip re-purchase of already-unlocked reports.</span>
+              </div>
+              <div className="new-policy-item">
+                <span className="new-policy-label">Upgrade Path</span>
+                <span className="new-policy-desc">Agents can upgrade Preview reports to Full for incremental cost.</span>
+              </div>
+            </div>
             <div className="new-agent-actions">
               <a href={`${API_BASE_URL}/docs`} target="_blank" rel="noopener noreferrer" className="new-btn new-btn-primary">
                 Open API Docs
@@ -260,13 +324,15 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
         </div>
       </section>
 
-      {/* Open Source */}
-      <section className="new-open-source">
-        <div className="new-open-source-container">
-          <h2>Open Source Ecosystem</h2>
-          <p>QMA is open-source. Build your own provider, customize the matching engine, or integrate the payment middleware.</p>
-          <a href="https://github.com/hoanlv214/qma" target="_blank" rel="noopener noreferrer" className="new-btn new-btn-primary">
-            View GitHub
+      {/* Developer Strip */}
+      <section className="new-dev-strip">
+        <div className="new-dev-container">
+          <div className="new-dev-content">
+            <span className="new-dev-label">Open Source</span>
+            <p>Build custom providers, extend the matching engine, or integrate settlement middleware.</p>
+          </div>
+          <a href="https://github.com/hoanlv214/qma" target="_blank" rel="noopener noreferrer" className="new-btn new-btn-secondary">
+            View on GitHub
           </a>
         </div>
       </section>
