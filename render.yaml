@@ -1,10 +1,10 @@
 services:
   - type: web
-    name: qma-api-rebuild
+    name: qma-api
     env: python
     plan: free
     region: singapore
-    branch: frontend/vite-react-rebuild
+    branch: main
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
@@ -13,8 +13,8 @@ services:
       - key: QMA_BACKTEST_OUTCOME_PATH
         value: data/sample_trading_analysis.csv
       - key: QMA_ARC_GATEWAY_URL
-        value: https://qma-arc-gateway-rebuild.onrender.com
-      # Must be the same value on qma-arc-gateway-rebuild.
+        value: https://qma-arc-gateway.onrender.com
+      # Must be the same value on qma-arc-gateway.
       - key: QMA_ARC_GATEWAY_INTERNAL_SECRET
         sync: false
       - key: QMA_ARC_SELLER_ADDRESS
@@ -33,34 +33,34 @@ services:
         value: public
       - key: QMA_ACCESS_TOKEN_SECRET
         generateValue: true
-      # Must be the same value on qma-arc-gateway-rebuild.
+      # Must be the same value on qma-arc-gateway.
       - key: QMA_SPLIT_LEG_URL_SECRET
         sync: false
-      # Must be the same value on qma-arc-gateway-rebuild.
+      # Must be the same value on qma-arc-gateway.
       - key: QMA_SPLIT_RECEIPT_SECRET
         sync: false
       - key: QMA_ADMIN_TOKEN
         sync: false
 
   - type: web
-    name: qma-arc-gateway-rebuild
+    name: qma-arc-gateway
     env: node
     plan: free
     region: singapore
-    branch: frontend/vite-react-rebuild
+    branch: main
     rootDir: arc_gateway
     buildCommand: npm install
     startCommand: npm start
     envVars:
       - key: QMA_BACKEND_INTERNAL_URL
-        value: https://qma-api-rebuild.onrender.com
-      # Must exactly match qma-api-rebuild.
+        value: https://qma-api.onrender.com
+      # Must exactly match qma-api.
       - key: QMA_ARC_GATEWAY_INTERNAL_SECRET
         sync: false
-      # Must exactly match qma-api-rebuild.
+      # Must exactly match qma-api.
       - key: QMA_SPLIT_LEG_URL_SECRET
         sync: false
-      # Must exactly match qma-api-rebuild.
+      # Must exactly match qma-api.
       - key: QMA_SPLIT_RECEIPT_SECRET
         sync: false
       - key: QMA_ARC_SELLER_ADDRESS
