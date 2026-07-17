@@ -9,6 +9,16 @@ def normalize_address(value: Optional[str]) -> str:
     return str(value or "").strip().lower()
 
 
+def wallet_matches(record: dict, address: str) -> bool:
+    normalized = normalize_address(address)
+    if not normalized or not isinstance(record, dict):
+        return False
+    return any(
+        normalize_address(record.get(field)) == normalized
+        for field in ("payer_address", "buyer_wallet_address")
+    )
+
+
 def event_key(event: dict) -> str:
     return str(event.get("settlement_id") or event.get("invoice_id") or "")
 
@@ -55,6 +65,7 @@ def paid_report_summary_from_row(row: dict) -> dict:
     summary = {
         "entitlement_id": row.get("entitlement_id") or entitlement.get("entitlement_id"),
         "payer_address": row.get("payer_address") or entitlement.get("payer_address"),
+        "buyer_wallet_address": row.get("buyer_wallet_address") or entitlement.get("buyer_wallet_address"),
         "symbol": row.get("symbol") or entitlement.get("symbol"),
         "tier": row.get("tier") or entitlement.get("tier"),
         "provider_id": row.get("provider_id") or entitlement.get("provider_id", "funding_memory"),
@@ -71,6 +82,71 @@ def paid_report_summary_from_row(row: dict) -> dict:
         "has_report": has_report,
     }
     return {key: value for key, value in summary.items() if value is not None}
+
+
+def invoice_payment_events(invoice: dict) -> list:
+    if not isinstance(invoice, dict):
+        return []
+    split = invoice.get("split") if isinstance(invoice.get("split"), dict) else {}
+    if split.get("mode") == "x402_direct_split":
+        events = []
+        for leg in split.get("legs") or []:
+            if leg.get("status") == "paid" and leg.get("settlement_id"):
+                events.append({
+                    "event_id": f"{invoice.get('invoice_id')}:{leg.get('leg_id')}",
+                    "invoice_id": invoice.get("invoice_id"),
+                    "settlement_id": leg.get("settlement_id"),
+                    "payer_address": leg.get("payer_address") or invoice.get("payer_address"),
+                    "buyer_wallet_address": leg.get("buyer_wallet_address") or invoice.get("buyer_wallet_address"),
+                    "symbol": invoice.get("symbol"),
+                    "tier": invoice.get("tier"),
+                    "provider_id": invoice.get("provider_id", "funding_memory"),
+                    "query_hash": invoice.get("query_hash"),
+                    "paid_at": leg.get("paid_at") or invoice.get("paid_at"),
+                    "amount_usdc": leg.get("amount_usdc"),
+                    "amount_raw": leg.get("amount_raw"),
+                    "gateway_status": leg.get("gateway_status"),
+                    "transaction_hash": leg.get("transaction_hash"),
+                    "explorer_url": leg.get("explorer_url"),
+                    "provider_owner_wallet": invoice.get("owner_wallet"),
+                    "buyer_type": invoice.get("buyer_type", "human"),
+                    "synthetic": invoice.get("synthetic", False),
+                    "agent_label": invoice.get("agent_label"),
+                    "run_source": invoice.get("run_source"),
+                    "resource_type": invoice.get("resource_type"),
+                    "settlement": invoice.get("settlement"),
+                    "accounting": invoice.get("accounting"),
+                    "split_leg": {
+                        "leg_id": leg.get("leg_id"),
+                        "role": leg.get("role"),
+                        "pay_to": leg.get("pay_to"),
+                        "amount_raw": leg.get("amount_raw"),
+                        "amount_usdc": leg.get("amount_usdc"),
+                    },
+                })
+        return events
+    return [{
+        "invoice_id": invoice.get("invoice_id"),
+        "settlement_id": invoice.get("settlement_id"),
+        "payer_address": invoice.get("payer_address"),
+        "buyer_wallet_address": invoice.get("buyer_wallet_address"),
+        "symbol": invoice.get("symbol"),
+        "tier": invoice.get("tier"),
+        "provider_id": invoice.get("provider_id", "funding_memory"),
+        "query_hash": invoice.get("query_hash"),
+        "paid_at": invoice.get("paid_at"),
+        "provider_owner_wallet": invoice.get("owner_wallet"),
+        "buyer_type": invoice.get("buyer_type", "human"),
+        "synthetic": invoice.get("synthetic", False),
+        "agent_label": invoice.get("agent_label"),
+        "run_source": invoice.get("run_source"),
+        "resource_type": invoice.get("resource_type"),
+        "amount_usdc": invoice.get("amount"),
+        "amount_raw": invoice.get("amount_raw"),
+        "gateway_status": invoice.get("gateway_status"),
+        "transaction_hash": invoice.get("transaction_hash"),
+        "explorer_url": invoice.get("explorer_url"),
+    }]
 
 
 class JsonStorage:
@@ -119,7 +195,7 @@ class JsonStorage:
         normalized = normalize_address(address)
         events = [
             event for event in self.load_payment_events()
-            if normalize_address(event.get("payer_address")) == normalized
+            if wallet_matches(event, normalized)
         ]
         return sorted(events, key=lambda item: item.get("paid_at") or 0, reverse=True)[:limit]
 
@@ -143,7 +219,7 @@ class JsonStorage:
         records = {
             entitlement_id: record for entitlement_id, record in self.load_paid_reports().items()
             if isinstance(record, dict)
-            and normalize_address(record.get("payer_address")) == normalized
+            and wallet_matches(record, normalized)
             and (not symbol_filter or str(record.get("symbol", "")).upper() == symbol_filter)
             and (not provider_id or record.get("provider_id", "funding_memory") == provider_id)
         }
@@ -193,7 +269,7 @@ class JsonStorage:
     def load_paid_report_by_id(self, address: str, entitlement_id: str) -> Optional[dict]:
         normalized = normalize_address(address)
         record = self.load_paid_reports().get(entitlement_id)
-        if isinstance(record, dict) and normalize_address(record.get("payer_address")) == normalized:
+        if wallet_matches(record, normalized):
             return record
         return None
 
@@ -209,7 +285,7 @@ class JsonStorage:
         invoices = {
             invoice_id: invoice for invoice_id, invoice in self.load_invoices().items()
             if isinstance(invoice, dict)
-            and normalize_address(invoice.get("payer_address")) == normalized
+            and wallet_matches(invoice, normalized)
             and invoice.get("status") == "paid"
         }
         ordered = sorted(
@@ -220,28 +296,10 @@ class JsonStorage:
         return dict(ordered[:limit])
 
     def load_paid_invoice_events(self, *, limit: int = 5000) -> list:
-        invoices = [
-            invoice for invoice in self.load_invoices().values()
-            if isinstance(invoice, dict) and invoice.get("status") == "paid"
-        ]
-        events = [{
-            "invoice_id": invoice.get("invoice_id"),
-            "settlement_id": invoice.get("settlement_id"),
-            "payer_address": invoice.get("payer_address"),
-            "symbol": invoice.get("symbol"),
-            "tier": invoice.get("tier"),
-            "provider_id": invoice.get("provider_id", "funding_memory"),
-            "query_hash": invoice.get("query_hash"),
-            "paid_at": invoice.get("paid_at"),
-            "provider_owner_wallet": invoice.get("owner_wallet"),
-            "buyer_type": invoice.get("buyer_type", "human"),
-            "resource_type": invoice.get("resource_type"),
-            "amount_usdc": invoice.get("amount"),
-            "amount_raw": invoice.get("amount_raw"),
-            "gateway_status": invoice.get("gateway_status"),
-            "transaction_hash": invoice.get("transaction_hash"),
-            "explorer_url": invoice.get("explorer_url"),
-        } for invoice in invoices]
+        events = []
+        for invoice in self.load_invoices().values():
+            if isinstance(invoice, dict) and invoice.get("status") == "paid":
+                events.extend(invoice_payment_events(invoice))
         return sorted(events, key=lambda item: item.get("paid_at") or 0, reverse=True)[:limit]
 
     def save_invoice(self, invoice: dict) -> None:
@@ -342,17 +400,8 @@ class SupabaseStorage:
         return [payment_event_from_row(row) for row in rows]
 
     def load_payment_events_for_wallet(self, address: str, *, limit: int = 5000) -> list:
-        rows = self._request(
-            "GET",
-            "qma_payment_events",
-            params={
-                "select": "event",
-                "payer_address": f"eq.{normalize_address(address)}",
-                "order": "paid_at.desc.nullslast",
-                "limit": str(limit),
-            },
-        ) or []
-        return [row.get("event") for row in rows if isinstance(row.get("event"), dict)]
+        events = [event for event in self.load_payment_events() if wallet_matches(event, address)]
+        return sorted(events, key=lambda item: item.get("paid_at") or 0, reverse=True)[:limit]
 
     def save_payment_events(self, events: list) -> None:
         rows = []
@@ -399,23 +448,20 @@ class SupabaseStorage:
         provider_id: Optional[str] = None,
         limit: int = 5000,
     ) -> dict:
-        params = {
-            "select": "entitlement_id,entitlement",
-            "payer_address": f"eq.{normalize_address(address)}",
-            "order": "saved_at.desc.nullslast",
-            "limit": str(limit),
+        symbol_filter = str(symbol or "").strip().upper()
+        records = {
+            entitlement_id: record
+            for entitlement_id, record in self.load_paid_reports().items()
+            if wallet_matches(record, address)
+            and (not symbol_filter or str(record.get("symbol", "")).upper() == symbol_filter)
+            and (not provider_id or record.get("provider_id", "funding_memory") == provider_id)
         }
-        if symbol:
-            params["symbol"] = f"eq.{str(symbol).strip().upper()}"
-        if provider_id:
-            params["provider_id"] = f"eq.{provider_id}"
-        rows = self._request("GET", "qma_paid_reports", params=params) or []
-        records = {}
-        for row in rows:
-            record = row.get("entitlement")
-            entitlement_id = row.get("entitlement_id") or (record or {}).get("entitlement_id")
-            if entitlement_id and isinstance(record, dict):
-                records[entitlement_id] = record
+        ordered = sorted(
+            records.items(),
+            key=lambda item: item[1].get("paid_at") or item[1].get("saved_at") or 0,
+            reverse=True,
+        )
+        records = dict(ordered[:limit])
         return records
 
     def load_paid_report_summaries(self, *, limit: int = 5000) -> list:
@@ -438,34 +484,22 @@ class SupabaseStorage:
         provider_id: Optional[str] = None,
         limit: int = 5000,
     ) -> list:
-        params = {
-            "select": PAID_REPORT_SUMMARY_SELECT,
-            "payer_address": f"eq.{normalize_address(address)}",
-            "order": "saved_at.desc.nullslast",
-            "limit": str(limit),
-        }
-        if symbol:
-            params["symbol"] = f"eq.{str(symbol).strip().upper()}"
-        if provider_id:
-            params["provider_id"] = f"eq.{provider_id}"
-        rows = self._request("GET", "qma_paid_reports", params=params) or []
-        return [paid_report_summary_from_row(row) for row in rows]
+        return [
+            paid_report_summary_from_row({
+                "entitlement_id": entitlement_id,
+                "entitlement": record,
+            })
+            for entitlement_id, record in self.load_paid_reports_for_wallet(
+                address,
+                symbol=symbol,
+                provider_id=provider_id,
+                limit=limit,
+            ).items()
+        ]
 
     def load_paid_report_by_id(self, address: str, entitlement_id: str) -> Optional[dict]:
-        rows = self._request(
-            "GET",
-            "qma_paid_reports",
-            params={
-                "select": "entitlement_id,entitlement",
-                "payer_address": f"eq.{normalize_address(address)}",
-                "entitlement_id": f"eq.{entitlement_id}",
-                "limit": "1",
-            },
-        ) or []
-        if not rows:
-            return None
-        record = rows[0].get("entitlement")
-        return record if isinstance(record, dict) else None
+        record = self.load_paid_reports().get(entitlement_id)
+        return record if wallet_matches(record, address) else None
 
     def save_paid_reports(self, reports: dict) -> None:
         rows = []
@@ -501,24 +535,19 @@ class SupabaseStorage:
         return invoices
 
     def load_paid_invoices_for_wallet(self, address: str, *, limit: int = 5000) -> dict:
-        rows = self._request(
-            "GET",
-            "qma_invoices",
-            params={
-                "select": "invoice_id,invoice",
-                "payer_address": f"eq.{normalize_address(address)}",
-                "status": "eq.paid",
-                "order": "paid_at.desc.nullslast",
-                "limit": str(limit),
-            },
-        ) or []
-        invoices = {}
-        for row in rows:
-            invoice = row.get("invoice")
-            invoice_id = row.get("invoice_id") or (invoice or {}).get("invoice_id")
-            if invoice_id and isinstance(invoice, dict):
-                invoices[invoice_id] = invoice
-        return invoices
+        invoices = {
+            invoice_id: invoice
+            for invoice_id, invoice in self.load_invoices().items()
+            if isinstance(invoice, dict)
+            and invoice.get("status") == "paid"
+            and wallet_matches(invoice, address)
+        }
+        ordered = sorted(
+            invoices.items(),
+            key=lambda item: item[1].get("paid_at") or item[1].get("created_at") or 0,
+            reverse=True,
+        )
+        return dict(ordered[:limit])
 
     def load_paid_invoice_events(self, *, limit: int = 5000) -> list:
         rows = self._request(
@@ -534,7 +563,8 @@ class SupabaseStorage:
         events = []
         for row in rows:
             invoice = row.get("invoice") if isinstance(row.get("invoice"), dict) else {}
-            events.append({
+            events.extend(invoice_payment_events({
+                **invoice,
                 "invoice_id": row.get("invoice_id") or invoice.get("invoice_id"),
                 "settlement_id": row.get("settlement_id") or invoice.get("settlement_id"),
                 "payer_address": row.get("payer_address") or invoice.get("payer_address"),
@@ -543,15 +573,7 @@ class SupabaseStorage:
                 "provider_id": row.get("provider_id") or invoice.get("provider_id", "funding_memory"),
                 "query_hash": row.get("query_hash") or invoice.get("query_hash"),
                 "paid_at": row.get("paid_at") if row.get("paid_at") is not None else invoice.get("paid_at"),
-                "provider_owner_wallet": invoice.get("owner_wallet"),
-                "buyer_type": invoice.get("buyer_type", "human"),
-                "resource_type": invoice.get("resource_type"),
-                "amount_usdc": invoice.get("amount"),
-                "amount_raw": invoice.get("amount_raw"),
-                "gateway_status": invoice.get("gateway_status"),
-                "transaction_hash": invoice.get("transaction_hash"),
-                "explorer_url": invoice.get("explorer_url"),
-            })
+            }))
         return events
 
     def save_invoice(self, invoice: dict) -> None:

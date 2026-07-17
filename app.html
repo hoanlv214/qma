@@ -127,7 +127,10 @@
                 </button>
                 <div class="wallet-menu" id="wallet-menu">
                     <div class="wallet-menu-header">
-                        <div class="wallet-menu-address" id="wallet-menu-address">Not connected</div>
+                        <div class="wallet-menu-identity">
+                            <div class="wallet-menu-address" id="wallet-menu-address">Not connected</div>
+                            <div class="wallet-role-label" id="wallet-role-label">Buyer</div>
+                        </div>
                         <button type="button" id="wallet-copy-btn" class="wallet-menu-icon-btn" style="display:none;"
                             title="Copy address" aria-label="Copy address">
                             <svg class="wallet-copy-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -163,19 +166,7 @@
                         </svg>
                         <span>Quick Profile Modal</span>
                     </button>
-                    <button type="button" id="wallet-agent-run-btn" class="wallet-menu-item">
-                        <svg class="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                            aria-hidden="true">
-                            <path d="M12 8V4H8"></path>
-                            <rect x="4" y="8" width="16" height="12" rx="2"></rect>
-                            <path d="M2 14h2"></path>
-                            <path d="M20 14h2"></path>
-                            <path d="M9 13h.01"></path>
-                            <path d="M15 13h.01"></path>
-                        </svg>
-                        <span>Agent Run / Judge Mode</span>
-                    </button>
+
                     <button type="button" id="wallet-fund-arc-btn" class="wallet-menu-item">
                         <svg class="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
@@ -183,7 +174,18 @@
                             <path d="M12 2v20"></path>
                             <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7H14a3.5 3.5 0 0 1 0 7H6"></path>
                         </svg>
-                        <span>Fund Arc Wallet</span>
+                        <span id="wallet-fund-arc-label">Fund Arc Wallet</span>
+                    </button>
+                    <button type="button" id="wallet-relayer-tools-btn" class="wallet-menu-item" style="display:none;">
+                        <svg class="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                            aria-hidden="true">
+                            <path d="M4 7h16"></path>
+                            <path d="M4 17h16"></path>
+                            <path d="M7 4v6"></path>
+                            <path d="M17 14v6"></path>
+                        </svg>
+                        <span>Relayer Deposit / Withdraw</span>
                     </button>
                     <a href="/marketplace" class="wallet-menu-link wallet-menu-item" id="wallet-marketplace-link">
                         <svg class="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none"
@@ -192,8 +194,18 @@
                             <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
                             <polyline points="9 22 9 12 15 12 15 22"></polyline>
                         </svg>
-                        <span>Marketplace</span>
+                        <span id="wallet-marketplace-label">Marketplace</span>
                     </a>
+                    <button type="button" id="wallet-provider-earnings-btn"
+                        class="wallet-menu-item wallet-menu-item-green" style="display:none;">
+                        <svg class="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                            aria-hidden="true">
+                            <path d="M12 2v20"></path>
+                            <path d="M7 6h8.5a3.5 3.5 0 0 1 0 7H9a3.5 3.5 0 0 0 0 7h8"></path>
+                        </svg>
+                        <span id="wallet-provider-earnings-label">Creator Gateway Earnings</span>
+                    </button>
                     <button type="button" id="wallet-withdraw-menu-btn" class="wallet-menu-item wallet-menu-item-green"
                         style="display:none;">
                         <svg class="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none"
@@ -202,7 +214,7 @@
                             <line x1="12" y1="19" x2="12" y2="5"></line>
                             <polyline points="5 12 12 5 19 12"></polyline>
                         </svg>
-                        <span>Withdraw Funds</span>
+                        <span id="wallet-withdraw-menu-label">Withdraw Funds</span>
                     </button>
                     <button type="button" id="wallet-disconnect-btn" class="wallet-menu-item wallet-menu-item-danger">
                         <svg class="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none"
@@ -230,6 +242,7 @@
 
         <!-- ── LEFT SIDEBAR — Live Signals ── -->
         <div class="live-feed-sidebar mobile-visible">
+
             <div class="sidebar-header">
                 <span class="sidebar-title">Live Signals</span>
                 <button class="refresh-btn" id="refresh-anomalies-btn">↻ Refresh</button>
@@ -257,6 +270,8 @@
 
         <!-- ── RIGHT: QUERY + REPORT ── -->
         <div class="main-panel">
+
+
 
             <!-- Query Card (Responsive Grid Layout) -->
             <div class="query-card-container">
@@ -289,50 +304,24 @@
                         inputs</button>
                 </div>
                 <form class="query-form-grid" id="query-form">
-                    <div class="query-fields-grid advanced-control">
+                    <div class="query-fields-grid advanced-control" id="dynamic-query-fields">
                         <div class="form-group provider-select-group">
                             <label class="form-label">Provider</label>
                             <select class="form-input provider-select" id="q-provider">
                                 <option value="funding_memory">funding_memory</option>
                             </select>
                         </div>
-                        <div class="form-group">
-                            <label class="form-label">Symbol</label>
-                            <input type="text" class="form-input" id="q-symbol" value="HYPE" required>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Funding Rate</label>
-                            <input type="number" step="0.0001" class="form-input" id="q-funding" value="-0.0120"
-                                required>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Mkt Cap ($)</label>
-                            <input type="number" step="1" class="form-input" id="q-mcap" value="8000000" required>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">FDV ($)</label>
-                            <input type="number" step="1" class="form-input" id="q-fdv" value="60000000" required>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Circ Ratio</label>
-                            <input type="number" step="0.01" min="0.01" max="1.5" class="form-input" id="q-circ"
-                                value="0.15" required>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">ATH Dist (%)</label>
-                            <input type="number" step="0.01" class="form-input" id="q-ath" value="-92.00" required>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">24h Vol ($)</label>
-                            <input type="number" step="1" class="form-input" id="q-vol" value="5200000" required>
-                        </div>
                     </div>
-                    <div class="query-actions-row">
+                    <div class="query-actions-row" style="display:flex; flex-wrap:wrap; gap:8px;">
                         <button type="submit" class="submit-btn tier-btn preview-tier" data-tier="preview">
                             <span>Preview Report · $0.001</span>
                         </button>
                         <button type="submit" class="submit-btn tier-btn full-tier" data-tier="full">
                             <span>Full Report · $0.005</span>
+                        </button>
+                        <button type="button" class="submit-btn copilot-btn" id="open-copilot-btn"
+                            style="background: var(--surface); color: var(--t1); border: 1px solid var(--border-color);">
+                            <span>🤖 Run Copilot</span>
                         </button>
                     </div>
                 </form>
@@ -733,17 +722,21 @@
                     </div>
 
                     <!-- Payment Activity (visible in Simple + Pro) -->
-                    <div class="report-section section-span-all platform-stats-section">
-                        <div class="section-header">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2">
-                                <rect x="2" y="5" width="20" height="14" rx="2" />
-                                <line x1="2" y1="10" x2="22" y2="10" />
-                            </svg>
-                            Payment Activity
-                        </div>
+                    <details class="report-section section-span-all platform-stats-section" style="padding-bottom: 0;">
+                        <summary class="section-header" style="cursor: pointer; user-select: none;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <rect x="2" y="5" width="20" height="14" rx="2" />
+                                    <line x1="2" y1="10" x2="22" y2="10" />
+                                </svg>
+                                Platform Analytics & Payment Activity <span
+                                    style="font-size: 0.65rem; color: var(--t3); font-weight: 400;">(Click to
+                                    view)</span>
+                            </div>
+                        </summary>
 
-                        <div class="seller-balance-grid">
+                        <div class="seller-balance-grid" style="margin-top: 16px;">
                             <div class="balance-tile green">
                                 <span class="balance-tile-label">Seller Gateway — Available</span>
                                 <span class="balance-tile-val" id="sb-available">—</span>
@@ -769,6 +762,7 @@
                                         <thead>
                                             <tr>
                                                 <th>Symbol</th>
+                                                <th>Provider</th>
                                                 <th>Payer</th>
                                                 <th>Amount</th>
                                                 <th>Circle Status</th>
@@ -777,7 +771,7 @@
                                         </thead>
                                         <tbody id="payment-activity-body">
                                             <tr>
-                                                <td colspan="5" style="color:var(--t3);">No payments yet.</td>
+                                                <td colspan="6" style="color:var(--t3);">No payments yet.</td>
                                             </tr>
                                         </tbody>
                                     </table>
@@ -795,13 +789,14 @@
                                         <thead>
                                             <tr>
                                                 <th>Wallet</th>
+                                                <th>Providers</th>
                                                 <th>Signals</th>
                                                 <th>Spent</th>
                                             </tr>
                                         </thead>
                                         <tbody id="payer-breakdown-body">
                                             <tr>
-                                                <td colspan="3" style="color:var(--t3);">No wallet activity yet.</td>
+                                                <td colspan="4" style="color:var(--t3);">No wallet activity yet.</td>
                                             </tr>
                                         </tbody>
                                     </table>
@@ -813,7 +808,29 @@
                                 </div>
                             </div>
                         </div>
-                    </div>
+
+                        <div class="split-table-col creator-split-ledger">
+                            <div class="subsection-title">Marketplace Revenue Ledger</div>
+                            <div style="overflow-x:auto;">
+                                <table class="activity-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Provider</th>
+                                            <th>Gross</th>
+                                            <th>Creator Earned</th>
+                                            <th>Platform Fee</th>
+                                            <th>Claimable</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="creator-split-body">
+                                        <tr>
+                                            <td colspan="5" style="color:var(--t3);">No creator revenue yet.</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </details>
 
                 </div><!-- /report-container -->
 
@@ -1241,7 +1258,7 @@
             }
         });
     </script>
-    <script src="/public/app.js" defer></script>
+    <script src="/public/app.js?v=direct-split-withdraw-stats-20260707" defer></script>
 </body>
 
 </html>

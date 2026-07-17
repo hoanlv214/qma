@@ -1,119 +1,92 @@
-# QMA Agent API Demo
+# QMA Agent API
 
-QMA can be used by a human through the web UI, or by an autonomous buyer agent through the API.
+QMA exposes the same paid-intelligence decision boundary to the React UI and
+external agents. The browser is optional; the backend API is the contract.
 
-The agent demo shows this loop:
+## Agent decision contract
+
+```http
+POST /api/v1/agent/decision
+Content-Type: application/json
+```
+
+Example no-spend request:
+
+```json
+{
+  "prompt": "Find the best preview report under 0.01 USDC",
+  "budget_usdc": 0.01,
+  "max_price_usdc": 0.005,
+  "allowed_providers": ["funding_memory", "oi_memory"],
+  "allowed_tiers": ["preview", "full"],
+  "limit": 25,
+  "use_llm": false
+}
+```
+
+The endpoint:
+
+1. loads recommendations and wallet entitlements;
+2. optionally asks the configured backend LLM for a minimal plan;
+3. resolves the candidate from authoritative QMA data;
+4. validates provider, tier, price, budget, score, ownership, and query;
+5. returns a decision for the caller to accept or reject.
+
+The response includes:
 
 ```text
-Read QMA Agent Picks
--> choose the best affordable report under budget
--> create an invoice
--> pay the x402/Circle Gateway requirement
--> verify settlement
--> receive a paid JSON report
+status
+plan
+validation
+resolved_candidate
+canonical_query
+policy_check
+rejected_candidates
+evaluated_candidates
+candidate_count
+decision_source
 ```
 
-## Run Dry Mode
+The LLM cannot supply an invoice secret, payment recipient, split leg, access
+token, settlement id, or report content.
 
-Dry mode is safe for a video demo. It creates an invoice but does not sign or spend USDC.
+## Buyer sequence
 
-```powershell
-cd qma
-npm install
-npm run agent:dry
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Agent as React or external agent
+    participant Decision as /api/v1/agent/decision
+    participant Invoice as /api/v1/payment/invoice
+    participant Gateway as Arc Gateway/x402
+    participant Verify as /api/v1/payment/verify
+    participant Report as provider report endpoint
+
+    Agent->>Decision: Prompt + hard policy
+    Decision-->>Agent: Resolved candidate + validation
+    Agent->>Invoice: Provider/query/tier-bound invoice request
+    Invoice-->>Agent: Invoice and payment requirements
+    Agent->>Gateway: Sign creator leg
+    Gateway-->>Agent: Creator receipt
+    Agent->>Gateway: Sign platform leg
+    Gateway-->>Agent: Platform receipt
+    Agent->>Verify: Settlement proof and invoice binding
+    Verify-->>Agent: Payment state + token only if permitted
+    Agent->>Report: Paid report request with token
+    Report-->>Agent: Preview/full report JSON
 ```
 
-Equivalent command:
+## Consumers
 
-```powershell
-node examples/agent_buyer.mjs --dry-run
-```
+The React UI calls this same endpoint through
+`frontend/src/services/agent.ts` and `frontend/src/hooks/useAgentBuyer.ts`.
+The external CLI calls it through `examples/agent_session.mjs` or
+`examples/agent_buyer.mjs`. Both consumers must treat the backend response as
+the canonical decision boundary and must not reconstruct provider prices or
+entitlements independently.
 
-Useful options:
-
-```powershell
-node examples/agent_buyer.mjs --dry-run --tier preview
-node examples/agent_buyer.mjs --dry-run --tier full
-node examples/agent_buyer.mjs --dry-run --symbol HYPE
-node examples/agent_buyer.mjs --dry-run --api http://127.0.0.1:8000
-```
-
-## Run Live Payment Mode
-
-Live mode signs real Arc Testnet transactions from an agent wallet.
-
-Requirements:
-
-- The wallet must be funded on Arc Testnet.
-- New test wallets can request USDC from the Circle Faucet: https://faucet.circle.com/
-- If Circle Gateway balance is too low, the agent can auto-approve and auto-deposit USDC before paying.
-- Never commit `AGENT_PRIVATE_KEY`.
-
-```powershell
-$env:QMA_API_URL="https://qma-api.onrender.com"
-$env:AGENT_PRIVATE_KEY="0xYOUR_TEST_WALLET_PRIVATE_KEY"
-$env:AGENT_BUDGET_USDC="0.01"
-$env:AGENT_MAX_PRICE_USDC="0.005"
-$env:AGENT_GATEWAY_DEPOSIT_USDC="1"
-npm run agent:preview
-```
-
-By default, live mode auto-deposits `AGENT_GATEWAY_DEPOSIT_USDC` into Circle Gateway if needed. Disable that behavior with:
-
-```powershell
-node examples/agent_buyer.mjs --live --tier preview --no-auto-deposit
-```
-
-For local backend:
-
-```powershell
-$env:QMA_API_URL="http://127.0.0.1:8000"
-npm run agent:preview
-```
-
-## What This Proves
-
-The web app is not the only buyer.
-
-Any external agent can:
-
-1. Discover paid opportunities from `/api/v1/agent/recommendations`.
-2. Create a query-bound invoice at `/api/v1/payment/invoice`.
-3. Pay through the x402 `PAYMENT-REQUIRED` challenge.
-4. Verify settlement at `/api/v1/payment/verify`.
-5. Fetch the paid report JSON with `X-QMA-Access-Token`.
-
-This is the Lepton story:
-
-```text
-QMA sells market intelligence per call.
-Humans can buy it in the dashboard.
-Agents can buy it directly over API.
-Providers can later plug in their own paid datasets.
-```
-
-## Demo Script Under 3 Minutes
-
-Recommended recording order:
-
-1. Open `https://qma-three.vercel.app/`.
-2. Say: "QMA is a pay-per-call market intelligence agent on Arc."
-3. Click `Launch App`.
-4. Point at `Agent Picks`: QMA ranks live funding anomalies and suggests Preview or Full.
-5. Buy `Preview 0.001 USDC`, show Circle Gateway/x402 flow.
-6. Buy or show `Full 0.005 USDC`, then point at the analog table, percentiles, Arcscan tx, and diagnostics.
-7. Open wallet profile and show purchases, spend, and entitlement history.
-8. Switch terminal and run:
-
-```powershell
-npm run agent:dry
-```
-
-Close with:
-
-```text
-The same paid intelligence API works for humans and autonomous agents.
-The reusable part is the Paid Intelligence API Kit.
-```
-
-If time is tight, keep the CLI part to 20 seconds. Dry mode is enough to show agent decision-making; live web payment already proves real Circle/Arc settlement.
+CLI commands, Circle wallet setup, dry-run/live behavior, and troubleshooting
+belong to [examples/README.md](../examples/README.md). The bounded polling
+policy and session accounting belong to
+[AUTONOMOUS_AGENT.md](AUTONOMOUS_AGENT.md). Payment invariants belong to
+[`../PAYMENT_FLOW.md`](../PAYMENT_FLOW.md).

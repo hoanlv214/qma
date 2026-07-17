@@ -1,17 +1,24 @@
 import express from "express";
-import { createGatewayMiddleware } from "@circle-fin/x402-batching/server";
+import { BatchFacilitatorClient, createGatewayMiddleware } from "@circle-fin/x402-batching/server";
 import {
   createPublicClient,
+  createWalletClient,
   encodeFunctionData,
   erc20Abi,
   formatUnits,
+  getAddress,
   http,
   parseAbi,
   parseUnits,
+  zeroAddress,
+  type Hex,
 } from "viem";
+import { arcTestnet } from "viem/chains";
+import { privateKeyToAccount } from "viem/accounts";
 import { decodeBatch } from "./decode-batch.ts";
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 
 type PaidRequest = express.Request & {
   payment?: {
@@ -40,8 +47,9 @@ loadLocalEnv();
 
 const PORT = Number(process.env.PORT ?? process.env.QMA_ARC_GATEWAY_PORT ?? "3000");
 const SELLER =
+  process.env.QMA_PLATFORM_TREASURY_ADDRESS ??
   process.env.QMA_ARC_SELLER_ADDRESS ??
-  "0x933a2405f84c224be1ef373ba16e992e1f459682";
+  "0x23e7c029a287a83d80b2e084e008211658dda11d";
 const AMOUNT = process.env.QMA_ARC_AMOUNT ?? "$0.005";
 const DEFAULT_DEPOSIT_USDC = process.env.QMA_ARC_DEFAULT_DEPOSIT_USDC ?? "1.00";
 const DEFAULT_APPROVE_USDC = process.env.QMA_ARC_APPROVE_USDC ?? "10.00";
@@ -57,19 +65,262 @@ const BALANCES_URL = `${GATEWAY_API}/v1/balances`;
 const GATEWAY_WALLET =
   process.env.GATEWAY_WALLET ??
   "0x0077777d7EBA4688BDeF3E311b846F25870A19B9";
+const GATEWAY_MINTER =
+  process.env.QMA_ARC_GATEWAY_MINTER ??
+  "0x0022222ABE238Cc2C7Bb1f21003F0a260052475B";
+const RELAYER_PRIVATE_KEY = process.env.QMA_WITHDRAW_RELAYER_PRIVATE_KEY as Hex | undefined;
+const RELAYER_ADDRESS = process.env.QMA_WITHDRAW_RELAYER_ADDRESS;
+const CLAIM_PAYOUT_PRIVATE_KEY = (
+  process.env.QMA_CREATOR_CLAIM_PAYOUT_PRIVATE_KEY ??
+  process.env.QMA_TREASURY_PAYOUT_PRIVATE_KEY ??
+  process.env.QMA_WITHDRAW_RELAYER_PRIVATE_KEY
+) as Hex | undefined;
+const INTERNAL_SECRET = process.env.QMA_ARC_GATEWAY_INTERNAL_SECRET ?? "";
+const SPLIT_LEG_URL_SECRET =
+  process.env.QMA_SPLIT_LEG_URL_SECRET ??
+  `split-url:${process.env.QMA_ACCESS_TOKEN_SECRET ?? process.env.QMA_SESSION_SECRET ?? "qma-local-demo-secret-change-me"}`;
+const SPLIT_RECEIPT_SECRET =
+  process.env.QMA_SPLIT_RECEIPT_SECRET ??
+  `split-receipt:${process.env.QMA_ACCESS_TOKEN_SECRET ?? process.env.QMA_SESSION_SECRET ?? "qma-local-demo-secret-change-me"}`;
+const QMA_BACKEND_URL =
+  (process.env.QMA_BACKEND_INTERNAL_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "");
 const NETWORK = "eip155:5042002";
+const NETWORK_NAME = "Arc Testnet";
 const ARC_DOMAIN = 26;
 const ARC_TESTNET_USDC =
   "0x3600000000000000000000000000000000000000" as `0x${string}`;
+const SETTLEMENT_RAIL = "circle_gateway_x402";
+const SETTLEMENT_CURRENCY = "USDC";
+const SUPPORTED_SETTLEMENT_ASSETS = ["USDC"];
 const GATEWAY_WALLET_ADDRESS = GATEWAY_WALLET as `0x${string}`;
 const publicClient = createPublicClient({
   transport: http(process.env.ARC_TESTNET_RPC ?? "https://rpc.testnet.arc.network"),
 });
+const facilitator = new BatchFacilitatorClient({ url: GATEWAY_API });
 const GATEWAY_WALLET_ABI = parseAbi([
   "function deposit(address token,uint256 amount)",
 ]);
+const GATEWAY_MINTER_ABI = parseAbi([
+  "function gatewayMint(bytes attestationPayload,bytes signature)",
+]);
+
+type WireBurnIntent = {
+  maxBlockHeight: string;
+  maxFee: string;
+  spec: {
+    version: number;
+    sourceDomain: number;
+    destinationDomain: number;
+    sourceContract: Hex;
+    destinationContract: Hex;
+    sourceToken: Hex;
+    destinationToken: Hex;
+    sourceDepositor: Hex;
+    destinationRecipient: Hex;
+    sourceSigner: Hex;
+    destinationCaller: Hex;
+    value: string;
+    salt: Hex;
+    hookData: Hex;
+  };
+};
+
+class RelayHttpError extends Error {
+  constructor(message: string, public status = 400) {
+    super(message);
+    this.name = "RelayHttpError";
+  }
+}
+
+function bytes32ToAddress(value: string): string {
+  if (!/^0x[0-9a-fA-F]{64}$/.test(value || "")) {
+    throw new RelayHttpError("malformed bytes32 address", 400);
+  }
+  return getAddress(`0x${value.slice(-40)}` as Hex);
+}
+
+function sameAddress(a: string, b: string): boolean {
+  return getAddress(a as Hex).toLowerCase() === getAddress(b as Hex).toLowerCase();
+}
+
+function sameAddressSafe(a: string, b: string): boolean {
+  try {
+    return sameAddress(a, b);
+  } catch {
+    return false;
+  }
+}
+
+function requireInternalSecret(req: express.Request) {
+  if (!INTERNAL_SECRET) return;
+  const provided = String(req.headers["x-qma-internal-secret"] ?? "");
+  if (provided !== INTERNAL_SECRET) {
+    throw new RelayHttpError("internal gateway secret required", 403);
+  }
+}
+
+function hmacHex(secret: string, payload: string): string {
+  return crypto.createHmac("sha256", secret).update(payload).digest("hex");
+}
+
+function timingSafeEqualHex(a: string, b: string): boolean {
+  const left = Buffer.from(String(a || ""), "hex");
+  const right = Buffer.from(String(b || ""), "hex");
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+function splitPayload(parts: Array<string | number>): string {
+  return parts.map((part) => String(part)).join("/");
+}
+
+function normalizeAddress(value: string): string {
+  return getAddress(value as Hex).toLowerCase();
+}
+
+function splitLegUrlSignature(params: {
+  invoiceId: string;
+  providerId: string;
+  tier: string;
+  legId: string;
+  amountRaw: string;
+  payTo: string;
+  expiresAt: string;
+}): string {
+  return hmacHex(
+    SPLIT_LEG_URL_SECRET,
+    splitPayload([
+      params.invoiceId,
+      params.providerId,
+      params.tier,
+      params.legId,
+      BigInt(params.amountRaw).toString(),
+      normalizeAddress(params.payTo),
+      Number(params.expiresAt).toFixed(0),
+    ]),
+  );
+}
+
+function splitReceipt(params: {
+  invoiceId: string;
+  legId: string;
+  payTo: string;
+  settledAmountRaw: string;
+  settlementId: string;
+  payer: string;
+  gatewayStatus: string;
+  buyerWalletAddress?: string;
+}): string {
+  const fields = [
+    params.invoiceId,
+    params.legId,
+    normalizeAddress(params.payTo),
+    BigInt(params.settledAmountRaw).toString(),
+    params.settlementId,
+    normalizeAddress(params.payer),
+    params.gatewayStatus.trim().toLowerCase(),
+  ];
+  if (params.buyerWalletAddress) {
+    fields.push(normalizeAddress(params.buyerWalletAddress));
+  }
+  return hmacHex(
+    SPLIT_RECEIPT_SECRET,
+    splitPayload(fields),
+  );
+}
+
+async function backendJson(pathname: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers);
+  headers.set("Content-Type", "application/json");
+  if (INTERNAL_SECRET) headers.set("x-qma-internal-secret", INTERNAL_SECRET);
+  const resp = await fetch(`${QMA_BACKEND_URL}${pathname}`, { ...init, headers });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    throw new RelayHttpError(data.detail || data.error || `Backend returned ${resp.status}`, resp.status);
+  }
+  return data;
+}
+
+async function fetchCircleTransfer(settlementId: string) {
+  let lastStatus = 0;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const resp = await fetch(`${GATEWAY_API}/v1/x402/transfers/${settlementId}`);
+    const data = await resp.json().catch(() => ({}));
+    if (resp.ok) return data;
+    lastStatus = resp.status;
+    await new Promise((resolve) => setTimeout(resolve, 750));
+  }
+  throw new RelayHttpError(`Circle settlement lookup failed: ${lastStatus}`, 502);
+}
+
+function buildSplitPaymentRequirements(req: express.Request, leg: Record<string, unknown>) {
+  return {
+    scheme: "exact" as const,
+    network: NETWORK,
+    asset: ARC_TESTNET_USDC,
+    amount: BigInt(String(leg.amount_raw)).toString(),
+    payTo: getAddress(String(leg.pay_to)),
+    maxTimeoutSeconds: 7 * 24 * 60 * 60 + 600,
+    extra: {
+      name: "GatewayWalletBatched",
+      version: "1",
+      verifyingContract: GATEWAY_WALLET,
+    },
+    resource: {
+      url: req.originalUrl,
+      description: `QMA split leg ${leg.leg_id}`,
+      mimeType: "application/json",
+    },
+  };
+}
+
+function validateWithdrawIntent(
+  burnIntent: WireBurnIntent,
+  expectedDepositor?: string,
+) {
+  const spec = burnIntent?.spec;
+  if (!spec) throw new RelayHttpError("missing burnIntent.spec", 400);
+
+  const depositor = bytes32ToAddress(spec.sourceDepositor);
+  const signer = bytes32ToAddress(spec.sourceSigner);
+  const recipient = bytes32ToAddress(spec.destinationRecipient);
+  const sourceContract = bytes32ToAddress(spec.sourceContract);
+  const destinationContract = bytes32ToAddress(spec.destinationContract);
+  const sourceToken = bytes32ToAddress(spec.sourceToken);
+  const destinationToken = bytes32ToAddress(spec.destinationToken);
+  const destinationCaller = bytes32ToAddress(spec.destinationCaller);
+
+  if (expectedDepositor && !sameAddress(depositor, expectedDepositor)) {
+    throw new RelayHttpError("intent depositor does not match expected owner", 403);
+  }
+  if (!sameAddress(signer, depositor)) {
+    throw new RelayHttpError("intent signer must match depositor", 403);
+  }
+  if (spec.sourceDomain !== ARC_DOMAIN || spec.destinationDomain !== ARC_DOMAIN) {
+    throw new RelayHttpError("intent targets an unexpected Gateway domain", 400);
+  }
+  if (!sameAddress(sourceContract, GATEWAY_WALLET) || !sameAddress(destinationContract, GATEWAY_MINTER)) {
+    throw new RelayHttpError("intent targets an unexpected Gateway contract", 400);
+  }
+  if (!sameAddress(sourceToken, ARC_TESTNET_USDC) || !sameAddress(destinationToken, ARC_TESTNET_USDC)) {
+    throw new RelayHttpError("intent targets an unsupported token", 400);
+  }
+  if (!sameAddress(destinationCaller, zeroAddress)) {
+    throw new RelayHttpError("intent mint is not permissionless", 400);
+  }
+
+  const valueAtomic = BigInt(spec.value);
+  if (valueAtomic <= 0n) throw new RelayHttpError("withdraw amount must be > 0", 400);
+  return {
+    depositor,
+    signer,
+    recipient,
+    amountUsdc: formatUnits(valueAtomic, 6),
+    valueAtomic,
+  };
+}
 
 const app = express();
+app.use(express.json({ limit: "1mb" }));
 
 app.use((req, res, next) => {
   const origin = req.headers.origin ?? "*";
@@ -120,8 +371,18 @@ app.get("/health", (_req, res) => {
     status: "ok",
     gateway: "circle-x402-batching",
     network: NETWORK,
+    network_name: NETWORK_NAME,
     seller: SELLER,
     amount: AMOUNT,
+    settlement: {
+      rail: SETTLEMENT_RAIL,
+      currency: SETTLEMENT_CURRENCY,
+      token_address: ARC_TESTNET_USDC,
+      decimals: 6,
+      supported_assets: SUPPORTED_SETTLEMENT_ASSETS,
+      gateway_supported: true,
+      funding_visibility_only: ["EURC", "cirBTC"],
+    },
   });
 });
 
@@ -139,6 +400,171 @@ function amountForRequest(req: express.Request) {
   }
   return AMOUNT;
 }
+
+app.get("/qma-access/split-leg", async (req, res) => {
+  try {
+    const invoiceId = String(req.query.invoice_id ?? "");
+    const providerId = String(req.query.provider_id ?? "");
+    const tier = String(req.query.tier ?? "");
+    const legId = String(req.query.leg_id ?? "");
+    const amountRaw = String(req.query.amount_raw ?? "");
+    const payTo = String(req.query.pay_to ?? "");
+    const expiresAt = String(req.query.expires_at ?? "");
+    const sig = String(req.query.sig ?? "");
+    if (!invoiceId || !providerId || !tier || !legId || !amountRaw || !payTo || !expiresAt || !sig) {
+      throw new RelayHttpError("missing split leg query fields", 400);
+    }
+    if (Date.now() / 1000 > Number(expiresAt)) {
+      throw new RelayHttpError("split invoice leg is expired", 410);
+    }
+    const expectedSig = splitLegUrlSignature({ invoiceId, providerId, tier, legId, amountRaw, payTo, expiresAt });
+    if (!timingSafeEqualHex(sig, expectedSig)) {
+      throw new RelayHttpError("invalid split leg signature", 403);
+    }
+
+    const lookup = await backendJson(`/api/internal/invoices/${encodeURIComponent(invoiceId)}/split-leg/${encodeURIComponent(legId)}`);
+    const invoice = lookup.invoice ?? {};
+    const leg = lookup.leg ?? {};
+    if (invoice.status === "paid" || invoice.status === "expired") {
+      throw new RelayHttpError(`invoice is ${invoice.status}`, 409);
+    }
+    if (String(invoice.provider_id) !== providerId || String(invoice.tier) !== tier) {
+      throw new RelayHttpError("split leg provider/tier does not match invoice", 403);
+    }
+    if (BigInt(String(leg.amount_raw)).toString() !== BigInt(amountRaw).toString()) {
+      throw new RelayHttpError("split leg amount does not match invoice", 403);
+    }
+    if (normalizeAddress(String(leg.pay_to)) !== normalizeAddress(payTo)) {
+      throw new RelayHttpError("split leg pay_to does not match invoice", 403);
+    }
+    if (leg.status === "paid" && leg.settlement_id) {
+      throw new RelayHttpError("split leg is already settled", 409);
+    }
+
+    const requirementsWithResource = buildSplitPaymentRequirements(req, leg);
+    const { resource, ...requirements } = requirementsWithResource;
+    const paymentSignature = req.header("payment-signature");
+    if (!paymentSignature) {
+      const paymentRequired = {
+        x402Version: 2,
+        resource,
+        accepts: [requirements],
+      };
+      res.status(402).set(
+        "PAYMENT-REQUIRED",
+        Buffer.from(JSON.stringify(paymentRequired)).toString("base64"),
+      ).json({});
+      return;
+    }
+
+    await backendJson(
+      `/api/internal/invoices/${encodeURIComponent(invoiceId)}/split-leg/${encodeURIComponent(legId)}/reserve`,
+      { method: "POST", body: "{}" },
+    );
+
+    let settlementId = "";
+    let buyerWalletAddress = "";
+    try {
+      const payload = JSON.parse(Buffer.from(paymentSignature, "base64").toString("utf8"));
+      const authorizedPayer = String(payload?.payload?.authorization?.from ?? payload?.authorization?.from ?? "");
+      if (authorizedPayer && sameAddressSafe(authorizedPayer, String(leg.pay_to))) {
+        throw new RelayHttpError("buyer wallet matches split recipient; self-transfer payments are not allowed", 400);
+      }
+      const verify = await facilitator.verify(payload, requirements);
+      if (!verify.isValid) {
+        throw new RelayHttpError(`payment verification failed: ${verify.invalidReason}`, 402);
+      }
+      if (verify.payer && sameAddressSafe(String(verify.payer), String(leg.pay_to))) {
+        throw new RelayHttpError("buyer wallet matches split recipient; self-transfer payments are not allowed", 400);
+      }
+      const settle = await facilitator.settle(payload, requirements);
+      if (!settle.success || !settle.transaction) {
+        throw new RelayHttpError(`payment settlement failed: ${settle.errorReason ?? "unknown"}`, 402);
+      }
+      settlementId = settle.transaction;
+      const transfer = await fetchCircleTransfer(settlementId);
+      const settledAmountRaw = BigInt(String(transfer.amount ?? "0")).toString();
+      if (settledAmountRaw !== BigInt(String(leg.amount_raw)).toString()) {
+        throw new RelayHttpError("settled split leg amount does not match invoice", 502);
+      }
+      const settledPayTo = normalizeAddress(String(transfer.toAddress ?? leg.pay_to));
+      if (settledPayTo !== normalizeAddress(String(leg.pay_to))) {
+        throw new RelayHttpError("settled split leg pay_to does not match invoice", 502);
+      }
+      const payer = String(transfer.fromAddress ?? verify.payer ?? settle.payer ?? "");
+      // Circle Agent Wallet payments authorize with the backing EOA in the
+      // x402 payload. The logical agent-wallet identity is bound at invoice
+      // creation and returned by the internal invoice lookup; never replace
+      // it with the settlement payer.
+      buyerWalletAddress = String(invoice.buyer_wallet_address ?? "").trim();
+      const gatewayStatus = String(transfer.status ?? "").trim().toLowerCase();
+      if (!payer || !gatewayStatus) {
+        throw new RelayHttpError("Circle settlement response is missing payer or status", 502);
+      }
+      const receipt = splitReceipt({
+        invoiceId,
+        legId,
+        payTo: String(leg.pay_to),
+        settledAmountRaw,
+        settlementId,
+        payer,
+        gatewayStatus,
+        buyerWalletAddress,
+      });
+      const recordPath = `/api/internal/invoices/${encodeURIComponent(invoiceId)}/split-leg/${encodeURIComponent(legId)}/record`;
+      const recordPayload = {
+        settlement_id: settlementId,
+        amount_raw: settledAmountRaw,
+        pay_to: String(leg.pay_to),
+        payer_address: payer,
+        buyer_wallet_address: buyerWalletAddress || null,
+        gateway_status: gatewayStatus,
+        sidecar_receipt: receipt,
+      };
+      try {
+        await backendJson(recordPath, { method: "POST", body: JSON.stringify(recordPayload) });
+      } catch (recordError) {
+        // A successful record may have committed before the response was
+        // lost. Retry the same settlement record; the backend treats the
+        // same (invoice, leg, settlement) as an idempotent no-op.
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        try {
+          await backendJson(recordPath, { method: "POST", body: JSON.stringify(recordPayload) });
+        } catch {
+          throw recordError;
+        }
+      }
+      res.json({
+        status: "paid",
+        invoice_id: invoiceId,
+        leg_id: legId,
+        role: leg.role,
+        pay_to: String(leg.pay_to),
+        amount_raw: settledAmountRaw,
+        amount_usdc: formatUnits(BigInt(settledAmountRaw), 6),
+        payer,
+        buyer_wallet_address: buyerWalletAddress || null,
+        gateway_status: gatewayStatus,
+        settlement_id: settlementId,
+        settlementId,
+        sidecar_receipt: receipt,
+      });
+    } catch (err) {
+      if (!settlementId) {
+        await backendJson(
+          `/api/internal/invoices/${encodeURIComponent(invoiceId)}/split-leg/${encodeURIComponent(legId)}/release`,
+          { method: "POST", body: "{}" },
+        ).catch(() => undefined);
+      }
+      throw err;
+    }
+  } catch (err) {
+    const statusCode = err instanceof RelayHttpError ? err.status : 500;
+    res.status(statusCode).json({
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
 
 app.get("/qma-access", (req, res, next) => {
   gateway.require(amountForRequest(req))(req, res, next);
@@ -158,6 +584,22 @@ app.get("/qma-access", (req, res, next) => {
     paid_by: payer,
     amount_raw: amount,
     amount_usdc: amountUsdc,
+    pricing: {
+      amount_usdc: amountUsdc,
+    },
+    settlement: {
+      rail: SETTLEMENT_RAIL,
+      currency: SETTLEMENT_CURRENCY,
+      token_address: ARC_TESTNET_USDC,
+      decimals: 6,
+      amount: amountUsdc,
+      network: NETWORK_NAME,
+      gateway_supported: true,
+    },
+    accounting: {
+      currency: SETTLEMENT_CURRENCY,
+      amount_usdc: amountUsdc,
+    },
     network,
     settlementId: transaction,
   });
@@ -255,6 +697,190 @@ app.get("/api/wallet-status/:address", async (req, res) => {
     });
   } catch (err) {
     res.status(502).json({ error: String((err as Error).message ?? err) });
+  }
+});
+
+app.get("/api/withdraw/relay/status", (_req, res) => {
+  let relayer = RELAYER_ADDRESS ?? null;
+  if (RELAYER_PRIVATE_KEY) {
+    try {
+      relayer = privateKeyToAccount(RELAYER_PRIVATE_KEY).address;
+    } catch {
+      relayer = RELAYER_ADDRESS ?? null;
+    }
+  }
+  res.json({
+    mode: RELAYER_PRIVATE_KEY ? "platform_relayed" : "seller_wallet",
+    configured: Boolean(RELAYER_PRIVATE_KEY),
+    relayer,
+    gatewayMinter: GATEWAY_MINTER,
+    gatewayWallet: GATEWAY_WALLET,
+    usdcAddress: ARC_TESTNET_USDC,
+  });
+});
+
+app.post("/api/withdraw/relay", async (req, res) => {
+  try {
+    if (!RELAYER_PRIVATE_KEY) {
+      throw new RelayHttpError("withdraw relayer private key is not configured", 503);
+    }
+    const { burnIntent, signature, expectedDepositor } = req.body || {};
+    if (!burnIntent || !signature) {
+      throw new RelayHttpError("burnIntent and signature are required", 400);
+    }
+    const validation = validateWithdrawIntent(burnIntent as WireBurnIntent, expectedDepositor);
+
+    const transferRes = await fetch(`${GATEWAY_API}/v1/transfer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify([{ burnIntent, signature }]),
+    });
+    const transferData = (await transferRes.json().catch(() => ({}))) as {
+      success?: boolean;
+      error?: string;
+      message?: string;
+      attestation?: Hex;
+      signature?: Hex;
+    };
+    if (
+      !transferRes.ok ||
+      transferData.success === false ||
+      transferData.error ||
+      !transferData.attestation ||
+      !transferData.signature
+    ) {
+      const reason = transferData.message || transferData.error || `HTTP ${transferRes.status}`;
+      throw new RelayHttpError(`gateway transfer failed: ${reason}`, 502);
+    }
+
+    const account = privateKeyToAccount(RELAYER_PRIVATE_KEY);
+    const walletClient = createWalletClient({
+      account,
+      chain: arcTestnet,
+      transport: http(process.env.ARC_TESTNET_RPC ?? "https://rpc.testnet.arc.network"),
+    });
+    const relayPublicClient = createPublicClient({
+      chain: arcTestnet,
+      transport: http(process.env.ARC_TESTNET_RPC ?? "https://rpc.testnet.arc.network"),
+    });
+    const mintTxHash = await walletClient.writeContract({
+      address: GATEWAY_MINTER as Hex,
+      abi: GATEWAY_MINTER_ABI,
+      functionName: "gatewayMint",
+      args: [transferData.attestation, transferData.signature],
+    });
+    const receipt = await relayPublicClient.waitForTransactionReceipt({
+      hash: mintTxHash,
+      timeout: 90_000,
+    });
+    if (receipt.status !== "success") {
+      throw new RelayHttpError("gatewayMint reverted on-chain", 502);
+    }
+
+    res.json({
+      status: "success",
+      relayed: true,
+      mode: "platform_relayed",
+      depositor: validation.depositor,
+      recipient: validation.recipient,
+      amount_usdc: validation.amountUsdc,
+      mintTxHash,
+      transaction_hash: mintTxHash,
+      explorer_url: `${ARC_EXPLORER}/tx/${mintTxHash}`,
+      relayer: account.address,
+      attestation: transferData.attestation,
+      signature: transferData.signature,
+    });
+  } catch (err) {
+    const status = err instanceof RelayHttpError ? err.status : 502;
+    res.status(status).json({ error: String((err as Error).message ?? err) });
+  }
+});
+
+app.get("/api/creator/claim/status", (_req, res) => {
+  let executor = RELAYER_ADDRESS ?? null;
+  if (CLAIM_PAYOUT_PRIVATE_KEY) {
+    try {
+      executor = privateKeyToAccount(CLAIM_PAYOUT_PRIVATE_KEY).address;
+    } catch {
+      executor = RELAYER_ADDRESS ?? null;
+    }
+  }
+  res.json({
+    mode: "creator_initiated_hot_wallet_transfer",
+    configured: Boolean(CLAIM_PAYOUT_PRIVATE_KEY),
+    executor,
+    relayer: executor,
+    treasury: SELLER,
+    usdcAddress: ARC_TESTNET_USDC,
+    requiresInternalSecret: Boolean(INTERNAL_SECRET),
+  });
+});
+
+app.post("/api/creator/claim", async (req, res) => {
+  try {
+    requireInternalSecret(req);
+    if (!CLAIM_PAYOUT_PRIVATE_KEY) {
+      throw new RelayHttpError("creator claim payout private key is not configured", 503);
+    }
+    const recipient = getAddress(String(req.body?.recipient || "") as Hex);
+    const amountUsdc = String(req.body?.amountUsdc ?? req.body?.amount_usdc ?? "");
+    const claimId = String(req.body?.claimId ?? req.body?.claim_id ?? "");
+    const amountRaw = parseUnits(amountUsdc, 6);
+    if (amountRaw <= 0n) {
+      throw new RelayHttpError("claim amount must be > 0", 400);
+    }
+
+    const account = privateKeyToAccount(CLAIM_PAYOUT_PRIVATE_KEY);
+    const walletClient = createWalletClient({
+      account,
+      chain: arcTestnet,
+      transport: http(process.env.ARC_TESTNET_RPC ?? "https://rpc.testnet.arc.network"),
+    });
+    const claimPublicClient = createPublicClient({
+      chain: arcTestnet,
+      transport: http(process.env.ARC_TESTNET_RPC ?? "https://rpc.testnet.arc.network"),
+    });
+    const balance = await claimPublicClient.readContract({
+      address: ARC_TESTNET_USDC,
+      abi: erc20Abi,
+      functionName: "balanceOf",
+      args: [account.address],
+    });
+    if (balance < amountRaw) {
+      throw new RelayHttpError(
+        `claim payout wallet has insufficient USDC: ${formatUnits(balance, 6)} available`,
+        409,
+      );
+    }
+
+    const txHash = await walletClient.writeContract({
+      address: ARC_TESTNET_USDC,
+      abi: erc20Abi,
+      functionName: "transfer",
+      args: [recipient, amountRaw],
+    });
+    const receipt = await claimPublicClient.waitForTransactionReceipt({
+      hash: txHash,
+      timeout: 90_000,
+    });
+    if (receipt.status !== "success") {
+      throw new RelayHttpError("creator claim transfer reverted on-chain", 502);
+    }
+
+    res.json({
+      status: "success",
+      claimId,
+      recipient,
+      amount_usdc: formatUnits(amountRaw, 6),
+      payout_executor: account.address,
+      relayer: account.address,
+      transaction_hash: txHash,
+      explorer_url: `${ARC_EXPLORER}/tx/${txHash}`,
+    });
+  } catch (err) {
+    const status = err instanceof RelayHttpError ? err.status : 502;
+    res.status(status).json({ error: String((err as Error).message ?? err) });
   }
 });
 

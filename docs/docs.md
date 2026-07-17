@@ -121,7 +121,9 @@ qma/
     sample_trading_analysis.csv
   payment_ledger.json     Local verified payment ledger
   paid_reports.json       Local paid entitlement/report store
-  .env.example            Example local environment
+  .env.example            Minimal environment template
+  .env.local.example      Local development overrides
+  .env.advanced.example   Optional tuning and deploy overrides
   .gitignore              Ignores secrets/logs/local runtime files
 ```
 
@@ -363,8 +365,8 @@ Arc Gateway sidecar:
 
 ```powershell
 cd qma\arc_gateway
-npm.cmd install
-npm.cmd start
+npm install
+npm start
 ```
 
 Default URLs:
@@ -376,7 +378,8 @@ Default URLs:
 
 ## Environment
 
-Use `qma/.env.example` as the starting point.
+Use `qma/.env.example` as the starting point. Add values from `.env.local.example` for local
+development and `.env.advanced.example` only when you need to override defaults.
 
 ```env
 QMA_PAYMENT_AMOUNT_USDC=0.05

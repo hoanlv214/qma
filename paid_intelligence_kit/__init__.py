@@ -1,7 +1,13 @@
 """Reusable paid intelligence primitives for Arc/Circle micropayments."""
 
 from .core import (
+    DEFAULT_SETTLEMENT_CURRENCY,
+    DEFAULT_SETTLEMENT_DECIMALS,
+    DEFAULT_SETTLEMENT_RAIL,
+    DEFAULT_SETTLEMENT_TOKEN_ADDRESS,
+    SUPPORTED_SETTLEMENT_ASSETS,
     SUPPORTED_TIERS,
+    accounting_profile,
     canonical_query_payload,
     create_invoice,
     entitlement_key,
@@ -10,10 +16,12 @@ from .core import (
     normalize_address,
     normalize_tier,
     payment_requirement,
+    pricing_profile,
     query_fingerprint,
     record_entitlement,
     require_access,
     resolve_settlement_tx,
+    settlement_profile,
     sign_access_token,
     pricing_config,
     quote_tier_price,

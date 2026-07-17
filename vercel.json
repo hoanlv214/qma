@@ -1,60 +1,13 @@
 {
-  "version": 2,
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "installCommand": "cd frontend && npm ci",
+  "buildCommand": "cd frontend && npm run build",
+  "outputDirectory": "frontend/dist",
   "cleanUrls": true,
-  "builds": [
+  "rewrites": [
     {
-      "src": "index.html",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "app.html",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "user.html",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "marketplace.html",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "docs.html",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "public/**/*",
-      "use": "@vercel/static"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "https://qma-api.onrender.com/api/$1"
-    },
-    {
-      "src": "/",
-      "dest": "/index.html"
-    },
-    {
-      "src": "/app",
-      "dest": "/app.html"
-    },
-    {
-      "src": "/user",
-      "dest": "/user.html"
-    },
-    {
-      "src": "/marketplace",
-      "dest": "/marketplace.html"
-    },
-    {
-      "src": "/docs",
-      "dest": "/docs.html"
-    },
-    {
-      "src": "/public/(.*)",
-      "dest": "/public/$1"
+      "source": "/:path*", "destination": "/"
     }
   ]
 }

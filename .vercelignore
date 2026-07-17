@@ -1,4 +1,4 @@
-# Vercel deploys only the static frontend.
+# Vercel builds frontend/ and deploys frontend/dist only.
 # Render owns the FastAPI backend and Arc Gateway sidecar.
 
 main.py
@@ -16,8 +16,17 @@ docs/
 examples/
 private_data/
 scripts/
+backend/
+tests/
 
-# Serve root HTML entrypoints and public assets.
+# Legacy static pages are retained as reference, not deployed by Vercel.
+/index.html
+/app.html
+/user.html
+/marketplace.html
+/docs.html
+
+# Vite reads shared assets from root public/ during the build.
 
 .env
 .env.*

@@ -12,8 +12,8 @@ python qma\main.py
 
 ```powershell
 cd qma\arc_gateway
-npm.cmd install
-npm.cmd start
+npm install
+npm start
 ```
 
 Default URLs:
@@ -22,6 +22,12 @@ Default URLs:
 - Arc Gateway sidecar: `http://127.0.0.1:3000`
 - Circle facilitator: `https://gateway-api-testnet.circle.com`
 - Arc explorer: `https://testnet.arcscan.app`
+
+The React rebuild runs separately with Vite and uses the same backend payment
+contract. Start it with `cd frontend && npm run dev`, then set
+`VITE_QMA_API_BASE_URL` when the API is not same-origin. The legacy root HTML
+pages and the rebuild frontend are different clients; a successful legacy page
+load does not prove that the rebuild deployment is configured.
 
 New buyer wallets can request Arc Testnet USDC from the Circle Faucet:
 
@@ -39,23 +45,29 @@ Optional overrides:
 QMA_PRICE_PREVIEW_USDC=0.001
 QMA_PRICE_FULL_USDC=0.005
 QMA_PAYMENT_AMOUNT_USDC=0.005
+QMA_PLATFORM_TREASURY_ADDRESS=0x23e7c029a287a83d80b2e084e008211658dda11d
 QMA_ARC_SELLER_ADDRESS=0x23e7c029a287a83d80b2e084e008211658dda11d
 QMA_ARC_GATEWAY_URL=http://127.0.0.1:3000
 QMA_CIRCLE_GATEWAY_API=https://gateway-api-testnet.circle.com
 QMA_ARC_EXPLORER=https://testnet.arcscan.app
+QMA_SPLIT_LEG_URL_SECRET=replace-with-split-url-secret
+QMA_ARC_GATEWAY_INTERNAL_SECRET=replace-with-sidecar-internal-secret
 ```
 
-The seller address must be the wallet that should receive USDC through Circle Gateway. For this demo, keep buyer and seller separate. If `acc1` is your test buyer, use `acc2` or a fresh treasury wallet as `QMA_ARC_SELLER_ADDRESS`.
+The platform treasury receives the platform leg of direct split payments. Keep buyer, creator, and platform treasury wallets separate during testing. `QMA_ARC_SELLER_ADDRESS` is kept as a backward-compatible alias for older single-seller payment flows.
 
 ## Demo Flow
 
-1. Open `http://127.0.0.1:8000`.
+1. Open `http://127.0.0.1:8000` for the legacy shell, or the Vite dev URL for
+   the rebuild.
 2. Submit a QMA query as either Preview or Full Report to create a tier-bound invoice.
 3. Click `Pay on Arc Testnet`.
 4. Wallet switches/adds Arc Testnet and asks you to sign `TransferWithAuthorization`.
 5. The Arc Gateway sidecar settles the signed authorization through Circle Gateway.
 6. QMA verifies the returned settlement UUID through Circle's transfer API.
-7. The report unlocks once Circle accepts the settlement.
+7. The report unlocks only after the backend settlement policy accepts all
+   required payment legs. A pending, expired, failed, or disputed invoice does
+   not issue a new access token.
 
 If your Circle Gateway balance on Arc is lower than the report price, the UI now asks wallet to send two real transactions first:
 

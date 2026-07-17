@@ -85,6 +85,10 @@ if (mockWalletAddr) {
                 console.log("Mock signTypedData:", params);
                 return '0x' + Array.from({ length: 65 }, () => Math.floor(Math.random() * 256).toString(16).padStart(2, '0')).join('');
             }
+            if (method === 'personal_sign') {
+                console.log("Mock personal_sign:", params);
+                return '0x' + Array.from({ length: 65 }, () => Math.floor(Math.random() * 256).toString(16).padStart(2, '0')).join('');
+            }
             if (method === 'eth_getTransactionReceipt') {
                 return { status: '0x1' };
             }
@@ -100,6 +104,8 @@ if (mockWalletAddr) {
 let currentInvoiceId = null;
 let currentInvoiceSecret = null;
 let currentArcGatewayUrl = null;
+let currentInvoiceSplitLegs = [];
+let currentInvoiceSplitSettlements = [];
 let currentSettlementId = null;
 let currentInvoiceAmount = null;
 let currentInvoiceTier = 'full';
@@ -109,13 +115,20 @@ let quotedPrices = { preview: null, full: null };
 let gatewayDepositConfig = { default_usdc: null, default_approve_usdc: null };
 let providerCatalog = {};
 let currentSellerAddress = null;
+let currentInvoiceSettlement = null;
+let currentInvoiceAccounting = null;
 let currentAccessToken = null;
 let activeQuery = null;
 let hasUnlockedReport = false;
 let paymentSuccessReady = false;
 let connectedWallet = null;
+let walletDisconnectRequested = false;
 let gatewayContractAddress = null;
 let sellerWalletAddress = null;
+let adminWalletAddress = null;
+let withdrawMode = 'seller_wallet';
+let withdrawRelayerAddress = null;
+let creatorClaimConfig = { configured: false };
 let arcGatewayBaseUrl = '';
 let paymentActivityPage = 1;
 let paymentActivityTotalPages = 1;
@@ -151,6 +164,129 @@ function apiErrorMessage(data, fallback = 'Request failed') {
         return detail.msg || detail.message || JSON.stringify(detail);
     }
     return detail || fallback;
+}
+
+function normalizeInvoiceSettlement(invoice = {}) {
+    const settlement = invoice.settlement || {};
+    const currency = settlement.currency || invoice.currency || 'USDC';
+    const amount = settlement.amount ?? invoice.amount_usdc ?? invoice.amount;
+    return {
+        rail: settlement.rail || 'circle_gateway_x402',
+        currency,
+        token_address: settlement.token_address || settlement.tokenAddress || null,
+        decimals: Number.isFinite(Number(settlement.decimals)) ? Number(settlement.decimals) : 6,
+        amount,
+        network: settlement.network || invoice.network_name || invoice.network || 'Arc Testnet',
+        gateway_supported: settlement.gateway_supported !== false
+    };
+}
+
+function normalizeInvoiceAccounting(invoice = {}, settlement = normalizeInvoiceSettlement(invoice)) {
+    const accounting = invoice.accounting || {};
+    return {
+        currency: accounting.currency || settlement.currency || 'USDC',
+        amount_usdc: accounting.amount_usdc ?? invoice.amount_usdc ?? invoice.amount
+    };
+}
+
+function pendingInvoiceStoreKey(account = connectedWallet) {
+    const owner = String(account || connectedWallet || localStorage.getItem('qma_connected_wallet') || 'browser').toLowerCase();
+    return `qma_pending_invoices_${owner}`;
+}
+
+function pendingInvoiceMatchKey(query = activeQuery, providerId = currentProviderId, tier = currentInvoiceTier) {
+    if (!query) return '';
+    return `${providerId || 'funding_memory'}:${normalizeTier(tier || 'full')}:${signalFingerprint(query)}`;
+}
+
+function readPendingInvoiceStore(account = connectedWallet) {
+    try {
+        const raw = localStorage.getItem(pendingInvoiceStoreKey(account));
+        const parsed = raw ? JSON.parse(raw) : {};
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+function writePendingInvoiceStore(store, account = connectedWallet) {
+    try {
+        localStorage.setItem(pendingInvoiceStoreKey(account), JSON.stringify(store || {}));
+    } catch (err) {
+        console.warn('Could not persist pending invoice state', err);
+    }
+}
+
+function rememberPendingInvoice(invoiceData, query = activeQuery, account = connectedWallet) {
+    if (!invoiceData?.invoice_id || !invoiceData?.invoice_secret || !query) return;
+    const key = pendingInvoiceMatchKey(query, invoiceData.provider_id || currentProviderId, invoiceData.tier || currentInvoiceTier);
+    if (!key) return;
+    const store = readPendingInvoiceStore(account);
+    store[key] = {
+        saved_at: Date.now(),
+        query,
+        invoice: {
+            ...invoiceData,
+            invoice_secret: invoiceData.invoice_secret,
+            arc_gateway_url: invoiceData.arc_gateway_url || currentArcGatewayUrl,
+            split_legs: Array.isArray(invoiceData.split_legs) ? invoiceData.split_legs : currentInvoiceSplitLegs,
+        },
+    };
+    store.__last_key = key;
+    writePendingInvoiceStore(store, account);
+}
+
+function clearPendingInvoice(query = activeQuery, providerId = currentProviderId, tier = currentInvoiceTier, account = connectedWallet) {
+    const key = pendingInvoiceMatchKey(query, providerId, tier);
+    if (!key) return;
+    const store = readPendingInvoiceStore(account);
+    delete store[key];
+    if (store.__last_key === key) delete store.__last_key;
+    writePendingInvoiceStore(store, account);
+}
+
+async function refreshPendingInvoice(entry) {
+    const invoice = entry?.invoice || {};
+    if (!invoice.invoice_id || !invoice.invoice_secret) return null;
+    const resp = await fetch(apiUrl(`/api/v1/payment/invoices/${encodeURIComponent(invoice.invoice_id)}/status?invoice_secret=${encodeURIComponent(invoice.invoice_secret)}`));
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+        if (resp.status === 400 || resp.status === 402 || resp.status === 403 || resp.status === 404) return null;
+        throw new Error(apiErrorMessage(data, 'Could not refresh pending invoice.'));
+    }
+    return {
+        ...invoice,
+        ...data,
+        invoice_secret: invoice.invoice_secret,
+        arc_gateway_url: invoice.arc_gateway_url || data.arc_gateway_url,
+        split_legs: Array.isArray(data.split_legs) ? data.split_legs : invoice.split_legs,
+    };
+}
+
+function currentInvoiceDataSnapshot(overrides = {}) {
+    return {
+        invoice_id: currentInvoiceId,
+        invoice_secret: currentInvoiceSecret,
+        arc_gateway_url: currentArcGatewayUrl,
+        split_legs: currentInvoiceSplitLegs,
+        amount: currentInvoiceAmount,
+        amount_usdc: currentInvoiceAmount,
+        tier: currentInvoiceTier,
+        provider_id: currentProviderId,
+        buyer_type: currentInvoiceBuyerType,
+        settlement: currentInvoiceSettlement,
+        accounting: currentInvoiceAccounting,
+        wallet_address: currentSellerAddress,
+        settlement_id: currentSettlementId,
+        ...overrides,
+    };
+}
+
+function formatAssetAmount(amount, currency = 'USDC', decimals = 6) {
+    const num = Number(amount);
+    if (!Number.isFinite(num)) return `${amount || '0'} ${currency}`;
+    const fixed = num.toFixed(Math.min(Math.max(Number(decimals) || 6, 2), 6));
+    return `${fixed.replace(/0+$/, '').replace(/\.$/, '')} ${currency}`;
 }
 
 function walletTokenCacheKey(account) {
@@ -402,18 +538,29 @@ const dsSymbols = document.getElementById('ds-symbols');
 const dsRange = document.getElementById('ds-range');
 
 // Form Fields
-const fSymbol = document.getElementById('q-symbol');
-const fFunding = document.getElementById('q-funding');
-const fMcap = document.getElementById('q-mcap');
-const fFdv = document.getElementById('q-fdv');
-const fCirc = document.getElementById('q-circ');
-const fAth = document.getElementById('q-ath');
-const fVol = document.getElementById('q-vol');
+let fSymbol = document.getElementById('q-symbol');
+let fFunding = document.getElementById('q-funding');
+let fMcap = document.getElementById('q-mcap');
+let fFdv = document.getElementById('q-fdv');
+let fCirc = document.getElementById('q-circ');
+let fAth = document.getElementById('q-ath');
+let fVol = document.getElementById('q-vol');
+let fAmount = document.getElementById('q-amount');
+let fOiChange = document.getElementById('q-oi-change');
+let fLongShort = document.getElementById('q-long-short');
+let fPrice = document.getElementById('q-price');
 const metricsPayments = document.getElementById('metrics-payments');
 const metricsRevenue = document.getElementById('metrics-revenue');
 const metricsBalance = document.getElementById('metrics-balance');
 const paymentActivityBody = document.getElementById('payment-activity-body');
 const payerBreakdownBody = document.getElementById('payer-breakdown-body');
+const creatorSplitBody = document.getElementById('creator-split-body');
+const gwRuntimeAsset = document.getElementById('gw-runtime-asset');
+const gwRuntimeRail = document.getElementById('gw-runtime-rail');
+const gwDomainCount = document.getElementById('gw-domain-count');
+const gwArcDomain = document.getElementById('gw-arc-domain');
+const gwSupportedAssets = document.getElementById('gw-supported-assets');
+const gwSplitMode = document.getElementById('gw-split-mode');
 const paymentPrevBtn = document.getElementById('payment-prev-btn');
 const paymentNextBtn = document.getElementById('payment-next-btn');
 const paymentPageLabel = document.getElementById('payment-page-label');
@@ -424,10 +571,17 @@ const walletButton = document.getElementById('wallet-button');
 const walletButtonLabel = document.getElementById('wallet-button-label');
 const walletMenu = document.getElementById('wallet-menu');
 const walletMenuAddress = document.getElementById('wallet-menu-address');
+const walletRoleLabel = document.getElementById('wallet-role-label');
 const walletProfileBtn = document.getElementById('wallet-profile-btn');
 const walletQuickProfileBtn = document.getElementById('wallet-quick-profile-btn');
-const walletAgentRunBtn = document.getElementById('wallet-agent-run-btn');
+const openCopilotBtn = document.getElementById('open-copilot-btn');
 const walletFundArcBtn = document.getElementById('wallet-fund-arc-btn');
+const walletFundArcLabel = document.getElementById('wallet-fund-arc-label');
+const walletRelayerToolsBtn = document.getElementById('wallet-relayer-tools-btn');
+const walletMarketplaceLabel = document.getElementById('wallet-marketplace-label');
+const walletProviderEarningsBtn = document.getElementById('wallet-provider-earnings-btn');
+const walletProviderEarningsLabel = document.getElementById('wallet-provider-earnings-label');
+const walletWithdrawMenuLabel = document.getElementById('wallet-withdraw-menu-label');
 const walletDisconnectBtn = document.getElementById('wallet-disconnect-btn');
 const walletProfileModal = document.getElementById('wallet-profile-modal');
 const walletProfileClose = document.getElementById('wallet-profile-close');
@@ -1089,6 +1243,9 @@ function resetPaymentDetailPanel() {
     document.getElementById('inv-id-row')?.style.setProperty('display', 'none');
     setPaymentDetailValue('inv-id-display', null);
     setPaymentDetailValue('pf-settlement-id', null);
+    setPaymentDetailValue('pf-settlement-asset', 'USDC');
+    setPaymentDetailValue('pf-accounting-asset', 'USDC');
+    setPaymentDetailValue('pf-funding-visibility', 'EURC/cirBTC funding visibility only, not Gateway settlement yet');
     setPaymentDetailValue('pf-gateway-contract', null);
     setPaymentDetailValue('pf-seller-wallet-addr', null);
     setPaymentDetailValue('pf-buyer-gateway-bal', null);
@@ -1307,7 +1464,11 @@ function normalizeSignalPayload(source = {}) {
         circRatio: numberOrNull(read('circRatio', 'circ_ratio')),
         fromATH: numberOrNull(source.fromATH ?? source.fromATHPercent ?? source['fromATH(%)']),
         volume24h: numberOrNull(read('volume24h', 'volume_24h')),
-        amount: numberOrNull(source.amount),
+        amount: numberOrNull(source.amount ?? source.openInterest ?? source.open_interest),
+        openInterest: numberOrNull(source.openInterest ?? source.open_interest ?? source.amount),
+        openInterestChange24h: numberOrNull(source.openInterestChange24h ?? source.open_interest_change_24h),
+        longShortRatio: numberOrNull(source.longShortRatio ?? source.long_short_ratio),
+        price: numberOrNull(source.price),
     };
 }
 
@@ -1403,6 +1564,94 @@ function formatTierPrice(tier = 'full') {
     return price != null ? `${price.toFixed(3)} USDC` : '— USDC';
 }
 
+function activeProvider() {
+    return providerCatalog[currentProviderId] || {};
+}
+
+function activeProviderMode() {
+    return activeProvider().ui_schema?.display_mode || activeProvider().category || 'funding_memory';
+}
+
+function formatSchemaValue(value, key = '') {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return value || 'n/a';
+    if (key === 'fundingRate') return `${(num * 100).toFixed(3)}%`;
+    if (['amount', 'openInterest', 'marketCap', 'volume24h', 'FDV'].includes(key)) {
+        return `$${formatCompact(num)}`;
+    }
+    if (key === 'openInterestChange24h' || key === 'fromATH') return `${num.toFixed(2)}%`;
+    return String(num);
+}
+
+function applyProviderFormSchema(provider = activeProvider()) {
+    const container = document.getElementById('dynamic-query-fields');
+    if (!container) return;
+
+    // Remove any existing fields except the provider select group
+    const providerSelectGroup = container.querySelector('.provider-select-group');
+    container.innerHTML = '';
+    if (providerSelectGroup) {
+        container.appendChild(providerSelectGroup);
+    }
+
+    const fields = provider?.ui_schema?.fields || [];
+    fields.forEach((field) => {
+        // Map UI keys to exact IDs for compatibility
+        let inputId = `q-${field.key}`;
+        if (field.key === 'fundingRate') inputId = 'q-funding';
+        else if (field.key === 'marketCap') inputId = 'q-mcap';
+        else if (field.key === 'FDV') inputId = 'q-fdv';
+        else if (field.key === 'circRatio') inputId = 'q-circ';
+        else if (field.key === 'fromATH') inputId = 'q-ath';
+        else if (field.key === 'volume24h') inputId = 'q-vol';
+        else if (field.key === 'amount' || field.key === 'openInterest') inputId = 'q-amount';
+        else if (field.key === 'openInterestChange24h') inputId = 'q-oi-change';
+        else if (field.key === 'longShortRatio') inputId = 'q-long-short';
+        else if (field.key === 'price') inputId = 'q-price';
+
+        const group = document.createElement('div');
+        group.className = 'form-group';
+        group.dataset.queryField = field.key;
+
+        const labelHtml = `<label class="form-label">${escapeHtml(field.label || field.key)}</label>`;
+        const isNumber = field.type === 'number';
+        const typeHtml = isNumber ? 'number' : 'text';
+        const stepHtml = field.step ? `step="${field.step}"` : '';
+        const requiredHtml = field.required ? 'required' : '';
+        const defaultVal = field.default !== undefined ? field.default : '';
+
+        group.innerHTML = `
+            ${labelHtml}
+            <input
+                type="${typeHtml}"
+                class="form-input"
+                id="${inputId}"
+                ${stepHtml}
+                ${requiredHtml}
+                value="${escapeHtml(String(defaultVal))}"
+                data-schema-default="true"
+            >
+        `;
+        container.appendChild(group);
+    });
+
+    // Re-cache input elements in global variables
+    fSymbol = document.getElementById('q-symbol');
+    fFunding = document.getElementById('q-funding');
+    fMcap = document.getElementById('q-mcap');
+    fFdv = document.getElementById('q-fdv');
+    fCirc = document.getElementById('q-circ');
+    fAth = document.getElementById('q-ath');
+    fVol = document.getElementById('q-vol');
+    fAmount = document.getElementById('q-amount');
+    fOiChange = document.getElementById('q-oi-change');
+    fLongShort = document.getElementById('q-long-short');
+    fPrice = document.getElementById('q-price');
+
+    if (provider?.provider_id && dsProvider) dsProvider.textContent = provider.provider_id;
+    updateBasicSignalCard();
+}
+
 function updateTierPriceLabels() {
     document.querySelectorAll('.tier-btn[data-tier="preview"] span').forEach((el) => {
         const price = tierPrice('preview');
@@ -1448,6 +1697,14 @@ function updateBasicSignalCard(source = null) {
 
     symbolEl.textContent = symbol;
     leadEl.textContent = `${symbol} currently shows ${fundingText}. QMA compares this snapshot with similar historical funding events.`;
+    if (activeProviderMode() === 'open_interest_memory') {
+        const providerName = activeProvider().provider_name || 'QMA';
+        const oi = formatSchemaValue(payload.amount || payload.openInterest, 'amount');
+        const turnover = Number(payload.amount || 0) && Number(payload.marketCap || 0)
+            ? `${((Number(payload.amount) / Number(payload.marketCap)) * 100).toFixed(2)}% OI/MCap`
+            : 'turnover context';
+        leadEl.textContent = `${symbol} currently shows ${oi} open-interest context and ${turnover}. ${providerName} compares the normalized snapshot with historical market regimes.`;
+    }
     const priceHint = previewPrice != null && fullPrice != null
         ? `Summary from ${previewPrice.toFixed(3)} USDC. Full report from ${fullPrice.toFixed(3)} USDC.`
         : 'Pay once per exact snapshot. No subscription.';
@@ -1555,6 +1812,11 @@ function signalCacheKey(source = {}, tier = 'full', providerId = currentProvider
 
 function signalSummary(source = {}) {
     const payload = normalizeSignalPayload(source);
+    if (activeProviderMode() === 'open_interest_memory') {
+        const oi = formatSchemaValue(payload.amount || payload.openInterest, 'amount');
+        const volume = formatSchemaValue(payload.volume24h, 'volume24h');
+        return `${payload.symbol || 'n/a'} - OI ${oi} - Vol ${volume}`;
+    }
     const funding = Number.isFinite(payload.fundingRate) ? `${(payload.fundingRate * 100).toFixed(3)}%` : 'n/a';
     const mcap = Number.isFinite(payload.marketCap) ? `$${formatCompact(payload.marketCap)}` : 'n/a';
     return `${payload.symbol || 'n/a'} · Funding ${funding} · MCap ${mcap}`;
@@ -1562,6 +1824,9 @@ function signalSummary(source = {}) {
 
 function signalPlainLabel(source = {}) {
     const payload = normalizeSignalPayload(source);
+    if (activeProviderMode() === 'open_interest_memory') {
+        return `${payload.symbol || 'n/a'} - open-interest setup`;
+    }
     const fundingText = formatFundingPlain(payload.fundingRate, { includeNumbers: false });
     return `${payload.symbol || 'n/a'} — ${fundingText}`;
 }
@@ -1781,8 +2046,41 @@ function setConnectedWallet(account) {
     }
 }
 
+function getOwnedProvidersForWallet(account = connectedWallet) {
+    if (!account) return [];
+    return Object.values(providerCatalog || {}).filter((provider) => (
+        provider?.owner_wallet && sameAddress(provider.owner_wallet, account)
+    ));
+}
+
+function getConnectedWalletRoleState(account = connectedWallet) {
+    const isConnected = Boolean(account);
+    const ownedProviders = getOwnedProvidersForWallet(account);
+    const isTreasury = isConnected && sellerWalletAddress && sameAddress(account, sellerWalletAddress);
+    const isAdmin = isConnected && adminWalletAddress && sameAddress(account, adminWalletAddress);
+    const isRelayer = isConnected && withdrawRelayerAddress && sameAddress(account, withdrawRelayerAddress);
+    const isProviderOwner = ownedProviders.length > 0;
+    const labels = [];
+    if (isTreasury) labels.push('Treasury');
+    if (isProviderOwner) labels.push('Creator');
+    if (isAdmin) labels.push('Admin');
+    if (isRelayer) labels.push('Relayer');
+    if (!labels.length) labels.push(isConnected ? 'Buyer' : 'Not connected');
+    const primary = isTreasury
+        ? 'treasury'
+        : isProviderOwner
+            ? 'creator'
+            : isAdmin
+                ? 'admin'
+                : isRelayer
+                    ? 'relayer'
+                    : 'buyer';
+    return { isConnected, isTreasury, isAdmin, isRelayer, isProviderOwner, ownedProviders, labels, primary };
+}
+
 function updateWalletUi() {
     const isConnected = Boolean(connectedWallet);
+    const roleState = getConnectedWalletRoleState();
     walletButton.classList.toggle('connected', isConnected);
     walletButtonLabel.textContent = isConnected ? shortAddress(connectedWallet) : 'Connect Wallet';
     walletMenuAddress.textContent = isConnected ? shortAddress(connectedWallet) : 'Not connected';
@@ -1797,11 +2095,34 @@ function updateWalletUi() {
         copyBtn.style.display = isConnected ? 'inline-flex' : 'none';
     }
 
-    // Show withdraw button inside dropdown ONLY if connected as seller
-    const isSeller = isConnected && sellerWalletAddress && sameAddress(connectedWallet, sellerWalletAddress);
+    if (walletRoleLabel) {
+        walletRoleLabel.textContent = roleState.labels.join(' / ');
+        walletRoleLabel.className = `wallet-role-label role-${roleState.primary}`;
+    }
+    if (walletMarketplaceLabel) {
+        walletMarketplaceLabel.textContent = roleState.isAdmin ? 'Admin Marketplace' : 'Marketplace';
+    }
+    if (walletFundArcLabel) {
+        walletFundArcLabel.textContent = roleState.isRelayer ? 'Fund Relayer Wallet' : 'Fund Arc Wallet';
+    }
+    if (walletProviderEarningsBtn) {
+        walletProviderEarningsBtn.style.display = roleState.isProviderOwner ? 'flex' : 'none';
+    }
+    if (walletProviderEarningsLabel) {
+        walletProviderEarningsLabel.textContent = roleState.isProviderOwner ? 'Creator Gateway Earnings' : 'Creator Earnings';
+    }
+    if (walletRelayerToolsBtn) {
+        walletRelayerToolsBtn.style.display = roleState.isRelayer ? 'flex' : 'none';
+    }
+
+    // Only the treasury/seller EOA can sign the current Gateway burnIntent.
     const withdrawMenuBtn = document.getElementById('wallet-withdraw-menu-btn');
     if (withdrawMenuBtn) {
-        withdrawMenuBtn.style.display = isSeller ? 'flex' : 'none';
+        withdrawMenuBtn.style.display = roleState.isTreasury ? 'flex' : 'none';
+    }
+    if (walletWithdrawMenuLabel) {
+        const gasless = String(withdrawMode || '').toLowerCase() === 'platform_relayed';
+        walletWithdrawMenuLabel.textContent = gasless ? 'Gasless Treasury Withdraw' : 'Withdraw Treasury Funds';
     }
 }
 
@@ -1816,6 +2137,9 @@ async function connectWallet(options = {}) {
             }
         }
         return null;
+    }
+    if (!options.silent) {
+        walletDisconnectRequested = false;
     }
     const method = options.silent ? 'eth_accounts' : 'eth_requestAccounts';
     let accounts = [];
@@ -1854,29 +2178,40 @@ async function connectWallet(options = {}) {
     return account;
 }
 
-async function disconnectWallet() {
+async function disconnectWallet(event = null) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    walletDisconnectRequested = true;
     const previousWallet = connectedWallet;
-    try {
-        const provider = await getWalletProvider();
-        if (provider?.request) {
-            await provider.request({
-                method: 'wallet_revokePermissions',
-                params: [{ eth_accounts: {} }]
-            });
-        }
-    } catch (err) {
-        console.warn('Wallet permission revoke not available', err);
-    }
+    const providerPromise = getWalletProvider().catch((err) => {
+        console.warn('Wallet provider lookup failed during disconnect', err);
+        return null;
+    });
     clearWalletProfileSession(previousWallet);
     setConnectedWallet(null);
     walletMenu.classList.remove('open');
     walletProfileModal.classList.remove('open');
     walletProfileModal.setAttribute('aria-hidden', 'true');
     closeFundArcModal();
+
+    providerPromise.then((provider) => {
+        if (!provider?.request) return;
+        return withTimeout(
+            provider.request({
+                method: 'wallet_revokePermissions',
+                params: [{ eth_accounts: {} }]
+            }),
+            5000,
+            'Wallet permission revoke'
+        ).catch((err) => {
+            console.warn('Wallet permission revoke not available', err);
+        });
+    });
 }
 
 async function restoreWalletSession() {
     const account = await connectWallet({ silent: true });
+    if (walletDisconnectRequested) return;
     if (!account) {
         setConnectedWallet(null);
     }
@@ -2109,7 +2444,80 @@ function renderProfileEvents(events) {
     }).join('');
 }
 
+function groupPaymentsByInvoice(events) {
+    const grouped = [];
+    const invoiceMap = new Map();
+
+    for (const event of events) {
+        let invId = event.invoice_id;
+        if (!invId && event.settlement_id && String(event.settlement_id).startsWith('split:')) {
+            invId = String(event.settlement_id).split(':')[1];
+        }
+        if (!invId) {
+            grouped.push({ ...event, is_group: false });
+            continue;
+        }
+
+        if (!invoiceMap.has(invId)) {
+            const newGroup = {
+                is_group: true,
+                invoice_id: invId,
+                legs: [],
+                symbol: event.symbol,
+                tier: event.tier || event.tier_category,
+                provider_id: event.provider_id,
+                buyer_type: event.buyer_type,
+                gateway_status: event.gateway_status,
+                paid_at: event.paid_at || event.at,
+                amount_usdc: 0,
+                has_report: event.has_report,
+                entitlement_id: event.entitlement_id,
+                transaction_hash: null,
+                settlement_id: `split:${invId}`,
+            };
+            invoiceMap.set(invId, newGroup);
+            grouped.push(newGroup);
+        }
+
+        const group = invoiceMap.get(invId);
+        if (event.type === 'verified_split_payment' || (event.settlement_id && String(event.settlement_id).startsWith('split:'))) {
+            group.gateway_status = event.gateway_status || group.gateway_status;
+            group.has_report = group.has_report || event.has_report;
+            group.entitlement_id = group.entitlement_id || event.entitlement_id;
+            group.total_override = Number(event.amount_usdc || 0);
+            group.paid_at = event.paid_at || event.at || group.paid_at;
+            group.type = event.type;
+        } else {
+            group.legs.push(event);
+            group.amount_usdc += Number(event.amount_usdc || 0);
+            group.has_report = group.has_report || event.has_report;
+            group.entitlement_id = group.entitlement_id || event.entitlement_id;
+            if (!group.gateway_status && event.gateway_status) {
+                group.gateway_status = event.gateway_status;
+            }
+            if (!group.tier && event.tier) group.tier = event.tier;
+        }
+    }
+
+    for (const group of grouped) {
+        if (group.is_group && group.total_override) {
+            group.amount_usdc = group.total_override;
+        }
+        if (group.is_group && group.legs.length === 0 && !group.total_override) {
+            group.is_group = false;
+        }
+        if (group.is_group && group.legs.length > 0) {
+            const allCompleted = group.legs.every(leg => ['completed', 'confirmed'].includes(String(leg.gateway_status || '').toLowerCase()));
+            if (allCompleted) {
+                group.gateway_status = 'completed';
+            }
+        }
+    }
+    return grouped;
+}
+
 function renderProfilePayments(events, entitlements = []) {
+    events = groupPaymentsByInvoice(events);
     if (!events.length) {
         profilePaymentsBody.innerHTML = '<tr><td colspan="5" style="color: var(--text-dark);">No verified payments.</td></tr>';
         return;
@@ -2984,6 +3392,7 @@ async function loadProviders() {
             if (providerMarketplaceContainer) {
                 providerMarketplaceContainer.innerHTML = '<div class="agent-empty">No providers registered.</div>';
             }
+            updateWalletUi();
             return;
         }
         if (providerSelect) {
@@ -3002,14 +3411,19 @@ async function loadProviders() {
                 ? currentProviderId
                 : enabledProviders[0]?.provider_id || providers[0].provider_id;
             currentProviderId = providerSelect.value || currentProviderId;
+            applyProviderFormSchema(providerCatalog[currentProviderId]);
             providerSelect.addEventListener('change', () => {
                 currentProviderId = providerSelect.value || 'funding_memory';
                 quotedPrices = { preview: null, full: null };
+                applyProviderFormSchema(providerCatalog[currentProviderId]);
                 scheduleQuotedPriceRefresh();
                 showToast(`Provider selected: ${providerCatalog[currentProviderId]?.provider_name || currentProviderId}`, 'info');
             });
         }
-        if (!providerMarketplaceContainer) return;
+        if (!providerMarketplaceContainer) {
+            updateWalletUi();
+            return;
+        }
         providerMarketplaceContainer.innerHTML = providers.map((provider) => {
             const preview = provider.pricing?.preview?.amount_usdc;
             const full = provider.pricing?.full?.amount_usdc;
@@ -3039,12 +3453,14 @@ async function loadProviders() {
                 providerMarketplaceContainer.querySelectorAll('.provider-card').forEach((el) => el.classList.remove('active'));
                 card.classList.add('active');
                 quotedPrices = { preview: null, full: null };
+                applyProviderFormSchema(providerCatalog[currentProviderId]);
                 scheduleQuotedPriceRefresh();
                 showToast(`Provider selected: ${providerCatalog[currentProviderId]?.provider_name || currentProviderId}`, 'info');
             });
         });
         updateTierPriceLabels();
         await refreshQuotedPrices();
+        updateWalletUi();
     } catch (err) {
         console.warn('Provider marketplace unavailable', err);
         if (providerMarketplaceContainer) {
@@ -3105,6 +3521,27 @@ async function loadPlatformPayers(page = payerBreakdownPage) {
     }
 }
 
+function switchProvider(providerId, { silent = false } = {}) {
+    const nextProviderId = providerId || 'funding_memory';
+    const provider = providerCatalog[nextProviderId];
+    if (!provider || provider.enabled === false) {
+        if (!silent) showToast(`${nextProviderId} is not available.`, 'warning');
+        return false;
+    }
+    currentProviderId = nextProviderId;
+    if (providerSelect) providerSelect.value = currentProviderId;
+    if (providerMarketplaceContainer) {
+        providerMarketplaceContainer.querySelectorAll('.provider-card').forEach((card) => {
+            card.classList.toggle('active', card.dataset.providerId === currentProviderId);
+        });
+    }
+    quotedPrices = { preview: null, full: null };
+    applyProviderFormSchema(provider);
+    scheduleQuotedPriceRefresh();
+    if (!silent) showToast(`Provider selected: ${provider.provider_name || currentProviderId}`, 'info');
+    return true;
+}
+
 async function loadMetrics() {
     try {
         const resp = await fetch(apiUrl('/api/v1/platform/summary'));
@@ -3139,6 +3576,8 @@ async function loadMetrics() {
         if (sbPend) sbPend.textContent = pendingBatch != null ? `${Number(pendingBatch).toFixed(6)} USDC` : '—';
         if (sbWallet) sbWallet.textContent = data.seller_address || '—';
 
+        renderCreatorSplits(data.revenue_by_provider || []);
+
         const paymentChanged = data.last_payment_key && data.last_payment_key !== lastPlatformPaymentKey;
         const shouldRefreshTables = !platformTablesLoaded || (paymentChanged && paymentActivityPage === 1);
         lastPlatformPaymentKey = data.last_payment_key || lastPlatformPaymentKey;
@@ -3161,7 +3600,11 @@ async function loadHealthInfo() {
             const data = await resp.json();
             setArcGatewayBaseUrl(data.arc_gateway);
             gatewayContractAddress = data.circle_deposit_contract;
-            sellerWalletAddress = data.seller_wallet;
+            sellerWalletAddress = data.roles?.seller_wallet || data.seller_wallet;
+            adminWalletAddress = data.roles?.admin_wallet || data.admin_wallet || null;
+            withdrawMode = data.withdraw?.mode || 'seller_wallet';
+            withdrawRelayerAddress = data.withdraw?.relayer_address || data.roles?.withdraw_relayer_address || null;
+            creatorClaimConfig = data.creator_claim || { configured: false };
             const dataset = data.dataset || {};
             const provider = (data.providers || [])[0] || providerCatalog[currentProviderId];
             if (dsProvider) dsProvider.textContent = provider?.provider_id || currentProviderId || 'funding_memory';
@@ -3184,6 +3627,7 @@ async function loadHealthInfo() {
                     default_approve_usdc: Number(data.gateway_deposit.default_approve_usdc ?? gatewayDepositConfig.default_approve_usdc),
                 };
             }
+            renderGatewayDiagnostics(data.gateway_info || {}, data.settlement || {});
             updateTierPriceLabels();
             await refreshQuotedPrices();
             if (gatewayContractAddress) {
@@ -3281,14 +3725,262 @@ function requestWithdrawAmount(availableUsdc) {
     });
 }
 
-async function withdrawSellerGatewayFunds() {
+function utf8ToHex(value) {
+    const bytes = new TextEncoder().encode(String(value || ''));
+    return '0x' + Array.from(bytes).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function buildCreatorClaimMessage({ claimant, providerIds, amountUsdc, nonce, issuedAt }) {
+    const providers = [...(providerIds || [])].sort().join(',');
+    return [
+        'QMA Creator Claim',
+        `claimant: ${String(claimant || '').toLowerCase()}`,
+        `providers: ${providers}`,
+        `amount_usdc: ${Number(amountUsdc || 0).toFixed(6)}`,
+        `nonce: ${nonce}`,
+        `issued_at: ${Number(issuedAt)}`,
+        'network: Arc Testnet',
+    ].join('\n');
+}
+
+async function submitCreatorClaim({ stats, amountUsdc }) {
+    if (!connectedWallet) throw new Error('Connect your creator wallet first.');
+    const providerIds = (stats || []).map((item) => item.provider_id).filter(Boolean).sort();
+    const nonce = '0x' + Array.from({ length: 16 }, () => Math.floor(Math.random() * 256).toString(16).padStart(2, '0')).join('');
+    const issuedAt = Math.floor(Date.now() / 1000);
+    const message = buildCreatorClaimMessage({
+        claimant: connectedWallet,
+        providerIds,
+        amountUsdc,
+        nonce,
+        issuedAt,
+    });
+    const signature = await walletRequest(
+        {
+            method: 'personal_sign',
+            params: [utf8ToHex(message), connectedWallet],
+        },
+        'Creator claim signature'
+    );
+    const resp = await fetch(apiUrl('/api/v1/creators/claim'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            claimant_address: connectedWallet,
+            provider_ids: providerIds,
+            amount_usdc: Number(amountUsdc).toFixed(6),
+            nonce,
+            issued_at: issuedAt,
+            signature,
+        }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+        throw new Error(data.detail || data.error || `Creator claim failed with status ${resp.status}`);
+    }
+    return data;
+}
+
+async function openProviderEarningsModal() {
+    if (!connectedWallet) {
+        alert('Connect your wallet first.');
+        return;
+    }
+    const roleState = getConnectedWalletRoleState();
+    if (!roleState.ownedProviders.length) {
+        alert('This wallet is not registered as a provider owner.');
+        return;
+    }
+
+    const stats = await Promise.all(roleState.ownedProviders.map(async (provider) => {
+        try {
+            const resp = await fetch(apiUrl(`/api/v1/providers/${encodeURIComponent(provider.provider_id)}/stats`));
+            if (!resp.ok) throw new Error(`stats ${resp.status}`);
+            const data = await resp.json();
+            return data.stats || data;
+        } catch (err) {
+            console.warn(`Provider stats unavailable for ${provider.provider_id}`, err);
+            return {
+                provider_id: provider.provider_id,
+                provider_name: provider.provider_name || provider.provider_id,
+                creator_claimable_usdc: 0,
+                revenue_usdc: 0,
+                creator_share_bps: provider.revenue_share_bps || 0,
+                withdrawal_mode: 'unavailable',
+                split_note: 'Stats endpoint is unavailable for this provider.',
+            };
+        }
+    }));
+
+    const totalClaimable = stats.reduce((sum, item) => sum + Number(item.creator_claimable_usdc || 0), 0);
+    const totalDirectSettled = stats.reduce((sum, item) => (
+        item.withdrawal_mode === 'direct_gateway_split'
+            ? sum + Number(item.creator_earned_usdc || 0)
+            : sum
+    ), 0);
+    const hasDirectSplit = stats.some((item) => item.withdrawal_mode === 'direct_gateway_split');
+    const claimExecutionEnabled = Boolean(creatorClaimConfig?.configured) && totalClaimable > 0;
+    const directGatewayBalances = stats
+        .filter((item) => item.withdrawal_mode === 'direct_gateway_split' && item.creator_gateway_balance)
+        .map((item) => item.creator_gateway_balance);
+    const totalGatewayAvailable = directGatewayBalances.reduce((sum, item) => sum + Number(item.available_usdc || 0), 0);
+    const totalGatewayPending = directGatewayBalances.reduce((sum, item) => sum + Number(item.pending_batch_usdc || 0), 0);
+    const directWithdrawEnabled = hasDirectSplit && totalGatewayAvailable > WITHDRAW_FEE_RESERVE_USDC;
+    const rows = [
+        { label: 'Owner wallet', value: shortAddress(connectedWallet) },
+        { label: 'Provider count', value: String(stats.length) },
+        ...(hasDirectSplit ? [{ label: 'Direct-settled earned', value: `${totalDirectSettled.toFixed(6)} USDC` }] : []),
+        ...(directGatewayBalances.length ? [
+            { label: 'Gateway available', value: `${totalGatewayAvailable.toFixed(6)} USDC` },
+            { label: 'Gateway pending batch', value: `${totalGatewayPending.toFixed(6)} USDC` },
+        ] : []),
+        { label: 'Claimable ledger', value: `${totalClaimable.toFixed(6)} USDC` },
+        { label: 'Payout mode', value: hasDirectSplit ? 'Direct Gateway split + legacy ledger fallback' : 'Creator-initiated claim planned' },
+    ];
+    const customHtml = `
+        <div class="creator-earnings-list">
+            ${stats.map((item) => `
+                <div class="creator-earnings-item">
+                    <div>
+                        <strong>${escapeHtml(item.provider_name || item.provider_id)}</strong>
+                        <span>${escapeHtml(item.provider_id)}${item.revenue_wallet ? ` / ${shortAddress(item.revenue_wallet)}` : ''}</span>
+                    </div>
+                    <div class="creator-earnings-amount">
+                        ${Number((item.withdrawal_mode === 'direct_gateway_split' ? item.creator_earned_usdc : item.creator_claimable_usdc) || 0).toFixed(6)} USDC
+                        ${item.creator_gateway_balance
+                ? `<span>Gateway ${Number(item.creator_gateway_balance.available_usdc || 0).toFixed(6)} USDC</span>`
+                : ''}
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+        <div class="action-note">
+            ${hasDirectSplit
+                ? `Direct split providers settle creator earnings straight into the provider revenue wallet's Circle Gateway balance. There is no QMA claimable ledger for those sales; withdraw/cashout from Gateway when you want wallet USDC.`
+                : `Provider earnings are tracked in the split ledger. Current Gateway settlement still lands in the treasury wallet,
+            so this screen starts from a claimable balance view. When enabled, creator clicks Claim, backend checks and debits
+            the ledger, then the configured payout executor sends USDC on-chain to the creator wallet.
+            Current executor: ${escapeHtml(shortAddress(creatorClaimConfig?.executor || creatorClaimConfig?.relayer || 'not configured'))}.`}
+        </div>
+    `;
+
+    const confirmed = await requestActionConfirmation({
+        title: 'Creator Earnings',
+        subtitle: 'Provider-owner earnings view',
+        rows,
+        customHtml,
+        warning: directWithdrawEnabled
+            ? 'Direct split earnings are in this creator wallet Gateway balance. Withdraw signs a Gateway burnIntent and mints USDC back to this wallet.'
+            : hasDirectSplit && totalClaimable <= 0
+            ? 'Direct split sales are already settled to the creator Gateway balance. Claim is only needed for legacy treasury-ledger providers.'
+            : claimExecutionEnabled
+            ? 'You will sign a claim intent. QMA will verify the ledger and submit an on-chain USDC payout to your creator wallet.'
+            : 'Creator claim execution is not configured yet. Gateway only knows the treasury wallet; creator balances live in the QMA ledger.',
+        confirmLabel: directWithdrawEnabled ? 'Withdraw Gateway Balance' : hasDirectSplit && totalClaimable <= 0 ? 'No Claim Needed' : claimExecutionEnabled ? 'Claim Earnings' : 'Claim Not Live',
+        cancelLabel: 'Close',
+        onOpen: ({ confirmButton }) => {
+            if (!claimExecutionEnabled && !directWithdrawEnabled) {
+                confirmButton.disabled = true;
+                confirmButton.title = hasDirectSplit && totalClaimable <= 0
+                    ? 'Direct split earnings are already in the creator Gateway balance.'
+                    : creatorClaimConfig?.error || 'Creator claim requires the backend claim endpoint and payout executor.';
+            }
+        },
+    });
+    if (!confirmed) return;
+    if (directWithdrawEnabled) {
+        await withdrawSellerGatewayFunds({
+            allowProviderOwner: true,
+            roleLabel: 'Creator',
+            balanceHint: totalGatewayAvailable,
+        });
+        return;
+    }
+    if (!claimExecutionEnabled) return;
+    try {
+        showToast('Sign the creator claim intent in your wallet.', 'info');
+        const result = await submitCreatorClaim({ stats, amountUsdc: totalClaimable });
+        const claim = result.claim || {};
+        const txHash = claim.transaction_hash;
+        saveWalletEvent(connectedWallet, {
+            type: 'creator_claim',
+            amount_usdc: Number(claim.amount_usdc || totalClaimable).toFixed(6),
+            tx_hash: txHash,
+            explorer_url: claim.explorer_url,
+        });
+        showToast(`Creator claim paid: ${Number(claim.amount_usdc || totalClaimable).toFixed(6)} USDC`, 'success');
+        if (txHash) {
+            alert(`Creator claim paid on-chain.\nTx hash: ${txHash.slice(0, 10)}...${txHash.slice(-8)}`);
+        }
+        loadMetrics();
+    } catch (err) {
+        console.warn('Creator claim failed', err);
+        alert(`Creator claim failed: ${err.message || err}`);
+    }
+}
+
+async function openRelayerToolsModal() {
+    if (!connectedWallet) {
+        alert('Connect your wallet first.');
+        return;
+    }
+    if (!withdrawRelayerAddress || !sameAddress(connectedWallet, withdrawRelayerAddress)) {
+        alert('This wallet is not configured as the platform withdraw relayer.');
+        return;
+    }
+
+    let gatewayBalance = null;
+    try {
+        const resp = await fetch(apiUrl(`/api/v1/wallets/${connectedWallet}/summary`));
+        if (resp.ok) {
+            const data = await resp.json();
+            gatewayBalance = data?.gateway_balance?.available_usdc;
+        }
+    } catch (err) {
+        console.warn('Relayer wallet summary unavailable', err);
+    }
+
+    const rows = [
+        { label: 'Relayer wallet', value: shortAddress(connectedWallet) },
+        { label: 'Withdraw mode', value: withdrawMode || 'seller_wallet' },
+        { label: 'Gateway balance', value: gatewayBalance == null ? 'n/a' : `${Number(gatewayBalance).toFixed(6)} USDC` },
+        { label: 'Use case', value: 'Pays Arc gas for platform-relayed treasury withdraws' },
+    ];
+    const customHtml = `
+        <div class="action-note">
+            Deposit/top-up means funding this EOA with Arc USDC so it can pay transaction gas. Withdraw means a normal wallet transfer
+            out of the relayer EOA; it is separate from creator earnings and separate from Circle Gateway burnIntent withdrawals.
+        </div>
+    `;
+    const openFunding = await requestActionConfirmation({
+        title: 'Relayer Deposit / Withdraw',
+        subtitle: 'Operational hot-wallet controls',
+        rows,
+        customHtml,
+        warning: 'Keep only a small operating balance here. Daily relay limits protect this wallet from repeated gas spend.',
+        confirmLabel: 'Open Funding Assistant',
+        cancelLabel: 'Close',
+    });
+    if (openFunding) openFundArcModal();
+}
+
+async function withdrawSellerGatewayFunds(options = {}) {
+    const opts = options?.currentTarget ? {} : (options || {});
+    const roleLabel = opts.roleLabel || 'Seller';
     if (!connectedWallet) {
         alert("Connect your wallet first.");
         return;
     }
-    if (!sameAddress(connectedWallet, sellerWalletAddress)) {
+    if (!opts.allowProviderOwner && !sameAddress(connectedWallet, sellerWalletAddress)) {
         alert(`Connected wallet is not the designated Seller wallet (${sellerWalletAddress}).`);
         return;
+    }
+    if (opts.allowProviderOwner) {
+        const roleState = getConnectedWalletRoleState();
+        if (!roleState.isProviderOwner) {
+            alert('Connected wallet is not a provider revenue wallet.');
+            return;
+        }
     }
     if (!gatewayContractAddress) {
         alert("Circle Gateway contract address is unknown. Wait for health check.");
@@ -3296,17 +3988,20 @@ async function withdrawSellerGatewayFunds() {
     }
 
     try {
-        const metricsResp = await fetch(apiUrl(`/api/v1/wallets/${connectedWallet}/summary`));
-        if (!metricsResp.ok) throw new Error("Could not fetch seller balance.");
-        const metrics = await metricsResp.json();
-        const availableUsdc = metrics?.gateway_balance?.available_usdc || 0;
+        let availableUsdc = Number(opts.balanceHint || 0);
+        if (!availableUsdc) {
+            const metricsResp = await fetch(apiUrl(`/api/v1/wallets/${connectedWallet}/summary`));
+            if (!metricsResp.ok) throw new Error(`Could not fetch ${roleLabel.toLowerCase()} balance.`);
+            const metrics = await metricsResp.json();
+            availableUsdc = Number(metrics?.gateway_balance?.available_usdc || 0);
+        }
 
         if (availableUsdc <= 0) {
-            alert(`Seller Gateway has no available balance to withdraw. (Current: ${availableUsdc} USDC)`);
+            alert(`${roleLabel} Gateway has no available balance to withdraw. (Current: ${availableUsdc} USDC)`);
             return;
         }
         if (availableUsdc <= WITHDRAW_FEE_RESERVE_USDC) {
-            alert(`Seller Gateway balance is ${availableUsdc.toFixed(6)} USDC, which is not enough after the estimated ${WITHDRAW_FEE_RESERVE_USDC.toFixed(4)} USDC withdrawal fee reserve.`);
+            alert(`${roleLabel} Gateway balance is ${availableUsdc.toFixed(6)} USDC, which is not enough after the estimated ${WITHDRAW_FEE_RESERVE_USDC.toFixed(4)} USDC withdrawal fee reserve.`);
             return;
         }
 
@@ -3319,7 +4014,10 @@ async function withdrawSellerGatewayFunds() {
             return;
         }
 
-        await ensureArcTestnet();
+        const useRelayer = String(withdrawMode || '').toLowerCase() === 'platform_relayed';
+        if (!useRelayer) {
+            await ensureArcTestnet();
+        }
 
         const withdrawBtn = document.getElementById('wallet-withdraw-menu-btn');
         const originalText = withdrawBtn ? withdrawBtn.innerHTML : '';
@@ -3397,8 +4095,9 @@ async function withdrawSellerGatewayFunds() {
                 'Gateway withdrawal signature'
             );
 
-            // 2. Submit the signed burnIntent to Circle Gateway
-            if (withdrawBtn) withdrawBtn.innerHTML = `<span>Withdrawing...</span>`;
+            // 2. Submit the signed burnIntent. Backend may either return a mint attestation
+            // for seller-paid gas, or relay the mint with the platform hot wallet.
+            if (withdrawBtn) withdrawBtn.innerHTML = `<span>${useRelayer ? 'Relaying...' : 'Withdrawing...'}</span>`;
             const submitResp = await fetch(apiUrl('/api/v1/payment/withdraw'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -3409,6 +4108,23 @@ async function withdrawSellerGatewayFunds() {
                 throw new Error(errData.detail || "Circle Gateway transfer submission failed.");
             }
             const submitResult = await submitResp.json();
+            if (submitResult.relayed) {
+                const txHash = submitResult.mintTxHash || submitResult.transaction_hash;
+                if (!txHash) {
+                    throw new Error("Relayer completed but did not return a mint transaction hash.");
+                }
+                saveWalletEvent(connectedWallet, {
+                    type: 'withdraw',
+                    mode: 'platform_relayed',
+                    relayer: submitResult.relayer || withdrawRelayerAddress,
+                    amount_usdc: amount.toFixed(6),
+                    tx_hash: txHash,
+                    explorer_url: submitResult.explorer_url || explorerTx(txHash)
+                });
+                alert(`Gasless ${roleLabel.toLowerCase()} withdrawal relayed!\nTx hash: ${txHash.slice(0, 10)}...${txHash.slice(-8)}\nUSDC has been transferred to your wallet.`);
+                loadMetrics();
+                return;
+            }
             if (!submitResult.attestation || !submitResult.signature) {
                 throw new Error("Circle Gateway did not return a mint attestation. Withdrawal transaction was not sent.");
             }
@@ -3440,7 +4156,7 @@ async function withdrawSellerGatewayFunds() {
                 explorer_url: explorerTx(txHash)
             });
 
-            alert(`Withdrawal transaction confirmed!\nTx hash: ${txHash.slice(0, 10)}...${txHash.slice(-8)}\nUSDC has been transferred to your wallet.`);
+            alert(`${roleLabel} withdrawal transaction confirmed!\nTx hash: ${txHash.slice(0, 10)}...${txHash.slice(-8)}\nUSDC has been transferred to your wallet.`);
             loadMetrics();
         } finally {
             if (withdrawBtn) {
@@ -3472,7 +4188,7 @@ function gatewayStatusBadge(status) {
 function renderPaymentActivity(events) {
     if (!paymentActivityBody) return;
     if (!events.length) {
-        paymentActivityBody.innerHTML = '<tr><td colspan="5" style="color: var(--text-dark);">No payments yet.</td></tr>';
+        paymentActivityBody.innerHTML = '<tr><td colspan="6" style="color: var(--text-dark);">No payments yet.</td></tr>';
         return;
     }
     paymentActivityBody.innerHTML = events.map((event) => {
@@ -3484,9 +4200,11 @@ function renderPaymentActivity(events) {
             : event.settlement_id
                 ? `<span class="mono-td" title="Settlement ID: ${escapeHtml(event.settlement_id)}">${shortAddress(event.settlement_id)}</span><div style="color:${missingTxColor}; font-size:0.72rem; margin-top:2px;">${escapeHtml(missingTxLabel)}</div>`
                 : '<span style="color: var(--text-dark);">n/a</span>';
+        const providerId = event.provider_id || 'funding_memory';
         return `
                     <tr>
                         <td class="mono-td">${escapeHtml(event.symbol || 'n/a')}<div style="color:var(--t3); font-size:0.66rem; margin-top:2px;">${escapeHtml(formatDateTime(event.paid_at))}</div></td>
+                        <td><span class="provider-badge">${escapeHtml(providerId)}</span></td>
                         <td title="${escapeHtml(event.payer_address || '')}">${shortAddress(event.payer_address)}</td>
                         <td>${Number(event.amount_usdc || 0).toFixed(3)} USDC<div style="color:var(--t3); font-size:0.66rem;">${escapeHtml(tierLabel(event.tier_category || event.tier || 'legacy'))}</div></td>
                         <td>${gatewayStatusBadge(event.gateway_status)}</td>
@@ -3499,15 +4217,17 @@ function renderPaymentActivity(events) {
 function renderPayerBreakdown(payers) {
     if (!payerBreakdownBody) return;
     if (!payers.length) {
-        payerBreakdownBody.innerHTML = '<tr><td colspan="3" style="color: var(--text-dark);">No wallet activity yet.</td></tr>';
+        payerBreakdownBody.innerHTML = '<tr><td colspan="4" style="color: var(--text-dark);">No wallet activity yet.</td></tr>';
         return;
     }
     payerBreakdownBody.innerHTML = payers.map((payer) => {
         const symbols = (payer.symbols || []).slice(0, 5).join(', ') || 'n/a';
         const overflow = (payer.symbols || []).length > 5 ? ` +${payer.symbols.length - 5}` : '';
+        const providers = (payer.providers || []).join(', ') || 'funding_memory';
         return `
                     <tr title="Last paid: ${escapeHtml(formatDateTime(payer.last_paid_at))}">
                         <td class="mono-td" title="${escapeHtml(payer.payer_address || '')}">${shortAddress(payer.payer_address)}</td>
+                        <td style="font-size: 0.75rem;">${escapeHtml(providers)}</td>
                         <td>${payer.payments || 0} / ${escapeHtml(symbols)}${overflow}</td>
                         <td>${Number(payer.spent_usdc || 0).toFixed(3)} USDC<div style="color:var(--t3); font-size:0.66rem;">P:${payer.preview_count || 0} F:${payer.full_count || 0}</div></td>
                     </tr>
@@ -3515,15 +4235,88 @@ function renderPayerBreakdown(payers) {
     }).join('');
 }
 
+function renderCreatorSplits(rows = []) {
+    if (!creatorSplitBody) return;
+    if (!rows.length) {
+        creatorSplitBody.innerHTML = '<tr><td colspan="5" style="color: var(--text-dark);">No creator revenue yet.</td></tr>';
+        return;
+    }
+    creatorSplitBody.innerHTML = rows.map((row) => {
+        const sharePct = Number(row.creator_share_bps || 0) / 100;
+        return `
+                    <tr title="${escapeHtml(row.split_note || 'Ledger estimate only.')}">
+                        <td class="mono-td" title="${escapeHtml(row.owner_wallet || '')}">${escapeHtml(row.provider_name || row.provider_id || 'provider')}<div style="color:var(--t3); font-size:0.66rem;">${shortAddress(row.owner_wallet)}</div></td>
+                        <td>${Number(row.revenue_usdc || 0).toFixed(3)} USDC<div style="color:var(--t3); font-size:0.66rem;">${row.payments || 0} sales</div></td>
+                        <td>${Number(row.creator_earned_usdc || 0).toFixed(3)} USDC<div style="color:var(--t3); font-size:0.66rem;">${sharePct.toFixed(1)}%</div></td>
+                        <td>${Number(row.platform_fee_usdc || 0).toFixed(3)} USDC</td>
+                        <td>${Number(row.creator_claimable_usdc || 0).toFixed(3)} USDC<div style="color:var(--t3); font-size:0.66rem;">ledger only</div></td>
+                    </tr>
+                `;
+    }).join('');
+}
+
+function renderGatewayDiagnostics(info = {}, settlement = {}) {
+    const runtimeCurrency = info.runtime_currency || settlement.runtime_currency || 'USDC';
+    const runtimeRail = info.runtime_rail || settlement.rail || 'circle_gateway_x402';
+    const assets = info.runtime_supported_assets || settlement.supported_assets || ['USDC'];
+    const domains = info.domains || [];
+    const arc = info.arc_testnet || domains.find((item) => Number(item.domain) === 26) || {};
+
+    if (gwRuntimeAsset) gwRuntimeAsset.textContent = runtimeCurrency;
+    if (gwRuntimeRail) gwRuntimeRail.textContent = runtimeRail;
+    if (gwDomainCount) gwDomainCount.textContent = domains.length ? String(domains.length) : 'Arc only';
+    if (gwArcDomain) {
+        const wallet = arc.wallet_contract || gatewayContractAddress;
+        gwArcDomain.textContent = `Arc Testnet domain ${arc.domain || 26}${wallet ? ` / ${shortAddress(wallet)}` : ''}`;
+        gwArcDomain.title = wallet || '';
+    }
+    if (gwSupportedAssets) gwSupportedAssets.textContent = assets.join(', ');
+    if (gwSplitMode) {
+        gwSplitMode.textContent = 'Ledger';
+        gwSplitMode.title = 'Creator/platform split is tracked off-chain until payout automation or contract escrow is enabled.';
+    }
+}
+
+function appendProviderReportDetails(container, report = {}) {
+    if (!container) return;
+    const rows = [];
+    if (report.provider_note) rows.push(['Provider note', report.provider_note]);
+    if (report.analysis_focus) rows.push(['Analysis focus', report.analysis_focus]);
+    const turnover = report.turnover_context || {};
+    Object.entries(turnover).forEach(([key, value]) => {
+        rows.push([key.replace(/_/g, ' '), value]);
+    });
+    const diagnostics = report.provider_diagnostics || {};
+    Object.entries(diagnostics).forEach(([key, value]) => {
+        rows.push([key.replace(/_/g, ' '), value]);
+    });
+    rows.slice(0, 8).forEach(([label, value]) => {
+        const div = document.createElement('div');
+        div.className = 'risk-item';
+        div.innerHTML = `<span style="color:var(--color-primary);">${escapeHtml(label)}:</span> ${escapeHtml(String(value))}`;
+        container.appendChild(div);
+    });
+}
+
 function getFormQuery() {
+    const marketCap = fMcap ? parseFloat(fMcap.value) : NaN;
+    const volume24h = fVol ? parseFloat(fVol.value) : NaN;
+    const amount = fAmount ? parseFloat(fAmount.value) : NaN;
+    const oiChange = fOiChange ? parseFloat(fOiChange.value) : NaN;
+    const longShort = fLongShort ? parseFloat(fLongShort.value) : NaN;
+    const price = fPrice ? parseFloat(fPrice.value) : NaN;
     return {
-        symbol: fSymbol.value,
-        fundingRate: parseFloat(fFunding.value),
-        marketCap: parseFloat(fMcap.value),
-        FDV: parseFloat(fFdv.value),
-        circRatio: parseFloat(fCirc.value),
-        fromATH: parseFloat(fAth.value),
-        volume24h: parseFloat(fVol.value)
+        symbol: fSymbol ? fSymbol.value : '',
+        fundingRate: fFunding ? parseFloat(fFunding.value || '0') : 0,
+        ...(Number.isFinite(marketCap) ? { marketCap } : {}),
+        FDV: fFdv ? parseFloat(fFdv.value || String(Number.isFinite(marketCap) ? marketCap * 1.5 : 0)) : (Number.isFinite(marketCap) ? marketCap * 1.5 : 1),
+        circRatio: fCirc ? parseFloat(fCirc.value || '0.65') : 0.65,
+        fromATH: fAth ? parseFloat(fAth.value || '-50') : -50,
+        ...(Number.isFinite(volume24h) ? { volume24h } : {}),
+        ...(Number.isFinite(amount) ? { amount, openInterest: amount } : {}),
+        ...(Number.isFinite(oiChange) ? { openInterestChange24h: oiChange } : {}),
+        ...(Number.isFinite(longShort) ? { longShortRatio: longShort } : {}),
+        ...(Number.isFinite(price) ? { price } : {})
     };
 }
 
@@ -3536,13 +4329,29 @@ function resolveActiveQuery() {
 
 function syncFormFromSignal(signal) {
     const payload = normalizeSignalPayload(signal);
-    fSymbol.value = payload.symbol;
-    fFunding.value = Number(payload.fundingRate).toFixed(4);
-    fMcap.value = Math.round(payload.marketCap);
-    fFdv.value = Math.round(payload.FDV);
-    fCirc.value = Number(payload.circRatio).toFixed(2);
-    fAth.value = Number(payload.fromATH).toFixed(2);
-    fVol.value = Math.round(payload.volume24h);
+    if (fSymbol) fSymbol.value = payload.symbol || '';
+    if (fFunding) fFunding.value = Number(payload.fundingRate || 0).toFixed(4);
+    if (fMcap && Number.isFinite(payload.marketCap)) fMcap.value = Math.round(payload.marketCap);
+    if (fFdv && Number.isFinite(payload.FDV)) fFdv.value = Math.round(payload.FDV);
+    if (fCirc && Number.isFinite(payload.circRatio)) fCirc.value = Number(payload.circRatio).toFixed(2);
+    if (fAth && Number.isFinite(payload.fromATH)) fAth.value = Number(payload.fromATH).toFixed(2);
+    if (fVol && Number.isFinite(payload.volume24h)) fVol.value = Math.round(payload.volume24h);
+    if (fAmount && Number.isFinite(payload.amount || payload.openInterest)) {
+        fAmount.value = Math.round(payload.amount || payload.openInterest);
+        delete fAmount.dataset.schemaDefault;
+    }
+    if (fOiChange && Number.isFinite(payload.openInterestChange24h)) {
+        fOiChange.value = Number(payload.openInterestChange24h).toFixed(2);
+        delete fOiChange.dataset.schemaDefault;
+    }
+    if (fLongShort && Number.isFinite(payload.longShortRatio)) {
+        fLongShort.value = Number(payload.longShortRatio).toFixed(2);
+        delete fLongShort.dataset.schemaDefault;
+    }
+    if (fPrice && Number.isFinite(payload.price)) {
+        fPrice.value = Number(payload.price).toFixed(6);
+        delete fPrice.dataset.schemaDefault;
+    }
 }
 
 function applySignalToState(signal) {
@@ -3564,7 +4373,11 @@ function formSignalFromAnomaly(item) {
         circRatio: Number(item.circRatio.toFixed(2)),
         fromATH: Number(item.fromATH.toFixed(2)),
         volume24h: Math.round(item.volume24h),
-        ...(item.amount ? { amount: Number(item.amount) } : {})
+        ...(item.amount ? { amount: Number(item.amount), openInterest: Number(item.amount) } : {}),
+        ...(item.openInterest ? { openInterest: Number(item.openInterest) } : {}),
+        ...(item.openInterestChange24h ? { openInterestChange24h: Number(item.openInterestChange24h) } : {}),
+        ...(item.longShortRatio ? { longShortRatio: Number(item.longShortRatio) } : {}),
+        ...(item.price ? { price: Number(item.price) } : {})
     };
 }
 
@@ -3575,13 +4388,20 @@ function hidePaywall() {
     currentInvoiceId = null;
     currentInvoiceSecret = null;
     currentArcGatewayUrl = null;
+    currentInvoiceSplitLegs = [];
+    currentInvoiceSplitSettlements = [];
     currentSettlementId = null;
     currentSellerAddress = null;
+    currentInvoiceSettlement = null;
+    currentInvoiceAccounting = null;
     currentAccessToken = null;
     document.getElementById('inv-id-row').style.display = 'none';
     document.getElementById('payment-flow-panel').style.display = 'none';
     setPaymentDetailValue('inv-id-display', null);
     setPaymentDetailValue('pf-settlement-id', null);
+    setPaymentDetailValue('pf-settlement-asset', 'USDC');
+    setPaymentDetailValue('pf-accounting-asset', 'USDC');
+    setPaymentDetailValue('pf-funding-visibility', 'EURC/cirBTC funding visibility only, not Gateway settlement yet');
     setPaymentDetailValue('pf-gateway-contract', null);
     setPaymentDetailValue('pf-seller-wallet-addr', null);
     setPaymentDetailValue('pf-buyer-gateway-bal', null);
@@ -3603,13 +4423,20 @@ function showSignalPaywall(source, options = {}) {
         circRatio: signal.circRatio,
         fromATH: signal.fromATH,
         volume24h: signal.volume24h,
-        ...(signal.amount ? { amount: signal.amount } : {})
+        ...(signal.amount ? { amount: signal.amount, openInterest: signal.openInterest || signal.amount } : {}),
+        ...(signal.openInterestChange24h ? { openInterestChange24h: signal.openInterestChange24h } : {}),
+        ...(signal.longShortRatio ? { longShortRatio: signal.longShortRatio } : {}),
+        ...(signal.price ? { price: signal.price } : {})
     };
     currentInvoiceId = null;
     currentInvoiceSecret = null;
     currentArcGatewayUrl = null;
+    currentInvoiceSplitLegs = [];
+    currentInvoiceSplitSettlements = [];
     currentSettlementId = null;
     currentSellerAddress = null;
+    currentInvoiceSettlement = null;
+    currentInvoiceAccounting = null;
     currentAccessToken = null;
     resetPaywallSuccessState();
     resetPaymentDetailPanel();
@@ -3677,6 +4504,8 @@ function lockViewport() {
     currentInvoiceId = null;
     currentInvoiceSecret = null;
     currentArcGatewayUrl = null;
+    currentInvoiceSplitLegs = [];
+    currentInvoiceSplitSettlements = [];
     currentSettlementId = null;
     currentSellerAddress = null;
     currentAccessToken = null;
@@ -3690,6 +4519,144 @@ function lockViewport() {
         : '<span>Pay on Arc Testnet</span>';
     document.getElementById('inv-id-row').style.display = 'none';
     document.getElementById('payment-flow-panel').style.display = 'none';
+}
+
+async function applyInvoiceDataToPaymentPanel(invoiceData, invoiceBuyerType = 'human') {
+    currentInvoiceId = invoiceData.invoice_id;
+    currentInvoiceSecret = invoiceData.invoice_secret;
+    currentArcGatewayUrl = invoiceData.arc_gateway_url;
+    currentInvoiceSplitLegs = Array.isArray(invoiceData.split_legs) ? invoiceData.split_legs : [];
+    currentInvoiceSplitSettlements = currentInvoiceSplitLegs
+        .filter((leg) => leg.status === 'paid' && leg.settlement_id)
+        .map((leg) => ({
+            leg_id: leg.leg_id,
+            settlement_id: leg.settlement_id,
+            pay_to: leg.pay_to,
+            amount_raw: String(leg.amount_raw),
+            sidecar_receipt: leg.sidecar_receipt
+        }));
+    currentInvoiceSettlement = normalizeInvoiceSettlement(invoiceData);
+    currentInvoiceAccounting = normalizeInvoiceAccounting(invoiceData, currentInvoiceSettlement);
+    currentInvoiceAmount = Number(currentInvoiceSettlement.amount ?? invoiceData.amount);
+    currentInvoiceTier = normalizeTier(invoiceData.tier || currentInvoiceTier);
+    currentProviderId = invoiceData.provider_id || currentProviderId;
+    currentInvoiceBuyerType = invoiceData.buyer_type || invoiceBuyerType;
+    currentSellerAddress = invoiceData.wallet_address || invoiceData.seller_wallet || currentSellerAddress;
+    currentSettlementId = invoiceData.settlement_id || currentSettlementId;
+    currentAccessToken = invoiceData.access_token || currentAccessToken;
+
+    if (currentInvoiceBuyerType === 'agent') {
+        appendAgentRunTrace(`Invoice ${shortAddress(currentInvoiceId)} ready: ${formatAssetAmount(currentInvoiceSettlement.amount, currentInvoiceSettlement.currency, currentInvoiceSettlement.decimals)} via ${invoiceData.provider_id}.`, 'success');
+        appendAgentRunTrace(agentRunModal?.classList.contains('open')
+            ? 'Payment panel is ready behind this modal. Close the modal to sign x402 with the connected wallet.'
+            : 'Payment panel is ready. Review the split and click Pay to sign x402 with the connected wallet.');
+        appendAgentRunTrace('CLI live mode can run the same payment loop fully autonomously with AGENT_PRIVATE_KEY.');
+        if (agentRunDismiss) agentRunDismiss.textContent = 'Continue to Payment';
+    }
+
+    setPaymentDetailValue('inv-id-display', currentInvoiceId);
+    document.getElementById('inv-id-row').style.display = 'grid';
+    invoiceSignalDisplay.textContent = displaySignalLabel(activeQuery);
+    paywallTitle.textContent = `${tierLabel(currentInvoiceTier)} Payment Required`;
+    if (isBasicView()) {
+        paywallDesc.textContent = currentInvoiceTier === 'preview'
+            ? `Unlock a short summary for ${activeQuery?.symbol || 'this token'} showing how similar past events performed.`
+            : `Unlock the full historical comparison for ${activeQuery?.symbol || 'this token'}. Each new live snapshot needs its own purchase.`;
+    } else {
+        paywallDesc.textContent = currentInvoiceTier === 'preview'
+            ? `Unlock a lightweight ${invoiceData.provider_name || 'QMA'} preview for this exact live signal. Upgrade to the full report for all analogs, percentiles, and diagnostics.`
+            : `Unlock this exact full ${invoiceData.provider_name || 'QMA'} signal snapshot. If the token changes later, QMA treats that as a new signal and requires a new paid report.`;
+    }
+    if (invoiceData.access_status === 'partial_paid') {
+        const missing = (invoiceData.missing_legs || []).map((leg) => leg.role || leg.leg_id).join(', ');
+        paywallDesc.textContent += ` Resuming partially paid invoice; remaining leg(s): ${missing || 'unknown'}.`;
+    }
+    document.getElementById('invoice-amount-display').textContent = formatAssetAmount(currentInvoiceSettlement.amount, currentInvoiceSettlement.currency, currentInvoiceSettlement.decimals);
+    document.getElementById('invoice-tier-display').textContent = invoiceData.tier_label || tierLabel(currentInvoiceTier);
+    document.getElementById('invoice-network-display').textContent = currentInvoiceSettlement.network || invoiceData.network_name || invoiceData.network;
+    payButton.innerHTML = `<span>Pay ${formatAssetAmount(currentInvoiceSettlement.amount, currentInvoiceSettlement.currency, currentInvoiceSettlement.decimals)}</span>`;
+
+    const pfPanel = document.getElementById('payment-flow-panel');
+    if (pfPanel) pfPanel.style.display = 'block';
+    setPaymentDetailValue('pf-seller-wallet-addr', invoiceData.wallet_address || invoiceData.seller_wallet);
+    setPaymentDetailValue('pf-settlement-asset', `${currentInvoiceSettlement.currency} via ${currentInvoiceSettlement.rail}`);
+    setPaymentDetailValue('pf-accounting-asset', `${currentInvoiceAccounting.currency} (${currentInvoiceAccounting.amount_usdc} USDC)`);
+    if (currentInvoiceSplitLegs.length) {
+        const splitText = currentInvoiceSplitLegs
+            .map((leg) => `${leg.role}: ${formatAssetAmount(leg.amount_usdc, currentInvoiceSettlement.currency, currentInvoiceSettlement.decimals)} -> ${shortAddress(leg.pay_to)}${leg.status === 'paid' ? ' paid' : ''}`)
+            .join(' | ');
+        setPaymentDetailValue('pf-accounting-asset', splitText);
+        paywallDesc.textContent += ` Direct split: ${splitText}. Human wallets sign once per split leg.`;
+    }
+    setPaymentDetailValue('pf-funding-visibility', 'EURC/cirBTC funding visibility only, not Gateway settlement yet');
+    setPaymentDetailValue('pf-gateway-contract', gatewayContractAddress || 'Circle Gateway Contract (fetching...)');
+    setPaymentDetailValue('pf-wallet-address', connectedWallet);
+
+    let currentWalletBal = null;
+    let currentGwBal = null;
+    if (connectedWallet) {
+        try {
+            const [status, gw] = await Promise.all([
+                getWalletStatus(connectedWallet),
+                checkGatewayBalance(connectedWallet)
+            ]);
+            currentWalletBal = getOnChainUsdcBalance(status);
+            currentGwBal = gw;
+        } catch (e) {
+            console.warn('Could not pre-fetch balances', e);
+        }
+    }
+    updatePaymentFlowPanel({
+        stage: invoiceData.access_status === 'partial_paid' ? 'received' : 'created',
+        settlementId: invoiceData.settlement_id,
+        gatewayStatus: invoiceData.gateway_status,
+        buyerWalletBal: currentWalletBal,
+        buyerGatewayBal: currentGwBal
+    });
+    rememberPendingInvoice(invoiceData, activeQuery, connectedWallet);
+}
+
+async function tryResumePendingInvoice(invoiceBuyerType = 'human') {
+    const key = pendingInvoiceMatchKey(activeQuery, currentProviderId, currentInvoiceTier);
+    if (!key) return false;
+    const store = readPendingInvoiceStore(connectedWallet);
+    const entry = store[key];
+    if (!entry?.invoice) return false;
+    const refreshed = await refreshPendingInvoice(entry);
+    if (!refreshed || refreshed.status === 'expired' || refreshed.access_status === 'expired' || refreshed.access_status === 'disputed') {
+        clearPendingInvoice(activeQuery, currentProviderId, currentInvoiceTier, connectedWallet);
+        return false;
+    }
+    lockViewport();
+    await applyInvoiceDataToPaymentPanel(refreshed, invoiceBuyerType);
+    if (refreshed.status === 'paid' && refreshed.access_token) {
+        currentAccessToken = refreshed.access_token;
+        sessionStorage.setItem(`qma_accessToken_${refreshed.invoice_id}`, refreshed.access_token);
+        showPaymentUnlockingState();
+        const outputEndpoint = currentInvoiceTier === 'preview'
+            ? `/api/v1/providers/${encodeURIComponent(currentProviderId)}/preview`
+            : `/api/v1/providers/${encodeURIComponent(currentProviderId)}/full-report`;
+        const analyzeResp = await fetch(apiUrl(`${outputEndpoint}?invoice_id=${currentInvoiceId}`), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-QMA-Access-Token': currentAccessToken,
+            },
+            body: JSON.stringify(activeQuery)
+        });
+        const reportData = await analyzeResp.json();
+        if (!analyzeResp.ok) {
+            throw new Error(reportData.detail?.message || reportData.detail || 'Analysis request failed.');
+        }
+        if (currentInvoiceTier === 'preview') renderPreviewReport(reportData);
+        else renderReport(reportData);
+        showPaymentSuccessState();
+        updateAnomalyPaidState(activeQuery);
+        clearPendingInvoice(activeQuery, currentProviderId, currentInvoiceTier, connectedWallet);
+    } else {
+        showToast(`Resumed invoice ${shortAddress(refreshed.invoice_id)}. Continue with the remaining split leg.`, 'info');
+    }
+    return true;
 }
 
 // Trigger retrieval (Creates payment invoice)
@@ -3718,6 +4685,15 @@ queryForm.addEventListener('submit', async (e) => {
         return;
     }
 
+    try {
+        if (await tryResumePendingInvoice(invoiceBuyerType)) {
+            return;
+        }
+    } catch (resumeErr) {
+        console.warn('Pending invoice resume failed; creating a fresh invoice.', resumeErr);
+        showToast(resumeErr.message || 'Could not resume pending invoice. Creating a fresh invoice.', 'warning');
+    }
+
     lockViewport();
 
     // Call create invoice
@@ -3741,14 +4717,28 @@ queryForm.addEventListener('submit', async (e) => {
         currentInvoiceId = invoiceData.invoice_id;
         currentInvoiceSecret = invoiceData.invoice_secret;
         currentArcGatewayUrl = invoiceData.arc_gateway_url;
-        currentInvoiceAmount = Number(invoiceData.amount);
+        currentInvoiceSplitLegs = Array.isArray(invoiceData.split_legs) ? invoiceData.split_legs : [];
+        currentInvoiceSplitSettlements = currentInvoiceSplitLegs
+            .filter((leg) => leg.status === 'paid' && leg.settlement_id)
+            .map((leg) => ({
+                leg_id: leg.leg_id,
+                settlement_id: leg.settlement_id,
+                pay_to: leg.pay_to,
+                amount_raw: String(leg.amount_raw),
+                sidecar_receipt: leg.sidecar_receipt
+            }));
+        currentInvoiceSettlement = normalizeInvoiceSettlement(invoiceData);
+        currentInvoiceAccounting = normalizeInvoiceAccounting(invoiceData, currentInvoiceSettlement);
+        currentInvoiceAmount = Number(currentInvoiceSettlement.amount ?? invoiceData.amount);
         currentInvoiceTier = normalizeTier(invoiceData.tier || currentInvoiceTier);
         currentProviderId = invoiceData.provider_id || currentProviderId;
         currentInvoiceBuyerType = invoiceData.buyer_type || invoiceBuyerType;
         currentSellerAddress = invoiceData.wallet_address;
         if (currentInvoiceBuyerType === 'agent') {
-            appendAgentRunTrace(`Invoice ${shortAddress(currentInvoiceId)} ready: ${Number(invoiceData.amount).toFixed(3)} USDC via ${invoiceData.provider_id}.`, 'success');
-            appendAgentRunTrace('Payment panel is ready behind this modal. Close the modal to sign x402 with the connected wallet.');
+            appendAgentRunTrace(`Invoice ${shortAddress(currentInvoiceId)} ready: ${formatAssetAmount(currentInvoiceSettlement.amount, currentInvoiceSettlement.currency, currentInvoiceSettlement.decimals)} via ${invoiceData.provider_id}.`, 'success');
+            appendAgentRunTrace(agentRunModal?.classList.contains('open')
+                ? 'Payment panel is ready behind this modal. Close the modal to sign x402 with the connected wallet.'
+                : 'Payment panel is ready. Review the split and click Pay to sign x402 with the connected wallet.');
             appendAgentRunTrace('CLI live mode can run the same payment loop fully autonomously with AGENT_PRIVATE_KEY.');
             if (agentRunDismiss) agentRunDismiss.textContent = 'Continue to Payment';
         }
@@ -3765,16 +4755,26 @@ queryForm.addEventListener('submit', async (e) => {
                 ? `Unlock a lightweight ${invoiceData.provider_name || 'QMA'} preview for this exact live signal. Upgrade to the full report for all analogs, percentiles, and diagnostics.`
                 : `Unlock this exact full ${invoiceData.provider_name || 'QMA'} signal snapshot. If the token changes later, QMA treats that as a new signal and requires a new paid report.`;
         }
-        document.getElementById('invoice-amount-display').textContent = `${invoiceData.amount} ${invoiceData.currency}`;
+        document.getElementById('invoice-amount-display').textContent = formatAssetAmount(currentInvoiceSettlement.amount, currentInvoiceSettlement.currency, currentInvoiceSettlement.decimals);
         document.getElementById('invoice-tier-display').textContent = invoiceData.tier_label || tierLabel(currentInvoiceTier);
-        document.getElementById('invoice-network-display').textContent = invoiceData.network_name || invoiceData.network;
-        payButton.innerHTML = `<span>Pay ${Number(invoiceData.amount).toFixed(3)} USDC</span>`;
+        document.getElementById('invoice-network-display').textContent = currentInvoiceSettlement.network || invoiceData.network_name || invoiceData.network;
+        payButton.innerHTML = `<span>Pay ${formatAssetAmount(currentInvoiceSettlement.amount, currentInvoiceSettlement.currency, currentInvoiceSettlement.decimals)}</span>`;
 
         const pfPanel = document.getElementById('payment-flow-panel');
         if (pfPanel) {
             pfPanel.style.display = 'block';
         }
         setPaymentDetailValue('pf-seller-wallet-addr', invoiceData.wallet_address);
+        setPaymentDetailValue('pf-settlement-asset', `${currentInvoiceSettlement.currency} via ${currentInvoiceSettlement.rail}`);
+        setPaymentDetailValue('pf-accounting-asset', `${currentInvoiceAccounting.currency} (${currentInvoiceAccounting.amount_usdc} USDC)`);
+        if (currentInvoiceSplitLegs.length) {
+            const splitText = currentInvoiceSplitLegs
+                .map((leg) => `${leg.role}: ${formatAssetAmount(leg.amount_usdc, currentInvoiceSettlement.currency, currentInvoiceSettlement.decimals)} -> ${shortAddress(leg.pay_to)}`)
+                .join(' | ');
+            setPaymentDetailValue('pf-accounting-asset', splitText);
+            paywallDesc.textContent += ` Direct split: ${splitText}. Human wallets sign once per split leg.`;
+        }
+        setPaymentDetailValue('pf-funding-visibility', 'EURC/cirBTC funding visibility only, not Gateway settlement yet');
         // Gateway contract address
         setPaymentDetailValue('pf-gateway-contract', gatewayContractAddress || 'Circle Gateway Contract (fetching...)');
         setPaymentDetailValue('pf-wallet-address', connectedWallet);
@@ -3801,6 +4801,7 @@ queryForm.addEventListener('submit', async (e) => {
             buyerWalletBal: currentWalletBal,
             buyerGatewayBal: currentGwBal
         });
+        rememberPendingInvoice(invoiceData, activeQuery, connectedWallet);
     } catch (err) {
         if (invoiceBuyerType === 'agent') {
             appendAgentRunTrace(`Invoice creation failed: ${err.message || err}`, 'error');
@@ -3808,6 +4809,110 @@ queryForm.addEventListener('submit', async (e) => {
         alert(`Failed to initiate micro-payment invoice: ${err.message || err}`);
     }
 });
+
+async function payX402Resource(resourceUrl, account, provider, label = 'x402 payment') {
+    const challengeResp = await fetch(resourceUrl);
+    if (challengeResp.status !== 402) {
+        const body = await challengeResp.text();
+        throw new Error(`Expected x402 challenge for ${label}, got ${challengeResp.status}: ${body}`);
+    }
+    const requiredHeader = challengeResp.headers.get('PAYMENT-REQUIRED') || challengeResp.headers.get('payment-required');
+    if (!requiredHeader) {
+        throw new Error(`Arc Gateway did not return PAYMENT-REQUIRED header for ${label}.`);
+    }
+    const challenge = JSON.parse(b64decode(requiredHeader));
+    const accepted = challenge.accepts[0];
+    const chainId = parseInt(accepted.network.split(':')[1], 10);
+    const now = Math.floor(Date.now() / 1000);
+    const validBefore = (now + Math.max(accepted.maxTimeoutSeconds || 0, 7 * 24 * 3600 + 600)).toString();
+    const validAfter = (now - 600).toString();
+    const nonce = randomNonceHex();
+    const typedData = {
+        types: {
+            EIP712Domain: [
+                { name: 'name', type: 'string' },
+                { name: 'version', type: 'string' },
+                { name: 'chainId', type: 'uint256' },
+                { name: 'verifyingContract', type: 'address' }
+            ],
+            TransferWithAuthorization: [
+                { name: 'from', type: 'address' },
+                { name: 'to', type: 'address' },
+                { name: 'value', type: 'uint256' },
+                { name: 'validAfter', type: 'uint256' },
+                { name: 'validBefore', type: 'uint256' },
+                { name: 'nonce', type: 'bytes32' }
+            ]
+        },
+        primaryType: 'TransferWithAuthorization',
+        domain: {
+            name: 'GatewayWalletBatched',
+            version: '1',
+            chainId,
+            verifyingContract: accepted.extra.verifyingContract
+        },
+        message: {
+            from: account,
+            to: accepted.payTo,
+            value: accepted.amount,
+            validAfter,
+            validBefore,
+            nonce
+        }
+    };
+    const signature = await walletRequest(
+        {
+            method: 'eth_signTypedData_v4',
+            params: [account, JSON.stringify(typedData)]
+        },
+        `${label} authorization`
+    );
+    const paymentPayload = {
+        x402Version: 2,
+        payload: {
+            signature,
+            authorization: {
+                from: account,
+                to: accepted.payTo,
+                value: accepted.amount,
+                validAfter,
+                validBefore,
+                nonce
+            }
+        },
+        accepted,
+        resource: challenge.resource
+    };
+    const paidResp = await fetch(resourceUrl, {
+        headers: { 'payment-signature': b64encode(paymentPayload) }
+    });
+    const paidData = await paidResp.json().catch(async () => ({ error: await paidResp.text() }));
+    if (!paidResp.ok) {
+        const reason = paidData.reason || paidData.errorReason || paidData.message || paidData.error;
+        throw new Error(reason ? `${paidData.error || 'Arc settlement failed'}: ${reason}` : `Arc Gateway returned ${paidResp.status}`);
+    }
+    return paidData;
+}
+
+async function verifyCurrentSplitInvoice(account) {
+    const verifyResp = await fetch(apiUrl(`/api/v1/payment/verify?invoice_id=${currentInvoiceId}`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            invoice_secret: currentInvoiceSecret,
+            payer_address: account,
+            split_settlements: currentInvoiceSplitSettlements
+        })
+    });
+    const verifyData = await verifyResp.json();
+    if (!verifyResp.ok) {
+        const detail = typeof verifyData.detail === 'object'
+            ? JSON.stringify(verifyData.detail)
+            : verifyData.detail;
+        throw new Error(detail || 'QMA could not verify split settlement.');
+    }
+    return verifyData;
+}
 
 // Circle Gateway x402 payment on Arc Testnet
 payButton.addEventListener('click', async () => {
@@ -3872,7 +4977,12 @@ payButton.addEventListener('click', async () => {
         }
         await ensureArcTestnet();
         await sleep(250);
-        if (sameAddress(account, currentSellerAddress)) {
+        if (currentInvoiceSplitLegs.length) {
+            const selfRecipientLeg = currentInvoiceSplitLegs.find((leg) => sameAddress(account, leg.pay_to));
+            if (selfRecipientLeg) {
+                throw new Error(`Connected wallet is the ${selfRecipientLeg.role || selfRecipientLeg.leg_id} split recipient (${selfRecipientLeg.pay_to}). Circle rejects self-transfer payments. Use a separate buyer wallet from the provider/treasury wallets.`);
+            }
+        } else if (sameAddress(account, currentSellerAddress)) {
             throw new Error(`Connected wallet is the seller wallet (${currentSellerAddress}). Circle rejects self-transfer payments. Switch network to a buyer wallet such as acc1, or set QMA_ARC_SELLER_ADDRESS to a separate treasury wallet.`);
         }
 
@@ -3923,6 +5033,114 @@ payButton.addEventListener('click', async () => {
             if (refreshedBalance + 1e-9 < currentInvoiceAmount) {
                 throw new Error(`Gateway deposit is mined but Circle balance has not updated enough yet. Current balance: ${refreshedBalance.toFixed(6)} USDC. Deposit tx: ${depositResult.depositHash}. Wait a bit and retry payment.`);
             }
+        }
+
+        if (currentInvoiceSplitLegs.length) {
+            const expiresAt = Math.min(...currentInvoiceSplitLegs.map((leg) => Number(leg.expires_at || 0)).filter(Boolean));
+            if (expiresAt && Date.now() / 1000 > expiresAt) {
+                throw new Error('Invoice expired - start a new purchase.');
+            }
+            const paidLegIds = new Set(currentInvoiceSplitSettlements.map((item) => item.leg_id));
+            const pendingLegs = currentInvoiceSplitLegs.filter((leg) => !paidLegIds.has(leg.leg_id) && leg.status !== 'paid');
+            for (const leg of pendingLegs) {
+                payButton.innerHTML = `
+                    <div class="spinner" style="width: 16px; height: 16px;"></div>
+                    <span>Paying ${escapeHtml(leg.role || leg.leg_id)} split leg...</span>
+                `;
+                const paidData = await payX402Resource(leg.resource, account, provider, `${leg.role || leg.leg_id} split leg`);
+                currentInvoiceSplitSettlements.push({
+                    leg_id: paidData.leg_id || leg.leg_id,
+                    settlement_id: paidData.settlement_id || paidData.settlementId,
+                    pay_to: paidData.pay_to || leg.pay_to,
+                    amount_raw: String(paidData.amount_raw || leg.amount_raw),
+                    sidecar_receipt: paidData.sidecar_receipt
+                });
+                currentInvoiceSplitLegs = currentInvoiceSplitLegs.map((item) => {
+                    if (item.leg_id !== (paidData.leg_id || leg.leg_id)) return item;
+                    return {
+                        ...item,
+                        status: 'paid',
+                        settlement_id: paidData.settlement_id || paidData.settlementId,
+                        sidecar_receipt: paidData.sidecar_receipt,
+                        gateway_status: paidData.gateway_status || paidData.status || item.gateway_status,
+                    };
+                });
+                rememberPendingInvoice(currentInvoiceDataSnapshot(), activeQuery, account);
+                saveWalletEvent(account, {
+                    type: 'x402_split_leg',
+                    amount_usdc: paidData.amount_usdc || leg.amount_usdc,
+                    settlement_id: paidData.settlement_id || paidData.settlementId,
+                    tier: currentInvoiceTier,
+                    symbol: activeQuery.symbol,
+                    leg_id: paidData.leg_id || leg.leg_id,
+                    role: paidData.role || leg.role,
+                    invoice_id: currentInvoiceId,
+                });
+                updatePaymentFlowPanel({
+                    stage: 'received',
+                    settlementId: paidData.settlement_id || paidData.settlementId,
+                    buyerGatewayBal: await checkGatewayBalance(account)
+                });
+            }
+
+            payButton.innerHTML = `
+                <div class="spinner" style="width: 16px; height: 16px;"></div>
+                <span>Verifying split invoice...</span>
+            `;
+            const verifyData = await verifyCurrentSplitInvoice(account);
+            if (verifyData.status !== 'paid') {
+                throw new Error('Partial payment - resume remaining leg before invoice expiry.');
+            }
+            currentSettlementId = verifyData.settlement_id;
+            currentAccessToken = verifyData.access_token || null;
+            if (!currentAccessToken) {
+                throw new Error('QMA verification did not return an access token for this paid report.');
+            }
+            saveWalletEvent(account, {
+                type: 'verified_split_payment',
+                amount_usdc: currentInvoiceAmount,
+                settlement_id: currentSettlementId,
+                tier: currentInvoiceTier,
+                symbol: activeQuery.symbol,
+                invoice_id: currentInvoiceId
+            });
+            const [finalStatus, finalGwBal] = await Promise.all([
+                getWalletStatus(account),
+                checkGatewayBalance(account)
+            ]);
+            updatePaymentFlowPanel({
+                stage: 'received',
+                buyerWalletBal: getOnChainUsdcBalance(finalStatus),
+                buyerGatewayBal: finalGwBal,
+                settlementId: currentSettlementId,
+                gatewayStatus: verifyData.gateway_status,
+                sellerWallet: verifyData.seller_wallet,
+            });
+            showPaymentUnlockingState();
+            const outputEndpoint = currentInvoiceTier === 'preview'
+                ? `/api/v1/providers/${encodeURIComponent(currentProviderId)}/preview`
+                : `/api/v1/providers/${encodeURIComponent(currentProviderId)}/full-report`;
+            const analyzeResp = await fetch(apiUrl(`${outputEndpoint}?invoice_id=${currentInvoiceId}`), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-QMA-Access-Token': currentAccessToken,
+                },
+                body: JSON.stringify(activeQuery)
+            });
+            const reportData = await analyzeResp.json();
+            if (!analyzeResp.ok) {
+                throw new Error(reportData.detail?.message || reportData.detail || 'Analysis request failed.');
+            }
+            if (currentInvoiceTier === 'preview') {
+                renderPreviewReport(reportData);
+            } else {
+                renderReport(reportData);
+            }
+            showPaymentSuccessState();
+            updateAnomalyPaidState(activeQuery);
+            clearPendingInvoice(activeQuery, currentProviderId, currentInvoiceTier, account);
+            return;
         }
 
         payButton.innerHTML = `
@@ -4121,6 +5339,7 @@ payButton.addEventListener('click', async () => {
             }
             showPaymentSuccessState();
             updateAnomalyPaidState(activeQuery);
+            clearPendingInvoice(activeQuery, currentProviderId, currentInvoiceTier, account);
         } else {
             alert("Payment was not accepted by QMA.");
         }
@@ -4460,6 +5679,7 @@ function renderPreviewReport(report, cachedEntry = null) {
 
     const riskList = document.getElementById('risk-list');
     riskList.innerHTML = '';
+    appendProviderReportDetails(riskList, report);
     const paidMeta = cachedEntry || getCachedReport(activeQuery || report.query || { symbol: report.query_symbol }, 'preview');
     if (paidMeta?.saved_at) {
         const div = document.createElement('div');
@@ -4574,6 +5794,7 @@ function renderReport(report, cachedEntry = null) {
     const riskList = document.getElementById('risk-list');
     const riskItems = [...(report.risk_flags || []), ...(report.validation_warnings || [])];
     riskList.innerHTML = '';
+    appendProviderReportDetails(riskList, report);
     const paidMeta = cachedEntry || getCachedReport(activeQuery || report.query || { symbol: report.query_symbol });
     if (paidMeta?.saved_at) {
         const div = document.createElement('div');
@@ -4642,7 +5863,7 @@ walletButton.addEventListener('click', async (event) => {
 walletProfileBtn.addEventListener('click', openWalletProfilePage);
 if (walletQuickProfileBtn) walletQuickProfileBtn.addEventListener('click', openWalletProfile);
 if (quickProfileUnlockBtn) quickProfileUnlockBtn.addEventListener('click', unlockQuickWalletProfile);
-if (walletAgentRunBtn) walletAgentRunBtn.addEventListener('click', openAgentRunModal);
+if (openCopilotBtn) openCopilotBtn.addEventListener('click', openAgentRunModal);
 if (walletFundArcBtn) walletFundArcBtn.addEventListener('click', openFundArcModal);
 walletDisconnectBtn.addEventListener('click', disconnectWallet);
 paywallClose.addEventListener('click', () => {
@@ -4674,6 +5895,18 @@ const wBtn = document.getElementById('wallet-withdraw-btn');
 const wMenuBtn = document.getElementById('wallet-withdraw-menu-btn');
 if (wBtn) wBtn.addEventListener('click', withdrawSellerGatewayFunds);
 if (wMenuBtn) wMenuBtn.addEventListener('click', withdrawSellerGatewayFunds);
+if (walletProviderEarningsBtn) {
+    walletProviderEarningsBtn.addEventListener('click', () => {
+        walletMenu.classList.remove('open');
+        openProviderEarningsModal();
+    });
+}
+if (walletRelayerToolsBtn) {
+    walletRelayerToolsBtn.addEventListener('click', () => {
+        walletMenu.classList.remove('open');
+        openRelayerToolsModal();
+    });
+}
 if (paymentPrevBtn) {
     paymentPrevBtn.addEventListener('click', () => {
         if (paymentActivityPage <= 1) return;
@@ -4879,3 +6112,143 @@ try {
     setViewMode('basic');
 }
 updateBasicSignalCard();
+
+// Agent Buyer logic
+const agentPromptInput = document.getElementById('agent-prompt-input');
+const agentPromptSubmitBtn = document.getElementById('agent-prompt-submit-btn');
+const agentStatusIndicator = document.getElementById('agent-status-indicator');
+
+async function handleAgentPromptSubmit() {
+    if (!agentPromptInput || !agentPromptSubmitBtn) return;
+    const prompt = agentPromptInput.value.trim();
+    if (!prompt) return;
+
+    agentPromptSubmitBtn.disabled = true;
+    if (agentStatusIndicator) {
+        agentStatusIndicator.textContent = 'Evaluating...';
+        agentStatusIndicator.className = 'agent-status-indicator active';
+    }
+
+    try {
+        // Parse prompt parameters
+        const budgetMatch = prompt.match(/(?:budget|under|limit|max|price|of)\s*(?:[\$]?)\s*([0-9\.]+)/i);
+        const budgetVal = budgetMatch ? parseFloat(budgetMatch[1]) : 0.010;
+
+        let providerId = null;
+        if (prompt.toLowerCase().includes('oi_memory') || prompt.toLowerCase().includes('open_interest') || prompt.toLowerCase().includes('oi')) {
+            providerId = 'oi_memory';
+        } else if (prompt.toLowerCase().includes('funding_memory') || prompt.toLowerCase().includes('funding')) {
+            providerId = 'funding_memory';
+        }
+
+        let tierVal = null;
+        if (prompt.toLowerCase().includes('preview')) {
+            tierVal = 'preview';
+        } else if (prompt.toLowerCase().includes('full')) {
+            tierVal = 'full';
+        }
+
+        // Set inputs in Judge Mode inputs automatically
+        const sidebarBudgetInput = document.getElementById('agent-run-budget');
+        const sidebarMaxPriceInput = document.getElementById('agent-run-max-price');
+
+        if (sidebarBudgetInput) sidebarBudgetInput.value = budgetVal;
+        if (sidebarMaxPriceInput) sidebarMaxPriceInput.value = Math.min(budgetVal, 0.005);
+
+        // Keep the trace available for Judge Mode, but let Copilot go straight to paywall.
+        setAgentRunTrace([
+            { text: `Agent goal received: "${prompt}"`, tone: 'active' },
+            `Parsing details: Target Budget limit is set to ${budgetVal} USDC. Preferred provider: ${providerId || 'any'}. Preferred tier: ${tierVal || 'any'}.`,
+            `Initiating autonomous recommendation scan...`
+        ]);
+
+        // Fetch live recommendations
+        const resp = await fetch(apiUrl('/api/v1/agent/recommendations?limit=8'));
+        if (!resp.ok) throw new Error(`Agent API returned status ${resp.status}`);
+        const data = await resp.json();
+        let picks = data.recommendations || [];
+
+        // Apply filters based on prompt
+        if (providerId) {
+            picks = picks.filter(p => p.provider_id === providerId);
+        }
+        if (tierVal) {
+            picks = picks.filter(p => p.agent_tier === tierVal);
+        }
+
+        appendAgentRunTrace(`Filtered down to ${picks.length} matches from live opportunities.`);
+
+        const { selected, audit } = agentPolicyPick(picks, budgetVal, Math.min(budgetVal, 0.005), data.pricing || {});
+        audit.forEach((line) => appendAgentRunTrace(line.text, line.tone));
+
+        if (!selected) {
+            appendAgentRunTrace('Copilot: No signal matching the criteria found under the specified budget.', 'warning');
+            return;
+        }
+
+        const signal = selected.agent_signal || normalizeSignalPayload(selected.query || { symbol: selected.symbol });
+        appendAgentRunTrace(`Copilot found best deal: ${selected.symbol} (Score: ${Number(selected.score || 0).toFixed(1)}, Price: ${selected.agent_price.toFixed(3)} USDC)`, 'success');
+        appendAgentRunTrace(`Loading inputs and opening the payment panel...`);
+        showToast(`Copilot selected ${selected.symbol}. Opening payment panel for signature.`, 'info');
+
+        // Switch to the correct provider first so schema-specific fields exist before syncing.
+        if (selected.provider_id) {
+            switchProvider(selected.provider_id, { silent: true });
+        }
+        applySignalToState(signal);
+        currentInvoiceTier = normalizeTier(selected.agent_tier);
+        currentInvoiceAmount = selected.agent_price;
+        nextInvoiceBuyerType = 'agent';
+
+        // Submit form / prepare invoice
+        const cachedEntry = getCachedReport(signal, currentInvoiceTier);
+        if (cachedEntry?.report) {
+            appendAgentRunTrace(`Opening cached report.`, 'success');
+            if (normalizeTier(cachedEntry.tier || cachedEntry.report?.tier) === 'preview') {
+                renderPreviewReport(cachedEntry.report, cachedEntry);
+            } else {
+                renderReport(cachedEntry.report, cachedEntry);
+            }
+            return;
+        }
+
+        const submitBtn = queryForm.querySelector(`button[type="submit"][data-tier="${currentInvoiceTier}"]`)
+            || queryForm.querySelector('button[type="submit"][data-tier="full"]');
+        if (!submitBtn) throw new Error(`No submit button found.`);
+        queryForm.requestSubmit(submitBtn);
+
+    } catch (err) {
+        console.warn('AI Copilot process failed', err);
+        if (typeof appendAgentRunTrace === 'function') {
+            appendAgentRunTrace(`AI Copilot execution error: ${err.message || err}`, 'error');
+        }
+    } finally {
+        agentPromptSubmitBtn.disabled = false;
+        agentPromptInput.value = '';
+    }
+}
+
+// Bind preset button actions
+document.querySelectorAll('.preset-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+        const preset = btn.dataset.preset;
+        if (preset === 'trigger judge mode') {
+            openAgentRunModal();
+        } else if (agentPromptInput) {
+            agentPromptInput.value = preset;
+            handleAgentPromptSubmit();
+        }
+    });
+});
+
+if (agentPromptSubmitBtn) {
+    agentPromptSubmitBtn.addEventListener('click', handleAgentPromptSubmit);
+}
+if (agentPromptInput) {
+    agentPromptInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            handleAgentPromptSubmit();
+        }
+    });
+}

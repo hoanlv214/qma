@@ -1,186 +1,114 @@
-# QMA Agent Buyer Example
+# QMA CLI Examples
 
-This folder shows how an external autonomous agent can buy QMA intelligence directly from the API.
+This directory contains executable external-agent examples. The web dashboard
+is not required. For the complete architecture and sequence diagram, read
+[docs/AUTONOMOUS_AGENT.md](../docs/AUTONOMOUS_AGENT.md). For the HTTP contract,
+read [docs/AGENT_API.md](../docs/AGENT_API.md).
 
-The example agent:
+## Buyer flow
 
-```text
-1. Reads /api/v1/agent/recommendations
-2. Optionally loads wallet entitlements from /api/v1/entitlements/wallet/{address}
-3. Chooses an affordable signal under budget and max-price policy
-4. Upgrades Preview -> Full when Preview was already paid, and skips symbols with Full already paid
-5. Creates a provider-bound invoice
-6. Ensures Circle Gateway balance is available
-7. Pays the x402 requirement with Arc Testnet USDC
-8. Verifies settlement with QMA
-9. Fetches the paid JSON report
-```
-
-The web dashboard is not required for this flow.
-
-## Install
-
-From the `qma/` directory:
-
-```powershell
-npm install
-```
-
-## Dry Run
-
-Dry run is safe for demos. It creates an invoice but does not sign or spend USDC.
-
-```powershell
-npm run agent:dry
-```
-
-If you want dry-run policy to check paid history without signing, pass the wallet address to inspect:
-
-```powershell
-node examples/agent_buyer.mjs --dry-run --wallet 0xYOUR_AGENT_WALLET
-```
-
-Optional filters:
-
-```powershell
-node examples/agent_buyer.mjs --dry-run --tier preview
-node examples/agent_buyer.mjs --dry-run --tier full
-node examples/agent_buyer.mjs --dry-run --symbol HYPE
-node examples/agent_buyer.mjs --dry-run --api http://127.0.0.1:8000
-```
-
-## Selection Policy
-
-There are two ways to run the buyer:
+`agent_buyer.mjs` performs one purchase:
 
 ```text
-Auto policy mode:
-  node examples/agent_buyer.mjs --dry-run
-  node examples/agent_buyer.mjs --live
-
-Forced tier mode:
-  npm run agent:preview
-  npm run agent:full
-  node examples/agent_buyer.mjs --live --tier preview
-  node examples/agent_buyer.mjs --live --tier full
+recommendations + entitlements
+  -> candidate and policy selection
+  -> provider-bound invoice
+  -> Gateway balance check
+  -> creator/platform x402 legs
+  -> payment verification
+  -> paid preview/full report
 ```
 
-Auto policy mode is the autonomous agent behavior. It checks wallet entitlements when an agent wallet is known:
+`agent_session.mjs` wraps the buyer in a bounded polling session and accounts
+for budget, cooldown, failures, purchases, and stop conditions.
 
-- If a symbol has no paid report yet, the agent can buy the suggested Preview or Full report.
-- If a symbol already has Preview but not Full, the agent upgrades to Full instead of buying Preview again.
-- If a symbol already has Full, the agent skips it and evaluates the next opportunity.
-- Among remaining choices, it prefers Preview -> Full upgrades first, then ranks by `score / price`.
-
-Forced tier mode is a command primitive. It respects the tier you requested:
-
-- `agent:preview` buys Preview opportunities only.
-- `agent:full` buys Full opportunities only.
-- If the requested tier was already purchased for a symbol, the buyer skips that symbol and moves to the next affordable opportunity.
-
-## Live Payment
-
-Live mode uses a private key from a test wallet and signs real Arc Testnet transactions.
+## Build and run
 
 ```powershell
-$env:QMA_API_URL="https://qma-api.onrender.com"
-$env:AGENT_PRIVATE_KEY="0xYOUR_TEST_WALLET_PRIVATE_KEY"
-$env:AGENT_BUDGET_USDC="0.01"
-$env:AGENT_MAX_PRICE_USDC="0.005"
-$env:AGENT_GATEWAY_DEPOSIT_USDC="1"
-npm run agent:preview
+npm run agent:build
 ```
 
-Full report:
+Safe single observation:
 
 ```powershell
-npm run agent:full
+npm run agent -- --api http://127.0.0.1:8000 --dry-run --run-once --budget 0.05 --max-price 0.005
 ```
 
-Run the fully automatic policy without forcing a tier:
+Bounded repeated dry-run:
 
 ```powershell
-node examples/agent_buyer.mjs --live
+npm run agent -- --api http://127.0.0.1:8000 --dry-run --duration 10m --poll 60 --budget 1 --max-price 0.005
 ```
 
-## Testnet USDC
+Bounded live Circle Agent Wallet run:
 
-New agent wallets can request Arc Testnet USDC from Circle:
+```powershell
+npm run agent -- --api http://127.0.0.1:8000 --live --duration 5m --max-purchases 2 --poll 15 --budget 0.1 --max-price 0.05 --provider funding_memory,oi_memory --tier preview,full --executor circle-agent-wallet --wallet 0xYOUR_AGENT_WALLET --no-auto-deposit
+```
+
+`--until-stopped` is intentionally explicit. Without a loop bound, the
+session performs one safe poll and stops. `--json`, `--report-file`,
+`--event-log`, and `--verbose` are output/diagnostic options.
+
+## Planned interactive CLI
+
+The current implementation accepts flags and environment defaults. The desired
+human-facing entry point is:
+
+```powershell
+npm run agent
+```
+
+The future wizard should collect the policy once:
 
 ```text
-https://faucet.circle.com/
+Mode: dry-run or live
+Session budget
+Maximum price per report
+Allowed providers and tiers
+Duration, poll interval, or maximum purchases
+Executor and Circle Agent Wallet address
+Live-spending confirmation
 ```
 
-The faucet funds the wallet's normal on-chain USDC balance.
+This wizard is not implemented yet. Until then, use explicit flags. Interactive
+input and flags must produce the same `normalizeSessionPolicy` result. Live
+mode must show a policy summary and require confirmation before invoice
+creation. The policy must not change between polls.
 
-QMA/x402 spends from Circle Gateway balance, so live mode will auto-approve and auto-deposit USDC into Circle Gateway if the Gateway balance is too low.
+## LLM mode
 
-Disable auto-deposit:
+`agent_buyer.mjs --llm` asks the shared backend decision service for a minimal
+structured plan. The backend resolves the authoritative candidate, provider,
+query, price, entitlement, and payment data. LLM output cannot provide invoice
+secrets, recipients, split legs, settlement ids, access tokens, or reports.
+
+The bounded session sends `use_llm=false` during polling by design. This keeps
+polling deterministic and avoids repeatedly calling the LLM. An optional
+one-time policy parse can be enabled with `--llm-policy` when
+`OPENAI_API_KEY` is available.
+
+## Circle Agent Wallet
 
 ```powershell
-node examples/agent_buyer.mjs --live --tier preview --no-auto-deposit
+circle wallet login you@example.com --type agent --testnet
+circle wallet list --type agent --chain ARC-TESTNET
+circle gateway balance --address 0xYOUR_AGENT_WALLET --chain ARC-TESTNET
 ```
 
-## Environment
+Use `--executor circle-agent-wallet` explicitly. The Circle Agent Wallet
+address is the x402 authorization identity; its Gateway settlement can use a
+separate backing payer identity. Do not send Circle OTP/session data to the
+browser or commit wallet credentials.
 
-Supported environment variables:
+## Safety and troubleshooting
 
-```env
-QMA_API_URL=https://qma-api.onrender.com
-AGENT_PRIVATE_KEY=0x...
-AGENT_WALLET_ADDRESS=0x... # optional dry-run policy wallet when no private key is loaded
-AGENT_BUDGET_USDC=0.01
-AGENT_MAX_PRICE_USDC=0.005
-AGENT_GATEWAY_DEPOSIT_USDC=1
-AGENT_GATEWAY_APPROVE_USDC=10
-ARC_TESTNET_RPC=https://rpc.testnet.arc.network
-```
+- Dry-run does not spend USDC. Use it first.
+- `--auto-deposit` performs an additional Gateway funding transaction.
+- A low Gateway balance is different from a low on-chain USDC balance.
+- A report unlocks only after all required split legs and invoice bindings are
+  verified by the backend.
+- Never commit `AGENT_PRIVATE_KEY` or persist invoice/access tokens.
 
-Never commit `AGENT_PRIVATE_KEY`.
-
-## Security Model
-
-The agent does not receive a report just because it created an invoice.
-
-QMA backend still validates:
-
-- invoice id
-- invoice secret
-- query fingerprint
-- provider id
-- tier
-- Circle/x402 settlement id
-- payer wallet
-- payment amount
-- access token expiry
-
-Only after verification does QMA issue an access token for the paid report endpoint.
-
-## Troubleshooting
-
-### `insufficient_balance`
-
-The wallet has on-chain USDC, but its Circle Gateway balance is too low.
-
-Run live mode without `--no-auto-deposit`, or use the web UI once to approve/deposit into Gateway.
-
-### `Wallet has X USDC, but auto-deposit needs Y USDC`
-
-Request more testnet USDC from the Circle Faucet or lower:
-
-```env
-AGENT_GATEWAY_DEPOSIT_USDC=0.01
-```
-
-### `QMA verification did not return an access token`
-
-The settlement was accepted by the gateway but QMA did not accept the invoice verification. Check:
-
-- invoice secret belongs to the same invoice,
-- payer wallet matches the private key,
-- report tier matches the invoice tier,
-- query payload was not changed.
-
-### Report tx is pending
-
-Circle can accept the x402 payment before the final Arcscan batch transaction appears. QMA can still unlock the report once Circle settlement is accepted, and Arcscan tx hydration may appear later.
+For payment invariants, read [PAYMENT_FLOW.md](../PAYMENT_FLOW.md), not this
+README.

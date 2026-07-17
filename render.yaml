@@ -1,37 +1,29 @@
 services:
   - type: web
-    name: qma-api
+    name: qma-api-rebuild
     env: python
     plan: free
     region: singapore
+    branch: frontend/vite-react-rebuild
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: QMA_PRICE_PREVIEW_USDC
-        value: "0.001"
-      - key: QMA_PRICE_FULL_USDC
-        value: "0.005"
-      - key: QMA_PAYMENT_AMOUNT_USDC
-        value: "0.005"
-      - key: QMA_PAYMENT_RESOURCE_TYPE
-        value: qma_signal_report
-      - key: QMA_PAYMENT_NETWORK
-        value: eip155:5042002
-      - key: QMA_PAYMENT_NETWORK_NAME
-        value: Arc Testnet
-      - key: QMA_CIRCLE_GATEWAY_API
-        value: https://gateway-api-testnet.circle.com
-      - key: QMA_ARC_EXPLORER
-        value: https://testnet.arcscan.app
-      - key: QMA_ARC_GATEWAY_WALLET
-        value: "0x0077777d7EBA4688BDeF3E311b846F25870A19B9"
+      - key: QMA_HISTORICAL_DB_PATH
+        value: data/sample_funding_historical_analysis.csv
+      - key: QMA_BACKTEST_OUTCOME_PATH
+        value: data/sample_trading_analysis.csv
       - key: QMA_ARC_GATEWAY_URL
-        value: https://qma-arc-gateway.onrender.com
+        value: https://qma-arc-gateway-rebuild.onrender.com
+      # Must be the same value on qma-arc-gateway-rebuild.
+      - key: QMA_ARC_GATEWAY_INTERNAL_SECRET
+        sync: false
       - key: QMA_ARC_SELLER_ADDRESS
         sync: false
       - key: QMA_FUNDING_MEMORY_OWNER_WALLET
         sync: false
       - key: QMA_OI_MEMORY_OWNER_WALLET
+        sync: false
+      - key: QMA_ADMIN_WALLET
         sync: false
       - key: SUPABASE_URL
         sync: false
@@ -41,39 +33,35 @@ services:
         value: public
       - key: QMA_ACCESS_TOKEN_SECRET
         generateValue: true
+      # Must be the same value on qma-arc-gateway-rebuild.
+      - key: QMA_SPLIT_LEG_URL_SECRET
+        sync: false
+      # Must be the same value on qma-arc-gateway-rebuild.
+      - key: QMA_SPLIT_RECEIPT_SECRET
+        sync: false
       - key: QMA_ADMIN_TOKEN
         sync: false
-      - key: QMA_REQUIRE_COMPLETED_SETTLEMENT
-        value: "false"
-      - key: QMA_ARC_DEFAULT_DEPOSIT_USDC
-        value: "1.00"
-      - key: QMA_ARC_DEFAULT_APPROVE_USDC
-        value: "10.00"
 
   - type: web
-    name: qma-arc-gateway
+    name: qma-arc-gateway-rebuild
     env: node
     plan: free
     region: singapore
+    branch: frontend/vite-react-rebuild
     rootDir: arc_gateway
     buildCommand: npm install
     startCommand: npm start
     envVars:
+      - key: QMA_BACKEND_INTERNAL_URL
+        value: https://qma-api-rebuild.onrender.com
+      # Must exactly match qma-api-rebuild.
+      - key: QMA_ARC_GATEWAY_INTERNAL_SECRET
+        sync: false
+      # Must exactly match qma-api-rebuild.
+      - key: QMA_SPLIT_LEG_URL_SECRET
+        sync: false
+      # Must exactly match qma-api-rebuild.
+      - key: QMA_SPLIT_RECEIPT_SECRET
+        sync: false
       - key: QMA_ARC_SELLER_ADDRESS
         sync: false
-      - key: QMA_CIRCLE_GATEWAY_API
-        value: https://gateway-api-testnet.circle.com
-      - key: QMA_ARC_EXPLORER
-        value: https://testnet.arcscan.app
-      - key: ARC_EXPLORER
-        value: https://testnet.arcscan.app
-      - key: ARC_TESTNET_RPC
-        value: https://rpc.testnet.arc.network
-      - key: QMA_PRICE_PREVIEW_USDC
-        value: "0.001"
-      - key: QMA_PRICE_FULL_USDC
-        value: "0.005"
-      - key: QMA_ARC_DEFAULT_DEPOSIT_USDC
-        value: "1.00"
-      - key: QMA_ARC_APPROVE_USDC
-        value: "10.00"
