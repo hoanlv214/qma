@@ -23,7 +23,7 @@ data/full_*.csv
 .qma-test-wallets*.json
 exports/
 .qma-test-wallets.json
-
+*.zip
 # v0 sandbox internal files
 __v0_runtime_loader.js
 __v0_devtools.tsx

@@ -146,23 +146,6 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
         </div>
       </section>
 
-      {/* Partner Logos */}
-      <section className="landing-partners-strip">
-        <span className="section-eyebrow partners-label">Supported by</span>
-        <div className="partners-logos">
-          <a href="https://thecanteenapp.com/" target="_blank" rel="noopener noreferrer" title="Canteen">
-            <img src="/assets/logos/canteen-logo.png" alt="Canteen" />
-          </a>
-          <a href="https://www.circle.com/" target="_blank" rel="noopener noreferrer" title="Circle">
-            <img src="/assets/logos/circle-logo-white.svg" alt="Circle" />
-          </a>
-          <a href="https://www.arc.network/" target="_blank" rel="noopener noreferrer" title="Arc Testnet">
-            <img src="/assets/logos/arc-logo-white.svg" alt="Arc Testnet" />
-          </a>
-        </div>
-      </section>
-
-
       <section className="landing-traction-section" aria-label="Live QMA traction">
         <div className="section-eyebrow landing-traction-label">
           <span className="indicator-dot"></span>
@@ -404,10 +387,27 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
           </div>
         </div>
 
+        <div className="landing-footer-builton">
+          <span className="landing-settlement-label">Built on</span>
+          <div className="landing-settlement-logos">
+            <a href="https://www.arc.network/" target="_blank" rel="noopener noreferrer" title="Arc Testnet">
+              <img src="/assets/logos/arc-logo-white.svg" alt="Arc" />
+            </a>
+            <a href="https://www.circle.com/" target="_blank" rel="noopener noreferrer" title="Circle Gateway">
+              <img src="/assets/logos/circle-logo-white.svg" alt="Circle" />
+            </a>
+          </div>
+          <p className="landing-settlement-copy">Built independently on Arc Testnet. USDC settlement via Circle Gateway.</p>
+        </div>
+
         <div className="landing-footer-bottom">
           <span>2026 QMA. All rights reserved. Historical analogs only. Not financial advice. Running on Arc Testnet.</span>
           <span className="landing-status-dot">Arc Testnet live</span>
         </div>
+        <p className="landing-brand-disclaimer">
+          Circle, Arc and related marks are trademarks of Circle Internet Group, Inc. and/or its affiliates.
+          QMA is an independent application and is not endorsed or sponsored by Circle.
+        </p>
       </footer>
     </main>
   );

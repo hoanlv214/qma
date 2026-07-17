@@ -3,13 +3,10 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
-  publicDir: "../public",
+  publicDir: "public",
   server: {
     port: 5173,
     strictPort: false,
-    fs: {
-      allow: [".."]
-    },
     proxy: {
       // Arc Gateway (port 3000) – must come BEFORE the catch-all /api rule
       "/api/balance": {
