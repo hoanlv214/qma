@@ -141,8 +141,8 @@ Run the gateway sidecar separately when testing real x402 integration:
 
 ```powershell
 cd arc_gateway
-npm.cmd install
-npm.cmd start
+npm install
+npm start
 ```
 
 Read [`PAYMENT_FLOW.md`](../PAYMENT_FLOW.md) before changing payment or

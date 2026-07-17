@@ -127,10 +127,10 @@ token validation into presentational components.
 
 ```powershell
 cd frontend
-npm.cmd install
-npm.cmd run dev
-npm.cmd run typecheck
-npm.cmd run build
+npm install
+npm run dev
+npm run typecheck
+npm run build
 ```
 
 The production build is emitted to `frontend/dist/`; never edit it directly.

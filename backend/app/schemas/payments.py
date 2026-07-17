@@ -12,6 +12,7 @@ class InvoiceRequest(QueryModel):
     tier: str = Field(default="full", pattern="^(preview|full)$")
     resource_type: str = Field(default="qma_signal_report", max_length=64)
     buyer_type: str = Field(default="human", pattern="^(human|agent)$")
+    buyer_wallet_address: Optional[str] = Field(default=None, min_length=8, max_length=80)
     synthetic: bool = False
     agent_label: Optional[str] = Field(default=None, max_length=120)
     run_source: Optional[str] = Field(default=None, max_length=120)

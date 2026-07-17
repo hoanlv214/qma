@@ -73,6 +73,40 @@ class AgentDecisionContractTests(unittest.TestCase):
         self.assertEqual(body["plan"]["action"], "skip")
         self.assertIsNone(body["resolved_candidate"])
 
+    def test_endpoint_exposes_provider_comparison_and_selection_basis(self):
+        recommendations = [
+            {"candidate_id": "funding-sxt", "provider_id": "funding_memory", "provider_name": "Funding Memory Provider", "symbol": "SXT", "score": 70, "suggested_tier": "preview", "query": {"symbol": "SXT"}},
+            {"candidate_id": "oi-sxt", "provider_id": "oi_memory", "provider_name": "Open Interest Memory Provider", "symbol": "SXT", "score": 85, "suggested_tier": "preview", "query": {"symbol": "SXT"}},
+        ]
+
+        class MultiProviderRegistry:
+            def require(self, provider_id):
+                if provider_id not in {"funding_memory", "oi_memory"}:
+                    raise KeyError(provider_id)
+                return FakeProvider()
+
+        deps = SimpleNamespace(
+            get_agent_recommendations=lambda limit: {"recommendations": recommendations},
+            load_wallet_entitlements=lambda wallet: [],
+            provider_registry=MultiProviderRegistry(),
+        )
+        app = FastAPI()
+        app.include_router(create_agent_router(deps))
+        body = TestClient(app).post(
+            "/api/v1/agent/decision",
+            json={"prompt": "Find the best preview report under 0.01 USDC"},
+        ).json()
+
+        self.assertEqual(body["resolved_candidate"]["provider_id"], "oi_memory")
+        self.assertEqual(body["selection_basis"]["objective"], "highest_score")
+        self.assertEqual(set(body["selection_basis"]["evaluated_provider_ids"]), {"funding_memory", "oi_memory"})
+        self.assertEqual({row["provider_id"] for row in body["evaluated_candidates"]}, {"funding_memory", "oi_memory"})
+        selected = next(row for row in body["evaluated_candidates"] if row["status"] == "selected")
+        self.assertEqual(selected["provider_name"], "Open Interest Memory Provider")
+        self.assertTrue(selected["eligible"])
+        self.assertIn("upgrade", selected)
+        self.assertEqual(selected["canonical_query"], {"symbol": "SXT"})
+
     def test_best_preview_uses_normalized_preview_price_before_scoring(self):
         app = make_app()
         app.router.routes.clear()

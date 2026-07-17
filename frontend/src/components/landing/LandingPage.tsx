@@ -2,20 +2,23 @@ import { useEffect, useState } from "react";
 import { API_BASE_URL } from "../../services/api";
 
 interface Metrics {
-  unique_payers: number;
-  paid_count: number;
-  agent_unlocks: number;
-  revenue_usdc: number;
+  current_unique_payers: number;
+  current_paid_count: number;
+  current_revenue_usdc: number;
+  current_buyer_type_counts: {
+    human: number;
+    agent: number;
+  };
   preview_count: number;
   full_count: number;
 }
 
 export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }) {
   const [metrics, setMetrics] = useState<Metrics>({
-    unique_payers: 0,
-    paid_count: 0,
-    agent_unlocks: 0,
-    revenue_usdc: 0,
+    current_unique_payers: 0,
+    current_paid_count: 0,
+    current_revenue_usdc: 0,
+    current_buyer_type_counts: { human: 0, agent: 0 },
     preview_count: 0,
     full_count: 0,
   });
@@ -29,12 +32,18 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
         if (!resp.ok) throw new Error(`metrics ${resp.status}`);
         const data = await resp.json();
         const tierCounts = data.tier_counts || {};
-        const buyerTypes = data.buyer_type_counts || {};
+        const legacyPaidCount = Number(data.legacy_paid_count || 0);
+        const buyerTypes = data.current_buyer_type_counts || (
+          legacyPaidCount === 0 ? data.buyer_type_counts || {} : {}
+        );
         setMetrics({
-          unique_payers: data.unique_payers || 0,
-          paid_count: data.current_paid_count ?? data.paid_count ?? 0,
-          agent_unlocks: buyerTypes.agent || 0,
-          revenue_usdc: data.revenue_usdc || 0,
+          current_unique_payers: data.current_unique_payers ?? (legacyPaidCount === 0 ? data.unique_payers || 0 : 0),
+          current_paid_count: data.current_paid_count ?? data.paid_count ?? 0,
+          current_revenue_usdc: data.current_revenue_usdc ?? (legacyPaidCount === 0 ? data.revenue_usdc || 0 : 0),
+          current_buyer_type_counts: {
+            human: Number(buyerTypes.human || 0),
+            agent: Number(buyerTypes.agent || 0),
+          },
           preview_count: tierCounts.preview || 0,
           full_count: tierCounts.full || 0,
         });
@@ -53,10 +62,11 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
   }
 
   const marqueeItems = [
-    { value: compactNumber(metrics.unique_payers), label: "active wallets" },
-    { value: compactNumber(metrics.paid_count), label: "reports unlocked" },
-    { value: compactNumber(metrics.agent_unlocks), label: "API integrations" },
-    { value: `${Number(metrics.revenue_usdc).toFixed(3)}`, label: "USDC volume" },
+    { value: compactNumber(metrics.current_unique_payers), label: "current wallets" },
+    { value: compactNumber(metrics.current_paid_count), label: "reports unlocked" },
+    { value: compactNumber(metrics.current_buyer_type_counts.agent), label: "agent purchases" },
+    { value: compactNumber(metrics.current_buyer_type_counts.human), label: "human purchases" },
+    { value: `${Number(metrics.current_revenue_usdc).toFixed(3)}`, label: "current USDC volume" },
     { value: compactNumber(metrics.preview_count), label: "previews generated" },
     { value: compactNumber(metrics.full_count), label: "full reports delivered" },
   ];
@@ -272,7 +282,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
           </article>
           <article className="landing-audience-card--agents">
             <strong className="landing-audience-title">AI Agents</strong>
-            <p className="landing-audience-desc">Query via API, pay per call in USDC. <span>{compactNumber(metrics.agent_unlocks)}</span> autonomous agent unlocks logged on Arc testnet.</p>
+            <p className="landing-audience-desc">Query via API, pay per call in USDC. <span>{compactNumber(metrics.current_buyer_type_counts.agent)}</span> autonomous agent purchases logged on Arc testnet.</p>
           </article>
         </div>
       </section>

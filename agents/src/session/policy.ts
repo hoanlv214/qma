@@ -21,6 +21,7 @@ export interface SessionPolicy {
   sessionBudgetUsdc: number;
   maxPricePerReportUsdc: number;
   maxPurchases: number | null;
+  maxAttempts: number | null;
   durationSeconds: number | null;
   runOnce: boolean;
   pollIntervalSeconds: number;
@@ -29,6 +30,8 @@ export interface SessionPolicy {
   minimumScore: number;
   avoidOwnedReports: boolean;
   symbolCooldownSeconds: number;
+  failedCandidateCooldownSeconds: number;
+  maxFailedAttemptsPerCandidate: number;
   autoDepositGateway: boolean;
   upgradePolicy: UpgradePolicy;
   stopConditions: StopConditions;
@@ -40,6 +43,7 @@ export interface SessionPolicyInput {
   sessionBudgetUsdc: number;
   maxPricePerReportUsdc: number;
   maxPurchases?: number | null;
+  maxAttempts?: number | null;
   durationSeconds?: number | null;
   runOnce?: boolean;
   pollIntervalSeconds?: number;
@@ -48,6 +52,8 @@ export interface SessionPolicyInput {
   minimumScore?: number;
   avoidOwnedReports?: boolean;
   symbolCooldownSeconds?: number;
+  failedCandidateCooldownSeconds?: number;
+  maxFailedAttemptsPerCandidate?: number;
   autoDepositGateway?: boolean;
   upgradePolicy?: Partial<UpgradePolicy>;
   stopConditions?: Partial<StopConditions>;
@@ -70,9 +76,12 @@ export function validateSessionPolicy(policy: SessionPolicy): string[] {
   if (!Number.isFinite(policy.maxPricePerReportUsdc) || policy.maxPricePerReportUsdc < 0) errors.push("max price must be non-negative");
   if (policy.maxPricePerReportUsdc > policy.sessionBudgetUsdc) errors.push("max price cannot exceed session budget");
   if (policy.maxPurchases !== null && (!Number.isInteger(policy.maxPurchases) || policy.maxPurchases < 1)) errors.push("max purchases must be null or a positive integer");
+  if (policy.maxAttempts !== null && (!Number.isInteger(policy.maxAttempts) || policy.maxAttempts < 1)) errors.push("max attempts must be null or a positive integer");
   if (policy.durationSeconds !== null && (!Number.isFinite(policy.durationSeconds) || policy.durationSeconds < 0)) errors.push("duration must be null or non-negative");
   if (!Number.isFinite(policy.pollIntervalSeconds) || policy.pollIntervalSeconds < 1) errors.push("poll interval must be at least one second");
   if (!Number.isFinite(policy.minimumScore) || policy.minimumScore < 0 || policy.minimumScore > 100) errors.push("minimum score must be between 0 and 100");
+  if (!Number.isFinite(policy.failedCandidateCooldownSeconds) || policy.failedCandidateCooldownSeconds < 0) errors.push("failed candidate cooldown must be non-negative");
+  if (!Number.isInteger(policy.maxFailedAttemptsPerCandidate) || policy.maxFailedAttemptsPerCandidate < 1) errors.push("max failed attempts per candidate must be a positive integer");
   if (!policy.allowedProviders.length) errors.push("at least one allowed provider is required");
   if (!policy.allowedTiers.length) errors.push("at least one allowed tier is required");
   if (policy.allowedTiers.some((tier) => tier !== "preview" && tier !== "full")) errors.push("allowed tiers must be preview or full");
@@ -88,6 +97,7 @@ export function normalizeSessionPolicy(input: SessionPolicyInput): SessionPolicy
     sessionBudgetUsdc: Number(input.sessionBudgetUsdc),
     maxPricePerReportUsdc: Number(input.maxPricePerReportUsdc),
     maxPurchases: input.maxPurchases === undefined ? null : input.maxPurchases,
+    maxAttempts: input.maxAttempts === undefined ? null : input.maxAttempts,
     durationSeconds: input.durationSeconds === undefined ? null : input.durationSeconds,
     runOnce: input.runOnce ?? false,
     pollIntervalSeconds: input.pollIntervalSeconds ?? 60,
@@ -96,6 +106,8 @@ export function normalizeSessionPolicy(input: SessionPolicyInput): SessionPolicy
     minimumScore: input.minimumScore ?? 0,
     avoidOwnedReports: input.avoidOwnedReports ?? true,
     symbolCooldownSeconds: input.symbolCooldownSeconds ?? 600,
+    failedCandidateCooldownSeconds: input.failedCandidateCooldownSeconds ?? 300,
+    maxFailedAttemptsPerCandidate: input.maxFailedAttemptsPerCandidate ?? 2,
     autoDepositGateway: input.autoDepositGateway ?? false,
     upgradePolicy: {
       enabled: input.upgradePolicy?.enabled ?? true,

@@ -1,8 +1,7 @@
 *.log
 *.pyc
 .env
-qma-api-rebuild.env
-qma-arc-gateway-rebuild.env
+*.env
 node_modules/
 arc_gateway/node_modules/
 _refs/
@@ -39,3 +38,6 @@ __v0_jsx-dev-runtime.ts
 # Common ignores
 .next/
 .DS_Store
+.agents/
+.codex/
+skills-lock.json

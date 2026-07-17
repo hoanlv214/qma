@@ -36,6 +36,7 @@ def compact_payment_event(event: dict) -> dict:
         "invoice_id": event.get("invoice_id"),
         "settlement_id": event.get("settlement_id"),
         "payer_address": event.get("payer_address"),
+        "buyer_wallet_address": event.get("buyer_wallet_address"),
         "symbol": event.get("symbol"),
         "tier": event.get("tier"),
         "tier_category": tier,

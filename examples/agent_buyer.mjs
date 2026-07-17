@@ -75,6 +75,52 @@ function runChildProcess(args) {
   });
 }
 
+function circleCliBinary() {
+  return process.platform === "win32" ? "circle.cmd" : "circle";
+}
+
+function quoteWindowsArg(value) {
+  const text = String(value);
+  if (text.includes('"')) {
+    throw new Error("Circle CLI argument contains an unsupported quote character.");
+  }
+  return `"${text}"`;
+}
+
+function runCircleCli(args) {
+  return new Promise((resolve, reject) => {
+    const isWindows = process.platform === "win32";
+    const child = isWindows
+      ? spawn(process.env.ComSpec || "cmd.exe", [
+        "/d",
+        "/s",
+        "/c",
+        [circleCliBinary(), ...args.map(quoteWindowsArg)].join(" "),
+      ], {
+        windowsVerbatimArguments: true,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: process.env,
+      })
+      : spawn(circleCliBinary(), args, { stdio: ["ignore", "pipe", "pipe"], env: process.env });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
+    child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+    child.once("error", reject);
+    child.once("exit", (code) => {
+      if (code !== 0) {
+        reject(new Error(`Circle CLI failed (${code}): ${stderr.trim() || stdout.trim() || "unknown error"}`));
+        return;
+      }
+      try {
+        resolve(JSON.parse(stdout));
+      } catch {
+        reject(new Error(`Circle CLI returned non-JSON output: ${stdout.trim() || stderr.trim()}`));
+      }
+    });
+  });
+}
+
 function apiUrl(path) {
   return `${CONFIG.apiUrl}${path}`;
 }
@@ -126,11 +172,17 @@ function extractGatewayBalanceUsdc(data) {
     data?.balance,
     data?.available,
     data?.amount,
+    data?.total,
     data?.balances?.[0]?.amount,
     data?.balances?.[0]?.balance,
     data?.sources?.[0]?.amount,
     data?.sources?.[0]?.balance,
+    data?.data?.balance,
+    data?.data?.available,
+    data?.data?.amount,
+    data?.data?.total,
     data?.data?.balances?.[0]?.amount,
+    data?.data?.balances?.[0]?.balance,
   ];
   for (const candidate of candidates) {
     if (candidate === undefined || candidate === null) continue;
@@ -165,6 +217,16 @@ async function gatewayRequest(invoice, path) {
 async function checkGatewayBalance(invoice, address) {
   const data = await gatewayRequest(invoice, `/api/balance/${address}`);
   return extractGatewayBalanceUsdc(data);
+}
+
+async function checkCircleGatewayBalance(address) {
+  const result = await runCircleCli([
+    "gateway", "balance",
+    "--address", address,
+    "--chain", CONFIG.circleChain,
+    "--output", "json",
+  ]);
+  return extractGatewayBalanceUsdc(result?.data && typeof result.data === "object" ? result.data : result);
 }
 
 async function getWalletStatus(invoice, address) {
@@ -239,12 +301,15 @@ async function waitForGatewayBalance(invoice, address, requiredAmount) {
 
 async function ensureGatewayBalance(invoice, account) {
   const requiredAmount = Number(invoice.amount);
-  const gatewayBalance = await checkGatewayBalance(invoice, account.address);
+  const usesCircleAgentWallet = CONFIG.executor === "circle-agent-wallet";
+  const gatewayBalance = usesCircleAgentWallet
+    ? await checkCircleGatewayBalance(account.address)
+    : await checkGatewayBalance(invoice, account.address);
   const walletStatus = await getWalletStatus(invoice, account.address);
   const onChainUsdc = Number(walletStatus?.usdc?.formatted || 0);
   const allowance = Number(walletStatus?.allowance?.formatted || 0);
 
-  console.log(`Gateway balance: ${(gatewayBalance ?? 0).toFixed(6)} USDC`);
+  console.log(`Gateway balance${usesCircleAgentWallet ? " (Circle CLI)" : ""}: ${(gatewayBalance ?? 0).toFixed(6)} USDC`);
   console.log(`Wallet USDC: ${onChainUsdc.toFixed(6)} | Allowance: ${allowance.toFixed(6)} USDC`);
 
   if (gatewayBalance !== null && gatewayBalance + 1e-9 >= requiredAmount) {
@@ -294,6 +359,39 @@ async function ensureGatewayBalance(invoice, account) {
 }
 
 async function chooseRecommendation(entitlements = []) {
+  const canonicalQuery = CONFIG.canonicalQuery;
+  if (canonicalQuery) {
+    const symbol = String(CONFIG.symbol || canonicalQuery.symbol || "").trim().toUpperCase();
+    const providerId = String(CONFIG.providerId || "").trim();
+    const agentTier = CONFIG.tier || "preview";
+    const agentPrice = Number(CONFIG.expectedPrice);
+    if (!symbol || !providerId || !Number.isFinite(agentPrice) || agentPrice <= 0) {
+      throw new Error("Canonical candidate is incomplete; refusing to re-fetch or choose another candidate.");
+    }
+    if (agentPrice > CONFIG.budgetUsdc || agentPrice > CONFIG.maxPriceUsdc) {
+      throw new Error(`Canonical candidate price ${agentPrice} exceeds the current budget/max-price policy.`);
+    }
+    const fullEntry = findSymbolEntitlement(entitlements, symbol, "full");
+    const tierEntry = findSymbolEntitlement(entitlements, symbol, agentTier);
+    if (fullEntry || tierEntry) {
+      throw new Error(`Canonical candidate ${providerId}:${symbol}:${agentTier} is already owned; refusing to repurchase it.`);
+    }
+    return {
+      pick: {
+        candidate_id: CONFIG.candidateId,
+        provider_id: providerId,
+        symbol,
+        score: Number(CONFIG.candidateScore || 0),
+        query: canonicalQuery,
+        reasons: [],
+        agent_tier: agentTier,
+        agent_price: agentPrice,
+        agent_upgrade_from_preview: false,
+        agent_skip_reason: "",
+      },
+      pricing: {},
+    };
+  }
   const data = await request(`/api/v1/agent/recommendations?limit=${CONFIG.limit}`);
   const picks = data.recommendations || [];
   if (!picks.length) throw new Error("QMA returned no recommendations.");
@@ -362,7 +460,7 @@ async function chooseRecommendation(entitlements = []) {
   return { pick: affordable[0], pricing: data.pricing };
 }
 
-async function createInvoice(pick) {
+async function createInvoice(pick, buyerWalletAddress = null) {
   return request("/api/v1/payment/invoice", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -375,6 +473,7 @@ async function createInvoice(pick) {
       synthetic: CONFIG.synthetic,
       agent_label: CONFIG.agentLabel,
       run_source: CONFIG.runSource,
+      buyer_wallet_address: buyerWalletAddress,
     }),
   });
 }
@@ -450,17 +549,6 @@ async function signX402Payment(resourceUrl, account) {
   };
 }
 
-async function settlePayment(resourceUrl, paymentHeader) {
-  const resp = await fetch(resourceUrl, {
-    headers: { "payment-signature": paymentHeader },
-  });
-  const data = await resp.json().catch(async () => ({ error: await resp.text() }));
-  if (!resp.ok) {
-    throw new Error(`Arc Gateway settlement failed: ${JSON.stringify(data)}`);
-  }
-  return data;
-}
-
 function invoiceSplitLegs(invoice = {}) {
   return Array.isArray(invoice.split_legs) && invoice.split_legs.length
     ? invoice.split_legs
@@ -469,50 +557,35 @@ function invoiceSplitLegs(invoice = {}) {
       : [];
 }
 
-function legResourceUrl(leg = {}) {
-  return leg.resource || leg.arc_gateway_url || leg.url;
-}
+async function executeInvoicePayment(invoice, account) {
+  const {
+    createPaymentExecutor,
+    createCircleAgentWalletExecutor,
+  } = await import("../agents/dist/executor/paymentExecutor.js");
 
-async function paySplitInvoice(invoice, account) {
-  const settlements = [];
-  const legs = invoiceSplitLegs(invoice);
-  if (!legs.length) throw new Error("Split invoice has no split_legs.");
-
-  for (const leg of legs) {
-    if (leg.status === "paid" && leg.settlement_id && leg.sidecar_receipt) {
-      settlements.push({
-        leg_id: leg.leg_id,
-        settlement_id: leg.settlement_id,
-        pay_to: leg.pay_to,
-        amount_raw: String(leg.amount_raw),
-        sidecar_receipt: leg.sidecar_receipt,
-      });
-      continue;
-    }
-    const resourceUrl = legResourceUrl(leg);
-    if (!resourceUrl) throw new Error(`Split leg ${leg.leg_id || leg.role || "unknown"} has no resource URL.`);
-    if (String(leg.pay_to || "").toLowerCase() === account.address.toLowerCase()) {
-      throw new Error(`Agent wallet is the ${leg.role || leg.leg_id} split recipient. Use a separate buyer wallet.`);
-    }
-
-    console.log(`Paying ${leg.role || leg.leg_id} leg: ${leg.amount_usdc} USDC -> ${short(leg.pay_to)}`);
-    const { paymentHeader } = await signX402Payment(resourceUrl, account);
-    const settlement = await settlePayment(resourceUrl, paymentHeader);
-    const settlementId = settlement.settlement_id || settlement.settlementId;
-    if (!settlementId || !settlement.sidecar_receipt) {
-      throw new Error(`Split leg did not return settlement_id and sidecar_receipt: ${JSON.stringify(settlement)}`);
-    }
-    console.log(`Settled ${leg.role || leg.leg_id}: ${short(settlementId)} (${settlement.status || "received"})`);
-    settlements.push({
-      leg_id: settlement.leg_id || leg.leg_id,
-      settlement_id: settlementId,
-      pay_to: settlement.pay_to || leg.pay_to,
-      amount_raw: String(settlement.amount_raw || leg.amount_raw),
-      sidecar_receipt: settlement.sidecar_receipt,
+  const executor = CONFIG.executor === "circle-agent-wallet"
+    ? createCircleAgentWalletExecutor({ address: account.address, chain: CONFIG.circleChain })
+    : createPaymentExecutor({
+      walletAddress: account.address,
+      signLeg: async (resourceUrl) => signX402Payment(resourceUrl, account),
     });
-  }
-
-  return settlements;
+  const normalizedInvoice = invoiceSplitLegs(invoice).length
+    ? invoice
+    : {
+      ...invoice,
+      split_legs: [{
+        leg_id: "single",
+        resource: invoice.arc_gateway_url,
+        pay_to: "",
+        amount_raw: "",
+        amount_usdc: Number(invoice.amount),
+      }],
+    };
+  const result = await executor.execute({ invoice: normalizedInvoice });
+  result.settlements.forEach((settlement) => {
+    console.log(`Settled ${settlement.leg_id}: ${short(settlement.settlement_id)} (${settlement.gateway_status || "received"})`);
+  });
+  return result.settlements;
 }
 
 async function verifyPayment(invoice, settlement, account) {
@@ -523,7 +596,7 @@ async function verifyPayment(invoice, settlement, account) {
     body: JSON.stringify({
       settlement_id: settlementId,
       invoice_secret: invoice.invoice_secret,
-      payer_address: account.address,
+      payer_address: settlement.payer || settlement.payer_address || account.address,
       amount_usdc: Number(settlement.amount_usdc),
     }),
   });
@@ -535,7 +608,10 @@ async function verifySplitPayment(invoice, splitSettlements, account) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       invoice_secret: invoice.invoice_secret,
-      payer_address: account.address,
+      // For Circle Agent Wallet, account.address is the logical wallet while
+      // the authoritative settlement payer is the backing EOA returned by the
+      // Gateway. Browser/private-key executors normally return the same EOA.
+      payer_address: splitSettlements.find((item) => item.payer_address)?.payer_address || account.address,
       split_settlements: splitSettlements,
     }),
   });
@@ -573,6 +649,17 @@ const CONFIG = {
   synthetic: String(process.env.QMA_SYNTHETIC_RUN || argValue("synthetic", "false")).toLowerCase() === "true",
   agentLabel: process.env.QMA_AGENT_LABEL || argValue("agent-label") || null,
   runSource: process.env.QMA_RUN_SOURCE || argValue("run-source") || null,
+  executor: argValue("executor", process.env.QMA_AGENT_EXECUTOR || "local-private-key"),
+  circleWalletAddress: process.env.CIRCLE_AGENT_WALLET_ADDRESS || process.env.QMA_CIRCLE_AGENT_WALLET_ADDRESS || argValue("wallet"),
+  circleChain: process.env.CIRCLE_AGENT_WALLET_CHAIN || "ARC-TESTNET",
+  candidateId: argValue("candidate-id"),
+  canonicalQuery: (() => {
+    const raw = argValue("query-json");
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch { throw new Error("--query-json must contain valid JSON."); }
+  })(),
+  expectedPrice: Number(argValue("expected-price") || "0"),
+  candidateScore: Number(argValue("candidate-score") || "0"),
 };
 
 async function main() {
@@ -582,7 +669,16 @@ async function main() {
   console.log(`Budget: ${CONFIG.budgetUsdc} USDC | Max price: ${CONFIG.maxPriceUsdc} USDC`);
 
   let account = null;
-  if (CONFIG.privateKey) {
+  if (CONFIG.executor === "circle-agent-wallet") {
+    if (!CONFIG.circleWalletAddress) {
+      throw new Error("Circle Agent Wallet mode requires CIRCLE_AGENT_WALLET_ADDRESS or --wallet.");
+    }
+    if (CONFIG.autoDeposit) {
+      throw new Error("Circle Agent Wallet mode requires --no-auto-deposit; fund/deposit with Circle CLI before payment.");
+    }
+    account = { address: CONFIG.circleWalletAddress };
+    console.log(`Circle Agent Wallet: ${account.address}`);
+  } else if (CONFIG.privateKey) {
     account = privateKeyToAccount(CONFIG.privateKey);
     console.log(`Agent wallet: ${account.address}`);
   } else if (CONFIG.live) {
@@ -604,9 +700,17 @@ async function main() {
   }
   console.log(`Reasons: ${(pick.reasons || []).join(" | ") || "n/a"}`);
 
-  const invoice = await createInvoice(pick);
+  const invoice = await createInvoice(pick, account?.address || null);
+  const invoiceAmount = Number(invoice.amount);
+  if (!Number.isFinite(invoiceAmount) || invoiceAmount <= 0) {
+    throw new Error("Backend returned an invalid invoice amount for the canonical candidate.");
+  }
+  if (invoiceAmount > CONFIG.budgetUsdc || invoiceAmount > CONFIG.maxPriceUsdc) {
+    throw new Error(`Backend invoice amount ${invoiceAmount} exceeds the current budget/max-price policy; payment was not attempted.`);
+  }
   console.log(`\nInvoice: ${invoice.invoice_id}`);
   console.log(`Provider: ${invoice.provider_id} | Amount: ${invoice.amount} ${invoice.currency}`);
+  console.log(`Buyer wallet binding: ${invoice.buyer_wallet_address || "missing"}`);
   console.log(`Gateway: ${invoice.arc_gateway_url}`);
   if (invoiceSplitLegs(invoice).length) {
     console.log("Split legs:");
@@ -624,15 +728,13 @@ async function main() {
   console.log(`\nAgent wallet: ${account.address}`);
   await ensureGatewayBalance(invoice, account);
   const splitLegs = invoiceSplitLegs(invoice);
+  const settlements = await executeInvoicePayment(invoice, account);
   const verifyData = splitLegs.length
-    ? await verifySplitPayment(invoice, await paySplitInvoice(invoice, account), account)
-    : await (async () => {
-      const { paymentHeader } = await signX402Payment(invoice.arc_gateway_url, account);
-      const settlement = await settlePayment(invoice.arc_gateway_url, paymentHeader);
-      console.log(`Settlement: ${settlement.settlementId || settlement.settlement_id} (${settlement.status || "received"})`);
-      return verifyPayment(invoice, settlement, account);
-    })();
+    ? await verifySplitPayment(invoice, settlements, account)
+    : await verifyPayment(invoice, settlements[0], account);
   console.log(`Verified: ${verifyData.status} tx=${verifyData.transaction_hash ? short(verifyData.transaction_hash) : "batch pending"}`);
+  console.log(`Agent wallet (authorization): ${account.address}`);
+  console.log(`Settlement payer (backing EOA): ${verifyData.payer_address || "pending"}`);
 
   const report = await fetchReport(invoice, verifyData, pick);
   console.log("\nPaid JSON report:");
@@ -695,6 +797,16 @@ function printAgentDecision(result, prompt) {
     console.log(`Max price: ${cliUsdc(plan.max_price_usdc)} USDC`);
     console.log(`Budget remaining: ${cliUsdc(Number(plan.budget_usdc) - Number(resolved.price_usdc))} USDC`);
     console.log(`\nReason:\n${plan.reason}`);
+    const compared = (result.evaluated_candidates || []).filter((item) => item.candidate_id !== resolved.candidate_id).slice(0, 4);
+    if (compared.length) {
+      console.log("\nProvider routing comparison:");
+      console.log(`- selected by ${result.selection_basis?.ranking || "validated policy"}`);
+      compared.forEach((item) => {
+        const label = item.provider_name || item.provider_id || "provider";
+        const reason = item.reason_code || item.status || "ranked lower";
+        console.log(`- ${label} / ${item.symbol || "signal"}: score=${Number(item.score || 0).toFixed(1)} price=${cliUsdc(item.price_usdc)} USDC status=${reason}`);
+      });
+    }
   } else {
     console.log(`\nAction: ${plan.action}`);
     console.log(`Reason:\n${plan.reason}`);
@@ -717,7 +829,7 @@ function printAgentDecision(result, prompt) {
       console.log(JSON.stringify(result.canonical_query, null, 2));
     }
   }
-  console.log(`\nMode: ${CONFIG.live ? "Live executor" : "Dry run"}`);
+  console.log(`\nMode: ${CONFIG.live ? `${CONFIG.executor} executor` : "Dry run"}`);
   console.log(CONFIG.live ? "Payment executor will use the canonical resolved candidate." : "No invoice created. No USDC spent.");
 }
 
@@ -809,6 +921,9 @@ async function runLlmMode() {
     "--max-price", String(plan.max_price_usdc),
     "--api", CONFIG.apiUrl,
   ];
+  if (CONFIG.executor === "circle-agent-wallet") {
+    childArgs.push("--executor", "circle-agent-wallet", "--wallet", CONFIG.circleWalletAddress);
+  }
   if (hasFlag("auto-deposit")) childArgs.push("--auto-deposit");
   else childArgs.push("--no-auto-deposit");
   await runChildProcess(childArgs);

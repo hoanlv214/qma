@@ -53,7 +53,11 @@ Request fields:
 ```
 
 The response contains `plan`, `resolved_candidate`, `policy_check`,
-`rejected_candidates`, `evaluated_candidates`, and `decision_source`. The
+`rejected_candidates`, `evaluated_candidates`, `selection_basis`, and
+`decision_source`. Each evaluated candidate includes an `eligible` flag and
+the backend-selected candidate is marked with `status=selected`. The session
+tries that candidate first, then can route to another eligible provider if the
+selected payment fails.
 backend resolves the authoritative query, provider, tier, and price. LLM
 output cannot provide invoice secrets, recipients, split legs, settlement ids,
 access tokens, or report data.
@@ -109,8 +113,34 @@ npm run agent -- --api https://qma-api-rebuild.onrender.com --live --max-purchas
 ```
 
 Optional output controls are `--json`, `--report-file`, `--event-log`, and
-`--verbose`. Ctrl+C stops between safe loop steps; it does not cancel a wallet
-transaction that has already been submitted.
+`--verbose`. Failure handling can be tuned with `--failure-cooldown` and
+`--max-failures`; defaults are 300 seconds of backoff and two attempts per
+provider/symbol. Ctrl+C stops between safe loop steps; it does not cancel a
+wallet transaction that has already been submitted.
+
+## Human-facing CLI direction
+
+The current implementation is flag-driven so that local tests, CI, and recorded
+demos are reproducible. The recommended human-facing command is intentionally
+short:
+
+```powershell
+npm run agent
+```
+
+The next CLI UX layer should ask once for mode, session budget, maximum report
+price, provider/tier allowlists, loop bounds, poll interval, executor, and
+Circle Agent Wallet address. It should show the resulting policy and require
+confirmation before live spending, then reuse that immutable policy for all
+polls in the session.
+
+This wizard is not yet present in the runtime. Until it is implemented, use
+the explicit flag commands above. Do not describe the current `npm run agent`
+command as interactive.
+
+Any future persisted session must contain only non-secret policy and accounting
+data. Private keys, OTPs, Circle CLI sessions, invoice secrets, and access
+tokens must remain outside session files.
 
 ## Safety boundary
 
@@ -123,7 +153,8 @@ transaction that has already been submitted.
 - The backend remains authoritative for payment, settlement, entitlement, and
   access-token issuance.
 
-Circle Agent Wallet is a future executor/signer adapter. It is not required by
-the current bounded session and must be added behind the executor interfaces,
-with contract and failure-path tests, before being treated as production
-autonomous custody.
+Circle Agent Wallet is an available opt-in executor for the CLI through
+`--executor circle-agent-wallet`. It has been exercised on Arc Testnet, but it
+is still separate from the browser wallet flow. A hosted browser mode must not
+reuse Circle CLI credentials or OTP sessions; it requires a separate
+server-side wallet-session design and additional runtime verification.

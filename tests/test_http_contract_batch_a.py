@@ -21,6 +21,7 @@ import backend.app.main as app_module
 
 
 PAYER = "0x1111111111111111111111111111111111111111"
+AGENT_WALLET = "0x4444444444444444444444444444444444444444"
 CREATOR = "0x2222222222222222222222222222222222222222"
 PLATFORM = "0x3333333333333333333333333333333333333333"
 
@@ -160,6 +161,28 @@ class HttpContractBatchATests(unittest.TestCase):
         }.issubset(payload))
         self.assertEqual(payload["resource_type"], "qma_signal_report")
         self.assertIsNone(payload.get("access_token"))
+
+    def test_agent_invoice_binds_logical_buyer_wallet(self):
+        body = {
+            "symbol": "APDSTOCK",
+            "fundingRate": -0.005,
+            "marketCap": 250000000,
+            "provider_id": "funding_memory",
+            "tier": "preview",
+            "buyer_type": "agent",
+            "buyer_wallet_address": AGENT_WALLET,
+            "resource_type": "qma_signal_report",
+        }
+        with patch.object(app_module, "_save_invoice", lambda *_args, **_kwargs: None):
+            response = self.client.post("/api/v1/payment/invoice", json=body)
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["buyer_wallet_address"], AGENT_WALLET.lower())
+        self.assertEqual(
+            app_module.state.invoices_db[payload["invoice_id"]]["buyer_wallet_address"],
+            AGENT_WALLET.lower(),
+        )
 
     def test_invoice_status_http_contract_blocks_access_before_all_legs(self):
         self.invoice = make_split_invoice("inv_http_partial")

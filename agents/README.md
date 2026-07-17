@@ -1,136 +1,81 @@
-# QMA Agents
+# QMA Agent Package
 
-`agents/` is the typed policy/session package shared by the autonomous-agent
-tooling. It is not the payment service and it is not the browser UI.
+This directory contains the typed policy and bounded-session package. It is a
+library boundary, not the FastAPI payment service and not the React UI.
 
-The current production decision boundary is the backend
-`POST /api/v1/agent/decision`. The React UI and the CLI both use that boundary
-so candidate selection, provider binding, price resolution, and entitlement
-checks are not implemented twice.
+For the complete end-to-end flow, read
+[docs/AUTONOMOUS_AGENT.md](../docs/AUTONOMOUS_AGENT.md). For runnable commands,
+read [examples/README.md](../examples/README.md).
 
-## Package boundaries
+## Ownership
 
 ```text
-agents/src/contracts/  strict decision and candidate shapes
+agents/src/contracts/  decision and candidate shapes
 agents/src/planner/    optional local LLM response shaping
-agents/src/policy/     decision validation against policy/data
+agents/src/policy/     decision validation against hard policy
 agents/src/qma/        typed backend API reads
-agents/src/session/    bounded policy, loop, state, accounting, report
+agents/src/session/    bounded loop, state, accounting, stop conditions
 agents/src/wallets/    signer interfaces and adapters
-agents/src/executor/   future payment executor boundary
+agents/src/executor/   sequential signed/Circle split-payment executor
 ```
 
-The existing live executor remains `examples/agent_buyer.mjs`. It signs the
-Arc Testnet x402 flow through the browser-independent CLI wallet path. The
-typed `agents/` package does not independently call invoice, x402, settlement,
-or report endpoints.
+The authoritative decision boundary remains the backend:
+`POST /api/v1/agent/decision`. The package must not duplicate provider price
+resolution, invoice construction, settlement verification, or entitlement
+issuance.
 
-## Shared decision flow
+## Session responsibilities
 
-```mermaid
-flowchart TD
-    Prompt[User task/prompt] --> Client[React UI or CLI]
-    Client --> Decision[POST /api/v1/agent/decision]
-    Decision --> Discover[Recommendations + wallet entitlements]
-    Discover --> LLM[OpenAI structured plan when configured]
-    LLM -->|unavailable| Regex[Deterministic policy fallback]
-    LLM --> Validate[Canonical candidate validation]
-    Regex --> Validate
-    Validate --> Result[Resolved provider/query/tier/price + policy checks]
-    Result --> Dry[Dry-run simulated result]
-    Result --> Live[Live executor: invoice -> x402 -> verify -> report]
-```
-
-The LLM output is intentionally minimal. It may choose an existing candidate
-and requested tier, but it cannot authoritatively choose a recipient, payment
-amount, invoice secret, split leg, settlement id, access token, or report.
-
-## Bounded autonomous session
-
-`src/session/` maintains one in-memory session with:
+The session package normalizes and enforces:
 
 - hard session budget and per-report maximum;
 - provider and tier allowlists;
-- minimum score and ownership/duplicate checks;
+- minimum score and ownership checks;
 - Preview-to-Full upgrade policy;
 - symbol cooldowns;
-- maximum purchases and duration stop conditions;
-- poll/wait/skip/purchase/upgrade actions;
-- failures, spend, remaining budget, and final report accounting.
+- failed-candidate backoff and bounded retry attempts;
+- entitlement-key deduplication (`provider:symbol:tier`) even when a provider
+  returns a new candidate ID;
+- duration and maximum-purchase stop conditions;
+- spend, failure, wait, skip, decision, and purchase accounting.
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant CLI as examples/agent_session.mjs
-    participant Session as agents/src/session/loop.ts
-    participant API as FastAPI decision endpoint
-    participant Exec as examples/agent_buyer.mjs
-    participant Pay as x402/Gateway
+The session delegates live payment to the executable buyer under
+`examples/agent_buyer.mjs`. The buyer uses the shared executor for both signed
+x402 payments and Circle Agent Wallet payments. The executor settles legs
+sequentially, normalizes settlement proofs, and refuses to retry an uncertain
+outcome; the backend remains responsible for invoice verification and report
+access.
 
-    CLI->>Session: normalize policy and create state
-    loop until bound or stop condition
-        Session->>API: observe canonical decision (use_llm=false)
-        API-->>Session: candidate, price, entitlement and rejection data
-        Session->>Session: apply allowlist, budget, ownership, cooldown policy
-        alt no eligible candidate
-            Session->>Session: record wait/skip and sleep poll interval
-        else dry-run
-            Session->>Session: record simulated purchase; no invoice or funds
-        else live
-            Session->>Exec: spawn existing buyer executor
-            Exec->>Pay: sign and settle split legs
-            Pay-->>Exec: settlement/verification/report result
-            Exec-->>Session: completed or failed purchase
-        end
-    end
-    Session-->>CLI: final report and optional JSON/JSONL logs
-```
+## Input model
 
-The session intentionally sends `use_llm=false` on every polling cycle. If
-`--llm-policy` is requested and an OpenAI key exists, the CLI performs one
-bounded policy parse before the loop; it never calls the model for every poll.
+The current executable CLI is flag-driven for reproducible tests and
+automation. The intended user-facing wizard is documented as a future UX in
+[examples/README.md](../examples/README.md); do not assume `npm run agent` is
+interactive until the runtime implements it.
 
-With no explicit loop bound, the CLI performs one safe poll and stops. Use
-`--duration 10m`, `--max-purchases 3`, or `--until-stopped` for repeated work.
+The normalized policy must be fixed for a session. If session resume is added,
+persist only non-secret policy and accounting. Never persist private keys, OTPs,
+Circle CLI sessions, invoice secrets, or access tokens.
 
-## LLM provider and secrets
+## Circle Agent Wallet boundary
 
-The backend uses OpenAI Structured Outputs when `OPENAI_API_KEY` is configured;
-otherwise it uses deterministic parsing/fallback. The key belongs only in the
-backend environment. It must never be exposed through Vite or committed.
+The CLI can opt into Circle Agent Wallet through
+`--executor circle-agent-wallet`. The wallet address is the authorization
+identity; Gateway settlement may expose a separate backing payer identity.
+The backend binds and verifies both identities where available.
 
-The optional package-local planner uses `gpt-4o-mini` by default and is only
-used explicitly by local planner tests. It does not replace the shared backend
-decision path.
+Circle CLI credentials and OTP sessions must never be sent to Vite or stored in
+browser storage. The browser UI may provide a signer adapter for a
+user-approved payment, while the Circle Agent Wallet adapter stays in the
+Node/CLI runtime.
 
-`AGENT_PRIVATE_KEY` is an executor credential for a test wallet. It is not
-needed for dry-run decisions and is never sent to the backend decision route.
-Circle Agent Wallet integration is a future signer adapter, not the current
-default executor.
-
-## Build and test
+## Build
 
 From the repository root:
 
 ```powershell
-npm.cmd run agent:build
+npm run agent:build
 ```
 
-From `agents/`:
-
-```powershell
-npm.cmd run typecheck
-npm.cmd run test
-```
-
-The root CLI wrapper loads `QMA_API_URL` from the repository-root `.env`.
-`agents/.env` is package-local configuration and does not override the CLI's
-root setting. For an unambiguous local run, pass:
-
-```powershell
-npm run agent -- --api http://127.0.0.1:8000 --dry-run --run-once --budget 1 --max-price 0.005
-```
-
-For live mode, explicitly approve the spending scope and use a funded Arc
-Testnet wallet. `--auto-deposit` performs an additional Gateway funding
-transaction and must not be enabled casually.
+The package does not own runtime payment verification. Verify payment behavior
+with the backend tests and [PAYMENT_FLOW.md](../PAYMENT_FLOW.md).

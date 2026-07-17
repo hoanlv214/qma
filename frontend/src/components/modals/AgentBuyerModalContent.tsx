@@ -12,6 +12,19 @@ interface AgentBuyerModalContentProps {
   recommendationTier: (pick: any) => "preview" | "full";
   agentSelectReason: string | null;
   agentRejectedReasons: string[];
+  agentProviderComparison: Array<{
+    candidate_id: string;
+    symbol?: string;
+    provider_id?: string;
+    provider_name?: string;
+    tier?: string;
+    score: number;
+    price_usdc: number;
+    value_density: number;
+    status: string;
+    reason_code?: string | null;
+    reason?: string | null;
+  }>;
   agentSessionInvoice: any;
   formatUsdc: (value: any, digits?: number) => string;
   agentVerifyResult: any;
@@ -32,7 +45,7 @@ interface AgentBuyerModalContentProps {
 }
 
 export function AgentBuyerModalContent(props: AgentBuyerModalContentProps) {
-  const { agentSessionStage, stageContainerRef, progressBarStyle, agentTrace, agentSelectedPick, recommendationTier, agentSelectReason, agentRejectedReasons, agentSessionInvoice, formatUsdc, agentVerifyResult, agentRunning, handleAgentRetry, handleAgentCancelSession, setShowAgentBuyerModal, firstDotRef, lastDotRef, wallet, shortAddress, agentChatLogRef, handleOpenUnlockedReport, handleAgentRun, agentPrompt, setAgentPrompt, tierLabel } = props;
+  const { agentSessionStage, stageContainerRef, progressBarStyle, agentTrace, agentSelectedPick, recommendationTier, agentSelectReason, agentRejectedReasons, agentProviderComparison, agentSessionInvoice, formatUsdc, agentVerifyResult, agentRunning, handleAgentRetry, handleAgentCancelSession, setShowAgentBuyerModal, firstDotRef, lastDotRef, wallet, shortAddress, agentChatLogRef, handleOpenUnlockedReport, handleAgentRun, agentPrompt, setAgentPrompt, tierLabel } = props;
   return (
     <>
       <div className={`agent-session-stage stage-${agentSessionStage}`} ref={stageContainerRef}>
@@ -192,6 +205,17 @@ export function AgentBuyerModalContent(props: AgentBuyerModalContentProps) {
                   <div className="agent-rationale">
                     <span className="agent-rationale-icon">›</span>
                     {agentSelectReason}
+                  </div>
+                )}
+                {agentProviderComparison.length > 1 && (
+                  <div className="agent-provider-comparison" aria-label="Provider comparison">
+                    <div className="agent-provider-comparison-label">Provider routing</div>
+                    {agentProviderComparison.slice(0, 4).map((candidate) => (
+                      <div className={`agent-provider-row ${candidate.status === "selected" ? "selected" : ""}`} key={candidate.candidate_id}>
+                        <span>{candidate.provider_name || candidate.provider_id || "provider"} · {candidate.symbol || "signal"}</span>
+                        <span>{Number(candidate.score).toFixed(1)} / {formatUsdc(candidate.price_usdc, 6)} USDC</span>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>

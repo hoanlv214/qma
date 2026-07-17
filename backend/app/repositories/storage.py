@@ -15,6 +15,16 @@ import paid_intelligence_kit as paid_kit
 logger = logging.getLogger("QMA-API")
 
 
+def wallet_matches(record: dict, address: str, normalize_address) -> bool:
+    normalized = normalize_address(address)
+    if not normalized or not isinstance(record, dict):
+        return False
+    return any(
+        normalize_address(record.get(field)) == normalized
+        for field in ("payer_address", "buyer_wallet_address")
+    )
+
+
 # ---------------------------------------------------------------------------
 # Payment ledger
 # ---------------------------------------------------------------------------
@@ -36,7 +46,7 @@ def load_payment_events_for_wallet(storage_backend, address: str, normalize_addr
     normalized = normalize_address(address)
     return [
         event for event in load_payment_ledger(storage_backend)
-        if normalize_address(event.get("payer_address")) == normalized
+        if wallet_matches(event, normalized, normalize_address)
     ]
 
 
@@ -95,7 +105,7 @@ def load_paid_reports_for_wallet(
         entitlement_id: record
         for entitlement_id, record in load_paid_reports(storage_backend).items()
         if isinstance(record, dict)
-        and normalize_address(record.get("payer_address")) == normalized
+        and wallet_matches(record, normalized, normalize_address)
         and (not symbol_filter or str(record.get("symbol", "")).upper() == symbol_filter)
         and (not provider_id or record.get("provider_id", "funding_memory") == provider_id)
     }
@@ -122,6 +132,7 @@ def load_paid_report_summaries_for_wallet(
         {
             "entitlement_id": entitlement_id,
             "payer_address": record.get("payer_address"),
+            "buyer_wallet_address": record.get("buyer_wallet_address"),
             "symbol": record.get("symbol"),
             "tier": record.get("tier"),
             "provider_id": record.get("provider_id", "funding_memory"),
@@ -208,7 +219,7 @@ def load_paid_report_by_id(
         reports = load_paid_reports(storage_backend)
         for kid, rec in reports.items():
             if clean_id(kid) == target_clean:
-                if isinstance(rec, dict) and normalize_address(rec.get("payer_address")) == normalized:
+                if wallet_matches(rec, normalized, normalize_address):
                     return rec
     except Exception as exc:
         logger.warning(f"Fallback scan failed: {exc}")
@@ -246,7 +257,7 @@ def load_paid_invoices_for_wallet(storage_backend, address: str, normalize_addre
         invoice_id: invoice
         for invoice_id, invoice in load_invoices(storage_backend).items()
         if isinstance(invoice, dict)
-        and normalize_address(invoice.get("payer_address")) == normalized
+        and wallet_matches(invoice, normalized, normalize_address)
         and invoice.get("status") == "paid"
     }
 

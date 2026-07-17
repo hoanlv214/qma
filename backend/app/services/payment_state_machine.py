@@ -57,6 +57,13 @@ def refresh_split_invoice_status(invoice: dict) -> str:
         }
         if len(payer_addresses) == 1 and not invoice.get("payer_address"):
             invoice["payer_address"] = next(iter(payer_addresses))
+        buyer_wallet_addresses = {
+            str(leg.get("buyer_wallet_address") or "").lower()
+            for leg in paid_legs
+            if leg.get("buyer_wallet_address")
+        }
+        if len(buyer_wallet_addresses) == 1 and not invoice.get("buyer_wallet_address"):
+            invoice["buyer_wallet_address"] = next(iter(buyer_wallet_addresses))
         split = invoice.get("split") or {}
         if split.get("total_amount_raw") and not invoice.get("amount_raw"):
             invoice["amount_raw"] = split.get("total_amount_raw")

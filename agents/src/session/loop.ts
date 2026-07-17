@@ -3,6 +3,7 @@ import {
   createSessionState,
   finishSession,
   recordAction,
+  recordCandidateFailure,
   recordFailure,
   recordObservation,
   recordPurchase,
@@ -36,18 +37,26 @@ function defaultSleep(seconds: number, signal?: AbortSignal): Promise<void> {
 
 function chooseCandidate(state: SessionState, policy: SessionPolicy, candidates: SessionCandidate[]): { candidate?: SessionCandidate; reason: string } {
   const now = (Date.now() / 1000);
+  const ownedEntitlements = new Set(state.purchasedEntitlements.map((item) => `${item.provider_id}:${item.symbol.toUpperCase()}:${item.tier}`));
   const eligible = candidates.filter((candidate) => {
     if (!policy.allowedProviders.includes(candidate.provider_id)) return false;
     if (!policy.allowedTiers.includes(candidate.tier)) return false;
     if (candidate.score < policy.minimumScore) return false;
     if (candidate.price_usdc <= 0 || candidate.price_usdc > policy.maxPricePerReportUsdc || candidate.price_usdc > state.remainingBudgetUsdc) return false;
-    if (policy.avoidOwnedReports && candidate.owned) return false;
-    if (state.purchasedCandidateIds.includes(candidate.candidate_id)) return false;
+    if (candidate.eligible === false) return false;
+    const entitlementKey = `${candidate.provider_id}:${candidate.symbol.toUpperCase()}`;
+    const attemptKey = `${entitlementKey}:${candidate.tier}`;
+    const hasPreview = ownedEntitlements.has(`${entitlementKey}:preview`);
+    const hasFull = ownedEntitlements.has(`${entitlementKey}:full`);
+    if (policy.avoidOwnedReports && (candidate.owned || hasFull || (hasPreview && !candidate.upgrade))) return false;
+    if (state.purchasedCandidateIds.includes(candidate.candidate_id) && !candidate.upgrade) return false;
+    if ((state.failedCandidateAttempts[attemptKey] || 0) >= policy.maxFailedAttemptsPerCandidate) return false;
+    if ((state.failedCandidateCooldowns[attemptKey] || 0) > now) return false;
     if ((state.symbolCooldowns[candidate.symbol.toUpperCase()] || 0) > now) return false;
     if (candidate.upgrade && (!policy.upgradePolicy.enabled || candidate.price_usdc > policy.upgradePolicy.maxFullPriceUsdc)) return false;
     return true;
   });
-  eligible.sort((a, b) => Number(b.upgrade) - Number(a.upgrade) || (b.value_density || b.score) - (a.value_density || a.score));
+  eligible.sort((a, b) => Number(b.preferred) - Number(a.preferred) || Number(b.upgrade) - Number(a.upgrade) || (b.value_density || b.score) - (a.value_density || a.score));
   return eligible[0]
     ? { candidate: eligible[0], reason: "highest validated value among eligible candidates" }
     : { reason: "no candidate passed provider, tier, ownership, score, cooldown, and price policy" };
@@ -66,6 +75,9 @@ export async function runAutonomousSession(policy: SessionPolicy, deps: SessionD
       if (policy.stopConditions.stopWhenMaxPurchasesReached && policy.maxPurchases !== null && state.purchaseCount >= policy.maxPurchases) {
         finishSession(state, "completed", "max_purchases_reached"); break;
       }
+      if (policy.maxAttempts !== null && state.attemptCount >= policy.maxAttempts) {
+        finishSession(state, "completed", "max_attempts_reached"); break;
+      }
       if (policy.stopConditions.stopWhenBudgetExhausted && state.remainingBudgetUsdc <= 0) {
         finishSession(state, "completed", "budget_exhausted"); break;
       }
@@ -73,9 +85,19 @@ export async function runAutonomousSession(policy: SessionPolicy, deps: SessionD
         finishSession(state, "completed", "duration_elapsed"); break;
       }
 
+      state.attemptCount += 1;
       const observation = await deps.observe(state, policy);
       recordObservation(state, observation.metadata || {}, observation.candidateCount ?? observation.candidates.length);
       const decision = chooseCandidate(state, policy, observation.candidates);
+      deps.onEvent?.({
+        event: "decision",
+        session_id: state.sessionId,
+        selected_candidate_id: decision.candidate?.candidate_id || null,
+        selected_provider_id: decision.candidate?.provider_id || null,
+        selected_symbol: decision.candidate?.symbol || null,
+        reason: decision.reason,
+        candidate_count: observation.candidateCount ?? observation.candidates.length,
+      });
       if (!decision.candidate) {
         const rejected = Array.isArray(observation.metadata?.rejected_candidates) ? observation.metadata.rejected_candidates : [];
         rejected.slice(0, 25).forEach((item) => {
@@ -94,7 +116,9 @@ export async function runAutonomousSession(policy: SessionPolicy, deps: SessionD
           recordPurchase(state, policy, decision.candidate, result);
           deps.onEvent?.({ event: "purchase_completed", session_id: state.sessionId, ...result });
         } else {
-          recordFailure(state, { action, candidate_id: decision.candidate.candidate_id, error: result.error || "purchase_failed" });
+          const error = result.error || "purchase_failed";
+          recordCandidateFailure(state, policy, decision.candidate, error);
+          recordAction(state, { action: "retry_backoff", candidate_id: decision.candidate.candidate_id, reason: error });
           deps.onEvent?.({ event: "purchase_failed", session_id: state.sessionId, ...result });
         }
       }

@@ -364,6 +364,7 @@ def record_entitlement(store: dict, *, invoice: dict, report: dict, saved_at: Op
         "tier": normalize_tier(invoice.get("tier")),
         "resource_type": invoice.get("resource_type", "qma_signal_report"),
         "payer_address": invoice.get("payer_address"),
+        "buyer_wallet_address": invoice.get("buyer_wallet_address"),
         "settlement_id": invoice.get("settlement_id"),
         "transaction_hash": invoice.get("transaction_hash"),
         "explorer_url": invoice.get("explorer_url"),
@@ -388,10 +389,15 @@ def list_wallet_entitlements(
     provider_id: Optional[str] = None,
 ) -> list[dict]:
     normalized = normalize_address(address)
+    if not normalized:
+        return []
     symbol_filter = (symbol or "").strip().upper()
     records = [
         record for record in store.values()
-        if normalize_address(record.get("payer_address")) == normalized
+        if (
+            normalize_address(record.get("payer_address")) == normalized
+            or normalize_address(record.get("buyer_wallet_address")) == normalized
+        )
         and (not symbol_filter or str(record.get("symbol", "")).upper() == symbol_filter)
         and (not provider_id or record.get("provider_id", "funding_memory") == provider_id)
     ]

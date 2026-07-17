@@ -244,6 +244,7 @@ async function main() {
     ...rec.query,
     provider_id: PROVIDER,
     buyer_type: "agent",
+    buyer_wallet_address: account.address,
     tier: TIER,
     resource_type: "qma_signal_report",
   });

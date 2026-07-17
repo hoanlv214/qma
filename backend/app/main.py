@@ -482,6 +482,8 @@ def create_invoice(req: InvoiceRequest):
     synthetic = bool(req_data.pop("synthetic", False))
     agent_label = req_data.pop("agent_label", None)
     run_source = req_data.pop("run_source", None)
+    buyer_wallet_address = req_data.pop("buyer_wallet_address", None)
+    buyer_wallet_address = normalize_address(buyer_wallet_address) if buyer_wallet_address else None
     provider = get_provider_or_404(provider_registry, provider_id)
     req_data = normalize_query_for_provider(provider, req_data)
     quote = provider.quote_price(req_data, tier)
@@ -520,6 +522,7 @@ def create_invoice(req: InvoiceRequest):
     invoice["synthetic"] = synthetic
     invoice["agent_label"] = agent_label
     invoice["run_source"] = run_source
+    invoice["buyer_wallet_address"] = buyer_wallet_address
     if smode == "x402_direct_split":
         invoice["expires_at"] = invoice["created_at"] + SPLIT_INVOICE_TTL_SECONDS
         invoice["split"] = build_invoice_split(
@@ -560,6 +563,7 @@ def create_invoice(req: InvoiceRequest):
         "synthetic": invoice.get("synthetic", False),
         "agent_label": invoice.get("agent_label"),
         "run_source": invoice.get("run_source"),
+        "buyer_wallet_address": invoice.get("buyer_wallet_address"),
         "expires_at": invoice["expires_at"],
         "nonce": invoice["nonce"],
         "invoice_secret": invoice["invoice_secret"],
@@ -788,6 +792,7 @@ def verify_payment(invoice_id, proof=None):
             "query": invoice.get("query"),
             "query_hash": invoice.get("query_hash"),
             "payer_address": invoice.get("payer_address"),
+            "buyer_wallet_address": invoice.get("buyer_wallet_address"),
             "seller_address": PAYMENT_WALLET_ADDRESS,
             "amount_usdc": invoice.get("amount"),
             "amount_raw": invoice.get("amount_raw"),
@@ -966,6 +971,7 @@ def invoice_report_meta(invoice_id, invoice):
         "transaction_hash": invoice.get("transaction_hash"),
         "explorer_url": invoice.get("explorer_url"),
         "payer_address": invoice.get("payer_address"),
+        "buyer_wallet_address": invoice.get("buyer_wallet_address"),
         "provider_owner_wallet": invoice.get("owner_wallet"),
         "amount_usdc": invoice.get("amount"),
         "pricing": invoice.get("pricing"),

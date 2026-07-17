@@ -102,6 +102,7 @@ def sign_split_receipt(
     settlement_id: str,
     payer_address: str | None = None,
     gateway_status: str | None = None,
+    buyer_wallet_address: str | None = None,
 ) -> str:
     fields = [
         invoice_id,
@@ -118,6 +119,8 @@ def sign_split_receipt(
             normalize_address(payer_address),
             str(gateway_status).strip().lower(),
         ])
+        if buyer_wallet_address is not None:
+            fields.append(normalize_address(buyer_wallet_address))
     payload = split_hmac_payload(fields)
     return hmac.new(SPLIT_RECEIPT_SECRET.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
 
@@ -132,6 +135,7 @@ def verify_split_receipt(
     receipt: str,
     payer_address: str | None = None,
     gateway_status: str | None = None,
+    buyer_wallet_address: str | None = None,
 ) -> bool:
     expected = sign_split_receipt(
         invoice_id=invoice_id,
@@ -141,6 +145,7 @@ def verify_split_receipt(
         settlement_id=settlement_id,
         payer_address=payer_address,
         gateway_status=gateway_status,
+        buyer_wallet_address=buyer_wallet_address,
     )
     return hmac.compare_digest(str(receipt or ""), expected)
 

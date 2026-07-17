@@ -56,8 +56,8 @@ flowchart LR
 
 ```powershell
 python -m pytest -q
-cd frontend; npm.cmd run typecheck; npm.cmd run build
-cd ..\agents; npm.cmd run test
+cd frontend; npm run typecheck; npm run build
+cd ..\agents; npm run test
 cd ..; node --check examples/agent_session.mjs
 ```
 

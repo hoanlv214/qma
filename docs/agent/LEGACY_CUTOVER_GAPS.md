@@ -55,8 +55,8 @@
 ## L-06 through L-14 verification run
 
 - `python -m unittest tests.test_payment_state_machine`: passed 6 tests. This supplies direct evidence for partial split state, repeated split verification, settlement replay guard, final gateway status accounting, disputed no-token behavior, and split aggregation. It does not prove HTTP route contracts or live gateway behavior.
-- `frontend`: `npm.cmd run typecheck` passed.
-- `frontend`: `npm.cmd run build` passed.
+- `frontend`: `npm run typecheck` passed.
+- `frontend`: `npm run build` passed.
 - Sandbox browser flow: not executed; no browser automation harness/tool is available in the current environment. Consequently every requested Critical row L-06 through L-14 remains `Static only` or `Needs verification`, and this batch is not complete.
 - Required payment documentation path remains unresolved: `docs/agent/PAYMENT_FLOW.md` is absent; root `PAYMENT_FLOW.md` was read as fallback. No file was moved.
 
@@ -96,7 +96,7 @@
 
 ## Deployed-like React runtime attempt
 
-- Production build executed: `frontend/npm.cmd run build` passed (`tsc -b` plus Vite production bundle).
+- Production build executed: `frontend/npm run build` passed (`tsc -b` plus Vite production bundle).
 - Browser execution was not possible: the repository has no Playwright, Puppeteer, Selenium, E2E, or browser smoke harness. Therefore no network trace, response capture, browser storage mutation, visible-state assertion, console capture, or React timer-cleanup observation was produced.
 - No backend was started against unknown environment-backed persistence, and no wallet, gateway, funding, invoice-payment, settlement, claim, or withdrawal request was submitted. This avoids real fund-spending and unintended external state changes.
 - No requested flow is marked `Runtime verified`; all affected parity rows retain their prior `Static only` or `Needs verification` status.

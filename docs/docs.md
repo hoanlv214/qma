@@ -365,8 +365,8 @@ Arc Gateway sidecar:
 
 ```powershell
 cd qma\arc_gateway
-npm.cmd install
-npm.cmd start
+npm install
+npm start
 ```
 
 Default URLs:

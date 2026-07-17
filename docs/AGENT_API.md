@@ -76,51 +76,17 @@ sequenceDiagram
     Report-->>Agent: Preview/full report JSON
 ```
 
-## CLI commands
+## Consumers
 
-Build the typed package:
-
-```powershell
-npm run agent:build
-```
-
-Single-purchase dry-run:
-
-```powershell
-npm run agent -- --api http://127.0.0.1:8000 --dry-run --run-once --budget 0.05 --max-price 0.005
-```
-
-Bounded repeated dry-run:
-
-```powershell
-npm run agent -- --api http://127.0.0.1:8000 --dry-run --duration 10m --poll 60 --budget 1 --max-price 0.005
-```
-
-Single-purchase compatibility example:
-
-```powershell
-node examples/agent_buyer.mjs --api http://127.0.0.1:8000 --llm --dry-run --prompt "Find the best preview report under 0.01 USDC"
-```
-
-Live mode requires an explicitly funded Arc Testnet wallet and may spend USDC:
-
-```powershell
-$env:AGENT_PRIVATE_KEY="0xYOUR_TEST_WALLET_PRIVATE_KEY"
-npm run agent -- --api https://qma-api-rebuild.onrender.com --live --budget 0.01 --max-price 0.005 --no-auto-deposit
-```
-
-The CLI loads `QMA_API_URL` from the repository-root `.env`; `agents/.env` is
-not an override for the root wrapper. Pass `--api` when the target must be
-unambiguous. The rebuild deployment route is unavailable if its Render service
-has not deployed the branch containing `/api/v1/agent/decision`.
-
-## Dry-run and LLM semantics
-
-`--dry-run` on the bounded session simulates the selected purchase and creates
-no invoice. The backend decision may use OpenAI Structured Outputs when
-`OPENAI_API_KEY` is configured; otherwise it falls back to deterministic
-policy parsing. A session sends `use_llm=false` on each poll after any optional
-one-time policy parse so polling does not repeatedly call the LLM.
-
-The frontend uses the same decision endpoint through
+The React UI calls this same endpoint through
 `frontend/src/services/agent.ts` and `frontend/src/hooks/useAgentBuyer.ts`.
+The external CLI calls it through `examples/agent_session.mjs` or
+`examples/agent_buyer.mjs`. Both consumers must treat the backend response as
+the canonical decision boundary and must not reconstruct provider prices or
+entitlements independently.
+
+CLI commands, Circle wallet setup, dry-run/live behavior, and troubleshooting
+belong to [examples/README.md](../examples/README.md). The bounded polling
+policy and session accounting belong to
+[AUTONOMOUS_AGENT.md](AUTONOMOUS_AGENT.md). Payment invariants belong to
+[`../PAYMENT_FLOW.md`](../PAYMENT_FLOW.md).

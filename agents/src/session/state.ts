@@ -9,7 +9,10 @@ export interface SessionCandidate {
   tier: "preview" | "full";
   score: number;
   price_usdc: number;
+  canonical_query?: Record<string, unknown>;
   value_density?: number;
+  eligible?: boolean;
+  preferred?: boolean;
   owned?: boolean;
   upgrade?: boolean;
 }
@@ -41,10 +44,13 @@ export interface SessionState {
   skipCount: number;
   waitCount: number;
   pollCount: number;
+  attemptCount: number;
   candidatesEvaluated: number;
   purchasedCandidateIds: string[];
   purchasedEntitlements: Array<{ provider_id: string; symbol: string; tier: string }>;
   symbolCooldowns: Record<string, number>;
+  failedCandidateAttempts: Record<string, number>;
+  failedCandidateCooldowns: Record<string, number>;
   observations: Array<Record<string, unknown>>;
   actions: Array<Record<string, unknown>>;
   failures: Array<Record<string, unknown>>;
@@ -69,10 +75,13 @@ export function createSessionState(policy: SessionPolicy, sessionId = `agent_ses
     skipCount: 0,
     waitCount: 0,
     pollCount: 0,
+    attemptCount: 0,
     candidatesEvaluated: 0,
     purchasedCandidateIds: [],
     purchasedEntitlements: [],
     symbolCooldowns: {},
+    failedCandidateAttempts: {},
+    failedCandidateCooldowns: {},
     observations: [],
     actions: [],
     failures: [],
@@ -105,6 +114,31 @@ export function recordFailure(state: SessionState, failure: Record<string, unkno
   state.failures.push({ at: nowIso(), ...failure });
 }
 
+export function candidateAttemptKey(candidate: Pick<SessionCandidate, "provider_id" | "symbol" | "tier">): string {
+  return `${candidate.provider_id}:${candidate.symbol.toUpperCase()}:${candidate.tier}`;
+}
+
+export function recordCandidateFailure(
+  state: SessionState,
+  policy: SessionPolicy,
+  candidate: SessionCandidate,
+  error: string,
+): void {
+  const key = candidateAttemptKey(candidate);
+  const attempts = (state.failedCandidateAttempts[key] || 0) + 1;
+  state.failedCandidateAttempts[key] = attempts;
+  const backoff = policy.failedCandidateCooldownSeconds * Math.max(1, attempts);
+  state.failedCandidateCooldowns[key] = Date.now() / 1000 + backoff;
+  recordFailure(state, {
+    candidate_id: candidate.candidate_id,
+    provider_id: candidate.provider_id,
+    symbol: candidate.symbol,
+    attempts,
+    retry_after_seconds: backoff,
+    error,
+  });
+}
+
 export function recordPurchase(state: SessionState, policy: SessionPolicy, candidate: SessionCandidate, result: PurchaseResult): void {
   const amount = Number(result.amount_usdc ?? candidate.price_usdc);
   state.spentUsdc = Number((state.spentUsdc + amount).toFixed(6));
@@ -113,6 +147,8 @@ export function recordPurchase(state: SessionState, policy: SessionPolicy, candi
   if (candidate.tier === "full" && candidate.upgrade) state.upgradeCount += 1;
   state.purchasedCandidateIds.push(candidate.candidate_id);
   state.purchasedEntitlements.push({ provider_id: candidate.provider_id, symbol: candidate.symbol, tier: candidate.tier });
+  delete state.failedCandidateAttempts[candidateAttemptKey(candidate)];
+  delete state.failedCandidateCooldowns[candidateAttemptKey(candidate)];
   state.symbolCooldowns[candidate.symbol.toUpperCase()] = Date.now() / 1000 + policy.symbolCooldownSeconds;
 }
 
@@ -132,6 +168,7 @@ export function sessionReport(state: SessionState, policy: SessionPolicy): Recor
     session_budget_usdc: policy.sessionBudgetUsdc,
     max_price_per_report_usdc: policy.maxPricePerReportUsdc,
     max_purchases: policy.maxPurchases,
+    max_attempts: policy.maxAttempts,
     duration_seconds: policy.durationSeconds,
     run_once: policy.runOnce,
     poll_interval_seconds: policy.pollIntervalSeconds,
@@ -140,6 +177,8 @@ export function sessionReport(state: SessionState, policy: SessionPolicy): Recor
     minimum_score: policy.minimumScore,
     avoid_owned_reports: policy.avoidOwnedReports,
     symbol_cooldown_seconds: policy.symbolCooldownSeconds,
+    failed_candidate_cooldown_seconds: policy.failedCandidateCooldownSeconds,
+    max_failed_attempts_per_candidate: policy.maxFailedAttemptsPerCandidate,
     auto_deposit_gateway: policy.autoDepositGateway,
     upgrade_policy: {
       enabled: policy.upgradePolicy.enabled,
@@ -162,6 +201,7 @@ export function sessionReport(state: SessionState, policy: SessionPolicy): Recor
     ended_at: state.endedAt,
     runtime_seconds: Math.max(0, Math.round((ended - started) / 1000)),
     poll_count: state.pollCount,
+    attempt_count: state.attemptCount,
     candidates_evaluated: state.candidatesEvaluated,
     purchase_count: state.purchaseCount,
     upgrade_count: state.upgradeCount,
@@ -169,6 +209,7 @@ export function sessionReport(state: SessionState, policy: SessionPolicy): Recor
     wait_count: state.waitCount,
     spent_usdc: state.spentUsdc,
     remaining_budget_usdc: state.remainingBudgetUsdc,
+    failed_candidate_attempts: state.failedCandidateAttempts,
     purchases: state.actions.filter((item) => item.action === "purchase" || item.action === "upgrade"),
     failures: state.failures,
     stop_reason: state.stopReason,

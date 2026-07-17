@@ -55,6 +55,7 @@ def paid_invoice(invoice_id: str, tier: str) -> dict:
         "tier": tier,
         "resource_type": "qma_signal_report",
         "payer_address": PAYER,
+        "buyer_wallet_address": PAYER,
         "settlement_id": f"settle_{invoice_id}",
         "gateway_status": "completed",
         "amount": "0.001000",
@@ -125,6 +126,8 @@ class HttpContractL11Tests(unittest.TestCase):
             self.assertEqual(payload["tier"], tier)
             self.assertEqual(payload["query_symbol"], "APDSTOCK")
             self.assertEqual(payload["invoice"]["invoice_id"], invoice["invoice_id"])
+            self.assertEqual(payload["invoice"]["payer_address"], PAYER)
+            self.assertEqual(payload["invoice"]["buyer_wallet_address"], PAYER)
             if tier == "preview":
                 self.assertIn("top_analogs", payload)
                 self.assertIn("upgrade_cta", payload)

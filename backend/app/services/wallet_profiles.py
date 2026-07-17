@@ -69,6 +69,7 @@ def public_entitlement_row(record: dict) -> dict:
     return {
         "entitlement_id": record.get("entitlement_id"),
         "payer_address": record.get("payer_address"),
+        "buyer_wallet_address": record.get("buyer_wallet_address"),
         "symbol": record.get("symbol"),
         "tier": record.get("tier"),
         "provider_id": record.get("provider_id"),

@@ -214,16 +214,37 @@ def _evaluated_candidates(candidates: list, selected: Optional[dict], objective:
     rows = []
     for item in candidates:
         rejection = item.get("agent_rejection")
+        price = _number(item.get("agent_price"))
+        score = _number(item.get("score"))
         rows.append({
             "candidate_id": item["candidate_id"],
             "symbol": item.get("symbol"),
             "provider_id": item.get("provider_id"),
+            "provider_name": item.get("provider_name"),
+            "canonical_query": item.get("agent_query"),
             "tier": item.get("agent_tier"),
-            "score": _number(item.get("score")),
-            "price_usdc": _number(item.get("agent_price")),
+            "score": score,
+            "price_usdc": price,
+            "value_density": round(score / price, 6) if price > 0 else 0,
+            "eligible": rejection is None,
+            "upgrade": bool(item.get("agent_upgrade_from_preview")),
             "status": "selected" if item is selected else rejection.get("reason_code") if rejection else ("LOWER_SCORE" if objective == "highest_score" else "LOWER_VALUE_DENSITY"),
+            "reason_code": rejection.get("reason_code") if rejection else None,
+            "reason": rejection.get("reason") if rejection else None,
         })
     return rows
+
+
+def _selection_basis(candidates: list, selected: Optional[dict], objective: str) -> dict:
+    """Expose the deterministic routing rule without making it LLM-authored."""
+    return {
+        "objective": objective,
+        "ranking": "upgrade_then_score" if objective == "highest_score" else "upgrade_then_value_density_then_score",
+        "selected_candidate_id": selected.get("candidate_id") if selected else None,
+        "selected_provider_id": selected.get("provider_id") if selected else None,
+        "eligible_candidate_count": sum(1 for item in candidates if not item.get("agent_rejection")),
+        "evaluated_provider_ids": sorted({item.get("provider_id") for item in candidates if item.get("provider_id")}),
+    }
 
 
 def _policy_check(deps: SimpleNamespace, selected: Optional[dict], entitlements: list, budget: float, max_price: float) -> dict:
@@ -306,6 +327,7 @@ def _decision_payload(
         "policy_check": _policy_check(deps, selected, entitlements, budget, max_price),
         "rejected_candidates": deterministic_rejections,
         "evaluated_candidates": _evaluated_candidates(candidates, selected, objective),
+        "selection_basis": _selection_basis(candidates, selected, objective),
         "candidate_count": len(candidates),
         "decision_source": source,
     }

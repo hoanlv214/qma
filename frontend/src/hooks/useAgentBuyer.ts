@@ -8,6 +8,19 @@ import { normalizeTierForCache } from "../utils/format";
 
 type Signal = Record<string, any>;
 type AgentTraceEntry = { text: string; tone?: string };
+type AgentProviderComparison = {
+  candidate_id: string;
+  symbol?: string;
+  provider_id?: string;
+  provider_name?: string;
+  tier?: string;
+  score: number;
+  price_usdc: number;
+  value_density: number;
+  status: string;
+  reason_code?: string | null;
+  reason?: string | null;
+};
 type SetState<T> = React.Dispatch<React.SetStateAction<T>>;
 
 interface UseAgentBuyerOptions {
@@ -63,6 +76,7 @@ export function useAgentBuyer({
   const [agentDecisionLatency, setAgentDecisionLatency] = useState<string | null>(null);
   const [agentSelectReason, setAgentSelectReason] = useState<string | null>(null);
   const [agentRejectedReasons, setAgentRejectedReasons] = useState<string[]>([]);
+  const [agentProviderComparison, setAgentProviderComparison] = useState<AgentProviderComparison[]>([]);
   const clearAgentTrace = () => setAgentTrace([]);
   const firstDotRef = useRef<HTMLSpanElement | null>(null);
   const lastDotRef = useRef<HTMLSpanElement | null>(null);
@@ -371,6 +385,7 @@ export function useAgentBuyer({
     setAgentVerifyResult(null);
     setAgentSelectReason(null);
     setAgentRejectedReasons([]);
+    setAgentProviderComparison([]);
     setAgentTrace([]);
     setShowAgentBuyerModal(false);
   };
@@ -386,6 +401,7 @@ export function useAgentBuyer({
     setAgentDecisionLatency(null);
     setAgentSelectReason(null);
     setAgentRejectedReasons([]);
+    setAgentProviderComparison([]);
     setShowAgentBuyerModal(true);
     setAgentRunning(true);
     setAgentSessionStage("scanning");
@@ -424,6 +440,7 @@ export function useAgentBuyer({
       let backendDecision: AgentDecisionResponse | null = null;
       try {
         backendDecision = await requestAgentDecision(agentPrompt, wallet);
+        setAgentProviderComparison((backendDecision.evaluated_candidates || []) as AgentProviderComparison[]);
         setAgentTrace((prev) => [...prev, { text: `Decision service: ${backendDecision?.decision_source || "server"} policy accepted.`, tone: "t-dim" }]);
       } catch (err) {
         setAgentTrace((prev) => [...prev, { text: "Decision service unavailable; local demo policy only. Live autonomous execution is blocked.", tone: "t-dim" }]);
@@ -532,6 +549,7 @@ export function useAgentBuyer({
           provider_id: pickProviderId,
           tier: pickTier,
           buyer_type: "agent",
+          buyer_wallet_address: wallet,
           synthetic: true,
           agent_label: "copilot",
         });
@@ -716,6 +734,7 @@ export function useAgentBuyer({
     agentDecisionLatency,
     agentSelectReason,
     agentRejectedReasons,
+    agentProviderComparison,
     firstDotRef,
     lastDotRef,
     stageContainerRef,

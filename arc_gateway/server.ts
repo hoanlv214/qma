@@ -208,18 +208,23 @@ function splitReceipt(params: {
   settlementId: string;
   payer: string;
   gatewayStatus: string;
+  buyerWalletAddress?: string;
 }): string {
+  const fields = [
+    params.invoiceId,
+    params.legId,
+    normalizeAddress(params.payTo),
+    BigInt(params.settledAmountRaw).toString(),
+    params.settlementId,
+    normalizeAddress(params.payer),
+    params.gatewayStatus.trim().toLowerCase(),
+  ];
+  if (params.buyerWalletAddress) {
+    fields.push(normalizeAddress(params.buyerWalletAddress));
+  }
   return hmacHex(
     SPLIT_RECEIPT_SECRET,
-    splitPayload([
-      params.invoiceId,
-      params.legId,
-      normalizeAddress(params.payTo),
-      BigInt(params.settledAmountRaw).toString(),
-      params.settlementId,
-      normalizeAddress(params.payer),
-      params.gatewayStatus.trim().toLowerCase(),
-    ]),
+    splitPayload(fields),
   );
 }
 
@@ -458,6 +463,7 @@ app.get("/qma-access/split-leg", async (req, res) => {
     );
 
     let settlementId = "";
+    let buyerWalletAddress = "";
     try {
       const payload = JSON.parse(Buffer.from(paymentSignature, "base64").toString("utf8"));
       const authorizedPayer = String(payload?.payload?.authorization?.from ?? payload?.authorization?.from ?? "");
@@ -486,6 +492,11 @@ app.get("/qma-access/split-leg", async (req, res) => {
         throw new RelayHttpError("settled split leg pay_to does not match invoice", 502);
       }
       const payer = String(transfer.fromAddress ?? verify.payer ?? settle.payer ?? "");
+      // Circle Agent Wallet payments authorize with the backing EOA in the
+      // x402 payload. The logical agent-wallet identity is bound at invoice
+      // creation and returned by the internal invoice lookup; never replace
+      // it with the settlement payer.
+      buyerWalletAddress = String(invoice.buyer_wallet_address ?? "").trim();
       const gatewayStatus = String(transfer.status ?? "").trim().toLowerCase();
       if (!payer || !gatewayStatus) {
         throw new RelayHttpError("Circle settlement response is missing payer or status", 502);
@@ -498,6 +509,7 @@ app.get("/qma-access/split-leg", async (req, res) => {
         settlementId,
         payer,
         gatewayStatus,
+        buyerWalletAddress,
       });
       const recordPath = `/api/internal/invoices/${encodeURIComponent(invoiceId)}/split-leg/${encodeURIComponent(legId)}/record`;
       const recordPayload = {
@@ -505,6 +517,7 @@ app.get("/qma-access/split-leg", async (req, res) => {
         amount_raw: settledAmountRaw,
         pay_to: String(leg.pay_to),
         payer_address: payer,
+        buyer_wallet_address: buyerWalletAddress || null,
         gateway_status: gatewayStatus,
         sidecar_receipt: receipt,
       };
@@ -530,6 +543,7 @@ app.get("/qma-access/split-leg", async (req, res) => {
         amount_raw: settledAmountRaw,
         amount_usdc: formatUnits(BigInt(settledAmountRaw), 6),
         payer,
+        buyer_wallet_address: buyerWalletAddress || null,
         gateway_status: gatewayStatus,
         settlement_id: settlementId,
         settlementId,

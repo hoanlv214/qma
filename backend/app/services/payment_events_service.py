@@ -22,6 +22,8 @@ def summarize_payment_events(events: list, provider_split_metadata_fn) -> dict:
     unique_payers = {normalize_address(event.get("payer_address")) for event in sorted_events if event.get("payer_address")}
     tier_counts = {"preview": 0, "full": 0, "legacy": 0}
     buyer_type_counts = {"human": 0, "agent": 0}
+    current_buyer_type_counts = {"human": 0, "agent": 0}
+    legacy_buyer_type_counts = {"human": 0, "agent": 0}
     revenue_by_tier = {"preview": 0.0, "full": 0.0, "legacy": 0.0}
     revenue_by_provider = {}
     seen_report_keys = set()
@@ -40,6 +42,8 @@ def summarize_payment_events(events: list, provider_split_metadata_fn) -> dict:
             seen_report_keys.add(report_key)
             tier_counts[tier] = tier_counts.get(tier, 0) + 1
             buyer_type_counts[buyer_type] = buyer_type_counts.get(buyer_type, 0) + 1
+            target_buyer_type_counts = current_buyer_type_counts if tier in ("preview", "full") else legacy_buyer_type_counts
+            target_buyer_type_counts[buyer_type] = target_buyer_type_counts.get(buyer_type, 0) + 1
         revenue_by_tier[tier] = revenue_by_tier.get(tier, 0.0) + amount
         split_meta = provider_split_metadata_fn(
             provider_id,
@@ -164,11 +168,18 @@ def summarize_payment_events(events: list, provider_split_metadata_fn) -> dict:
         "current_paid_count": current_paid_count,
         "legacy_paid_count": tier_counts.get("legacy", 0),
         "unique_payers": len(unique_payers),
+        "current_unique_payers": len({
+            normalize_address(event.get("payer_address"))
+            for event in sorted_events
+            if event.get("payer_address") and payment_event_tier(event) in ("preview", "full")
+        }),
         "revenue_usdc": revenue,
         "current_revenue_usdc": current_revenue,
         "legacy_revenue_usdc": revenue_by_tier.get("legacy", 0.0),
         "tier_counts": tier_counts,
         "buyer_type_counts": buyer_type_counts,
+        "current_buyer_type_counts": current_buyer_type_counts,
+        "legacy_buyer_type_counts": legacy_buyer_type_counts,
         "revenue_by_tier": revenue_by_tier,
         "revenue_by_provider": sorted(
             provider_breakdown,

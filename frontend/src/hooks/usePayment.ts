@@ -176,6 +176,7 @@ export function usePayment({
           symbol: String(activeQuery.symbol || ""),
           provider_id: selectedProviderId,
           tier,
+          buyer_wallet_address: wallet,
         });
       } else {
         showToast(`Resumed invoice ${shortAddress(invoiceData.invoice_id)}. Continue with remaining split leg.`, "info");

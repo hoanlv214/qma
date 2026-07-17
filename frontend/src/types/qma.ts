@@ -120,6 +120,7 @@ export interface SplitLeg {
   settlement_id?: string;
   sidecar_receipt?: string;
   payer_address?: string;
+  buyer_wallet_address?: string;
   gateway_status?: string;
   transaction_hash?: string;
   explorer_url?: string;
@@ -131,6 +132,7 @@ export interface InvoiceRequest extends QmaQuery {
   tier?: Tier;
   resource_type?: "qma_signal_report" | string;
   buyer_type?: BuyerType;
+  buyer_wallet_address?: string;
   synthetic?: boolean;
   agent_label?: string;
   run_source?: string;
@@ -146,6 +148,7 @@ export interface InvoiceResponse {
   provider_id: string;
   provider_name?: string;
   buyer_type?: BuyerType;
+  buyer_wallet_address?: string | null;
   wallet_address: string;
   network?: string;
   network_name?: string;

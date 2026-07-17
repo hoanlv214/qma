@@ -6010,6 +6010,36 @@ body.basic-view .platform-stats-section {
     margin-top: 1px;
 }
 
+.agent-provider-comparison {
+    grid-column: 1 / -1;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(124, 111, 255, 0.14);
+}
+
+.agent-provider-comparison-label {
+    margin-bottom: 5px;
+    color: var(--t3);
+    font-size: 0.64rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.agent-provider-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 3px 0;
+    color: var(--t3);
+    font-size: 0.68rem;
+}
+
+.agent-provider-row.selected {
+    color: var(--green);
+    font-weight: 700;
+}
+
 /* ── SPLIT LEGS subtext ── */
 .agent-split-note {
     position: relative;

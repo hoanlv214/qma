@@ -33,6 +33,14 @@ export interface AgentDecisionResponse {
     limit_usdc?: number;
   }>;
   evaluated_candidates: Array<Record<string, any>>;
+  selection_basis: {
+    objective: "highest_score" | "value_density";
+    ranking: string;
+    selected_candidate_id: string | null;
+    selected_provider_id: string | null;
+    eligible_candidate_count: number;
+    evaluated_provider_ids: string[];
+  };
   candidate_count: number;
   decision_source: "llm" | "deterministic_policy" | "cached_policy";
 }

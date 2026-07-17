@@ -45,6 +45,7 @@ def create_internal_router(deps: SimpleNamespace) -> APIRouter:
                 "tier": invoice.get("tier"),
                 "expires_at": invoice.get("expires_at"),
                 "settlement_mode": deps.invoice_split_mode(invoice),
+                "buyer_wallet_address": invoice.get("buyer_wallet_address"),
             },
             "leg": leg,
         }
@@ -135,6 +136,17 @@ def create_internal_router(deps: SimpleNamespace) -> APIRouter:
                 if deps.settlement_id_already_claimed(settlement_id, exclude_invoice_id=invoice_id):
                     raise HTTPException(status_code=409, detail="settlement_id is already claimed by another invoice/leg.")
                 receipt = str(payload.get("sidecar_receipt") or "")
+                invoice_buyer_wallet = (
+                    deps.normalize_address(invoice.get("buyer_wallet_address"))
+                    if invoice.get("buyer_wallet_address") else None
+                )
+                payload_buyer_wallet = (
+                    deps.normalize_address(payload.get("buyer_wallet_address"))
+                    if payload.get("buyer_wallet_address") else None
+                )
+                if invoice_buyer_wallet and payload_buyer_wallet and invoice_buyer_wallet != payload_buyer_wallet:
+                    raise HTTPException(status_code=400, detail="Buyer wallet does not match invoice binding.")
+                buyer_wallet_address = invoice_buyer_wallet or payload_buyer_wallet
                 has_authoritative_gateway_claims = bool(payload.get("payer_address") and payload.get("gateway_status"))
                 receipt_valid = deps.verify_split_receipt(
                     invoice_id=invoice_id,
@@ -145,7 +157,21 @@ def create_internal_router(deps: SimpleNamespace) -> APIRouter:
                     receipt=receipt,
                     payer_address=payload.get("payer_address"),
                     gateway_status=payload.get("gateway_status"),
+                    buyer_wallet_address=buyer_wallet_address,
                 ) if has_authoritative_gateway_claims else False
+                if not receipt_valid and has_authoritative_gateway_claims and buyer_wallet_address:
+                    # Receipts issued before the buyer-wallet binding remain
+                    # valid during the gateway rollout.
+                    receipt_valid = deps.verify_split_receipt(
+                        invoice_id=invoice_id,
+                        leg_id=leg_id,
+                        pay_to=leg.get("pay_to"),
+                        settled_amount_raw=settled_amount_raw,
+                        settlement_id=settlement_id,
+                        receipt=receipt,
+                        payer_address=payload.get("payer_address"),
+                        gateway_status=payload.get("gateway_status"),
+                    )
                 if not receipt_valid:
                     receipt_valid = deps.verify_split_receipt(
                         invoice_id=invoice_id,
@@ -161,6 +187,7 @@ def create_internal_router(deps: SimpleNamespace) -> APIRouter:
                     "status": "paid",
                     "settlement_id": settlement_id,
                     "payer_address": deps.normalize_address(payload.get("payer_address")),
+                    "buyer_wallet_address": buyer_wallet_address,
                     "gateway_status": payload.get("gateway_status"),
                     "transaction_hash": payload.get("transaction_hash"),
                     "explorer_url": payload.get("explorer_url"),

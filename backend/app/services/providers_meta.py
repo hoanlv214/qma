@@ -138,6 +138,7 @@ def split_leg_event(invoice: dict, leg: dict) -> dict:
         "query": invoice.get("query"),
         "query_hash": invoice.get("query_hash"),
         "payer_address": leg.get("payer_address") or invoice.get("payer_address"),
+        "buyer_wallet_address": leg.get("buyer_wallet_address") or invoice.get("buyer_wallet_address"),
         "seller_address": leg.get("pay_to"),
         "amount_usdc": raw_usdc_to_decimal_string(leg.get("amount_raw")),
         "amount_raw": raw_usdc_str(leg.get("amount_raw")),

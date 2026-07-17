@@ -12,8 +12,8 @@ python qma\main.py
 
 ```powershell
 cd qma\arc_gateway
-npm.cmd install
-npm.cmd start
+npm install
+npm start
 ```
 
 Default URLs:
@@ -24,7 +24,7 @@ Default URLs:
 - Arc explorer: `https://testnet.arcscan.app`
 
 The React rebuild runs separately with Vite and uses the same backend payment
-contract. Start it with `cd frontend && npm.cmd run dev`, then set
+contract. Start it with `cd frontend && npm run dev`, then set
 `VITE_QMA_API_BASE_URL` when the API is not same-origin. The legacy root HTML
 pages and the rebuild frontend are different clients; a successful legacy page
 load does not prove that the rebuild deployment is configured.

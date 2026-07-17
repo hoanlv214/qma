@@ -293,6 +293,7 @@ export function AppPage({
     agentDecisionLatency,
     agentSelectReason,
     agentRejectedReasons,
+    agentProviderComparison,
     firstDotRef,
     lastDotRef,
     stageContainerRef,
@@ -803,6 +804,7 @@ export function AppPage({
             recommendationTier={recommendationTier}
             agentSelectReason={agentSelectReason}
             agentRejectedReasons={agentRejectedReasons}
+            agentProviderComparison={agentProviderComparison}
             agentSessionInvoice={agentSessionInvoice}
             formatUsdc={formatUsdc}
             agentVerifyResult={agentVerifyResult}
