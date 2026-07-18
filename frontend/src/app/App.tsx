@@ -7,7 +7,7 @@ import { TractionPage } from "../components/traction/TractionPage";
 import { pathForRoute, routeFromPath, type QmaRoute } from "./routes";
 import { WalletProvider } from "../state/walletStore";
 
-const DocsPage = lazy(() => import("../components/docs/DocsPage").then((module) => ({ default: module.DocsPage })));
+const ApiDocsPage = lazy(() => import("../components/api-docs/ApiDocsPage").then((module) => ({ default: module.ApiDocsPage })));
 
 export function App() {
   const initialRoute = useMemo(() => routeFromPath(window.location.pathname), []);
@@ -51,7 +51,7 @@ export function App() {
       {route === "traction" && <TractionPage onNavigate={navigate} />}
       {route === "docs" && (
         <Suspense fallback={null}>
-          <DocsPage />
+          <ApiDocsPage />
         </Suspense>
       )}
     </WalletProvider>

@@ -2,7 +2,7 @@ import { ApiReferenceReact } from "@scalar/api-reference-react";
 import "@scalar/api-reference-react/style.css";
 import { API_BASE_URL } from "../../services/api";
 
-export function DocsPage() {
+export function ApiDocsPage() {
   const parts = window.location.pathname.split("/");
   const audience = parts.length > 2 && parts[2] ? parts[2] : "";
 
