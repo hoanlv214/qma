@@ -5,29 +5,31 @@ import time
 from types import SimpleNamespace
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Security
 
+from backend.app.core.security_schemes import qma_internal_secret_header
+from backend.app.core.openapi_responses import documented_error
+from backend.app.schemas import RecordInternalSplitLegRequest
 
-router = APIRouter(tags=["internal"])
+router = APIRouter(tags=["Internal gateway"])
 
 
 def create_internal_router(deps: SimpleNamespace) -> APIRouter:
-    migrated = APIRouter(tags=["internal"])
+    migrated = APIRouter(tags=["Internal gateway"])
 
-    def require_internal_gateway_secret(x_qma_internal_secret: Optional[str] = None):
+    def require_internal_gateway_secret(x_qma_internal_secret: str = Security(qma_internal_secret_header)):
         if not deps.arc_gateway_internal_secret:
             raise HTTPException(status_code=503, detail="QMA_ARC_GATEWAY_INTERNAL_SECRET is not configured.")
         if not hmac.compare_digest(str(x_qma_internal_secret or ""), deps.arc_gateway_internal_secret):
             raise HTTPException(status_code=403, detail="Internal gateway secret required.")
         return True
 
-    @migrated.get("/api/internal/invoices/{invoice_id}/split-leg/{leg_id}")
+    @migrated.get("/api/internal/invoices/{invoice_id}/split-leg/{leg_id}", include_in_schema=False)
     def get_internal_split_leg(
         invoice_id: str,
         leg_id: str,
-        x_qma_internal_secret: Optional[str] = Header(default=None),
+        _internal_auth: bool = Depends(require_internal_gateway_secret),
     ):
-        require_internal_gateway_secret(x_qma_internal_secret)
         invoice = deps.invoices_db.get(invoice_id)
         if not invoice:
             raise HTTPException(status_code=404, detail="Invoice not found.")
@@ -37,7 +39,6 @@ def create_internal_router(deps: SimpleNamespace) -> APIRouter:
             raise HTTPException(status_code=404, detail="Split leg not found.")
         deps.save_invoice(invoice)
         return {
-            "status": "success",
             "invoice": {
                 "invoice_id": invoice_id,
                 "status": invoice.get("status"),
@@ -50,13 +51,14 @@ def create_internal_router(deps: SimpleNamespace) -> APIRouter:
             "leg": leg,
         }
 
-    @migrated.post("/api/internal/invoices/{invoice_id}/split-leg/{leg_id}/reserve")
+    @migrated.post("/api/internal/invoices/{invoice_id}/split-leg/{leg_id}/reserve", include_in_schema=False)
     def reserve_internal_split_leg(
         invoice_id: str,
         leg_id: str,
-        x_qma_internal_secret: Optional[str] = Header(default=None),
+        payload: RecordInternalSplitLegRequest = Body(default_factory=RecordInternalSplitLegRequest),
+        _internal_auth: bool = Depends(require_internal_gateway_secret),
     ):
-        require_internal_gateway_secret(x_qma_internal_secret)
+        payload_dict = payload.model_dump(exclude_unset=False)
         with deps.cross_process_lock("split_leg:" + invoice_id):
             with deps.split_leg_lock:
                 invoice = deps.invoices_db.get(invoice_id)
@@ -70,9 +72,9 @@ def create_internal_router(deps: SimpleNamespace) -> APIRouter:
                 if not leg:
                     raise HTTPException(status_code=404, detail="Split leg not found.")
                 if leg.get("status") == "paid" and leg.get("settlement_id"):
-                    same_settlement = str(payload.get("settlement_id") or "") == str(leg.get("settlement_id"))
-                    same_amount = deps.raw_usdc_str(payload.get("amount_raw") or payload.get("settled_amount_raw") or "0") == deps.raw_usdc_str(leg.get("amount_raw"))
-                    same_recipient = deps.normalize_address(payload.get("pay_to")) == deps.normalize_address(leg.get("pay_to"))
+                    same_settlement = str(payload_dict.get("settlement_id") or "") == str(leg.get("settlement_id"))
+                    same_amount = deps.raw_usdc_str(payload_dict.get("amount_raw") or payload_dict.get("settled_amount_raw") or "0") == deps.raw_usdc_str(leg.get("amount_raw"))
+                    same_recipient = deps.normalize_address(payload_dict.get("pay_to")) == deps.normalize_address(leg.get("pay_to"))
                     if same_settlement and same_amount and same_recipient:
                         return {"status": "already_recorded", "invoice_id": invoice_id, "leg_id": leg_id, "invoice_status": invoice.get("status"), "leg": leg}
                     raise HTTPException(status_code=409, detail="Split leg is already settled.")
@@ -85,13 +87,12 @@ def create_internal_router(deps: SimpleNamespace) -> APIRouter:
                 deps.save_invoice(invoice)
                 return {"status": "reserved", "invoice_id": invoice_id, "leg_id": leg_id, "leg": leg}
 
-    @migrated.post("/api/internal/invoices/{invoice_id}/split-leg/{leg_id}/release")
+    @migrated.post("/api/internal/invoices/{invoice_id}/split-leg/{leg_id}/release", include_in_schema=False)
     def release_internal_split_leg(
         invoice_id: str,
         leg_id: str,
-        x_qma_internal_secret: Optional[str] = Header(default=None),
+        _internal_auth: bool = Depends(require_internal_gateway_secret),
     ):
-        require_internal_gateway_secret(x_qma_internal_secret)
         with deps.cross_process_lock("split_leg:" + invoice_id):
             with deps.split_leg_lock:
                 invoice = deps.invoices_db.get(invoice_id)
@@ -107,14 +108,14 @@ def create_internal_router(deps: SimpleNamespace) -> APIRouter:
                 deps.save_invoice(invoice)
                 return {"status": "released", "invoice_id": invoice_id, "leg_id": leg_id, "leg": leg}
 
-    @migrated.post("/api/internal/invoices/{invoice_id}/split-leg/{leg_id}/record")
+    @migrated.post("/api/internal/invoices/{invoice_id}/split-leg/{leg_id}/record", include_in_schema=False)
     def record_internal_split_leg(
         invoice_id: str,
         leg_id: str,
-        payload: dict,
-        x_qma_internal_secret: Optional[str] = Header(default=None),
+        payload: RecordInternalSplitLegRequest,
+        _internal_auth: bool = Depends(require_internal_gateway_secret),
     ):
-        require_internal_gateway_secret(x_qma_internal_secret)
+        payload_dict = payload.model_dump(exclude_unset=False)
         with deps.cross_process_lock("split_leg:" + invoice_id):
             with deps.split_leg_lock:
                 invoice = deps.invoices_db.get(invoice_id)
@@ -125,29 +126,29 @@ def create_internal_router(deps: SimpleNamespace) -> APIRouter:
                     raise HTTPException(status_code=404, detail="Split leg not found.")
                 if leg.get("status") == "paid" and leg.get("settlement_id"):
                     raise HTTPException(status_code=409, detail="Split leg is already settled.")
-                settled_amount_raw = deps.raw_usdc_str(payload.get("amount_raw") or payload.get("settled_amount_raw") or "0")
+                settled_amount_raw = deps.raw_usdc_str(payload_dict.get("amount_raw") or payload_dict.get("settled_amount_raw") or "0")
                 if settled_amount_raw != deps.raw_usdc_str(leg.get("amount_raw")):
                     raise HTTPException(status_code=400, detail="Settled split leg amount does not match invoice leg.")
-                if deps.normalize_address(payload.get("pay_to")) != deps.normalize_address(leg.get("pay_to")):
+                if deps.normalize_address(payload_dict.get("pay_to")) != deps.normalize_address(leg.get("pay_to")):
                     raise HTTPException(status_code=400, detail="Settled split leg pay_to does not match invoice leg.")
-                settlement_id = str(payload.get("settlement_id") or "")
+                settlement_id = str(payload_dict.get("settlement_id") or "")
                 if not settlement_id:
                     raise HTTPException(status_code=400, detail="settlement_id is required.")
                 if deps.settlement_id_already_claimed(settlement_id, exclude_invoice_id=invoice_id):
                     raise HTTPException(status_code=409, detail="settlement_id is already claimed by another invoice/leg.")
-                receipt = str(payload.get("sidecar_receipt") or "")
+                receipt = str(payload_dict.get("sidecar_receipt") or "")
                 invoice_buyer_wallet = (
                     deps.normalize_address(invoice.get("buyer_wallet_address"))
                     if invoice.get("buyer_wallet_address") else None
                 )
                 payload_buyer_wallet = (
-                    deps.normalize_address(payload.get("buyer_wallet_address"))
-                    if payload.get("buyer_wallet_address") else None
+                    deps.normalize_address(payload_dict.get("buyer_wallet_address"))
+                    if payload_dict.get("buyer_wallet_address") else None
                 )
                 if invoice_buyer_wallet and payload_buyer_wallet and invoice_buyer_wallet != payload_buyer_wallet:
                     raise HTTPException(status_code=400, detail="Buyer wallet does not match invoice binding.")
                 buyer_wallet_address = invoice_buyer_wallet or payload_buyer_wallet
-                has_authoritative_gateway_claims = bool(payload.get("payer_address") and payload.get("gateway_status"))
+                has_authoritative_gateway_claims = bool(payload_dict.get("payer_address") and payload_dict.get("gateway_status"))
                 receipt_valid = deps.verify_split_receipt(
                     invoice_id=invoice_id,
                     leg_id=leg_id,
@@ -155,8 +156,8 @@ def create_internal_router(deps: SimpleNamespace) -> APIRouter:
                     settled_amount_raw=settled_amount_raw,
                     settlement_id=settlement_id,
                     receipt=receipt,
-                    payer_address=payload.get("payer_address"),
-                    gateway_status=payload.get("gateway_status"),
+                    payer_address=payload_dict.get("payer_address"),
+                    gateway_status=payload_dict.get("gateway_status"),
                     buyer_wallet_address=buyer_wallet_address,
                 ) if has_authoritative_gateway_claims else False
                 if not receipt_valid and has_authoritative_gateway_claims and buyer_wallet_address:
@@ -169,8 +170,8 @@ def create_internal_router(deps: SimpleNamespace) -> APIRouter:
                         settled_amount_raw=settled_amount_raw,
                         settlement_id=settlement_id,
                         receipt=receipt,
-                        payer_address=payload.get("payer_address"),
-                        gateway_status=payload.get("gateway_status"),
+                        payer_address=payload_dict.get("payer_address"),
+                        gateway_status=payload_dict.get("gateway_status"),
                     )
                 if not receipt_valid:
                     receipt_valid = deps.verify_split_receipt(
@@ -186,11 +187,11 @@ def create_internal_router(deps: SimpleNamespace) -> APIRouter:
                 leg.update({
                     "status": "paid",
                     "settlement_id": settlement_id,
-                    "payer_address": deps.normalize_address(payload.get("payer_address")),
+                    "payer_address": deps.normalize_address(payload_dict.get("payer_address")),
                     "buyer_wallet_address": buyer_wallet_address,
-                    "gateway_status": payload.get("gateway_status"),
-                    "transaction_hash": payload.get("transaction_hash"),
-                    "explorer_url": payload.get("explorer_url"),
+                    "gateway_status": payload_dict.get("gateway_status"),
+                    "transaction_hash": payload_dict.get("transaction_hash"),
+                    "explorer_url": payload_dict.get("explorer_url"),
                     "paid_at": time.time(),
                     "sidecar_receipt": receipt,
                 })
