@@ -1,5 +1,7 @@
 """Payment events summarization and merge logic."""
 
+from datetime import datetime, timedelta, timezone
+
 from typing import Optional
 
 from backend.app.core.config import PAYMENT_RESOURCE_TYPE
@@ -194,6 +196,120 @@ def summarize_payment_events(events: list, provider_split_metadata_fn) -> dict:
         "payer_breakdown": sorted(payer_breakdown, key=lambda item: item["spent_usdc"], reverse=True),
         "last_payment_key": payment_event_key(sorted_events[0]) if sorted_events else None,
         "last_paid_at": sorted_events[0].get("paid_at") if sorted_events else None,
+    }
+
+
+def build_traction_snapshot(
+    events: list,
+    summary: dict,
+    compact_payment_event_fn,
+    *,
+    days: int = 14,
+    recent_limit: int = 20,
+    now: Optional[float] = None,
+) -> dict:
+    """Build a public traction view from persisted payment events.
+
+    Split invoices can produce multiple leg events. Report-level counts and
+    volume are therefore grouped by invoice/settlement key, and a group is
+    counted as settled only when every observed leg is final or has a
+    transaction hash. The recent feed remains leg-level for transparency.
+    """
+    days = max(1, min(int(days), 30))
+    recent_limit = max(1, min(int(recent_limit), 50))
+    now_value = float(now if now is not None else datetime.now(timezone.utc).timestamp())
+    today = datetime.fromtimestamp(now_value, timezone.utc).date()
+    window_start = today - timedelta(days=days - 1)
+
+    report_groups = {}
+    for event in events:
+        report_key = str(event.get("invoice_id") or payment_event_key(event) or "")
+        if report_key:
+            report_groups.setdefault(report_key, []).append(event)
+
+    daily = {
+        (window_start + timedelta(days=offset)).isoformat(): {
+            "date": (window_start + timedelta(days=offset)).isoformat(),
+            "reports": 0,
+            "volume_usdc": 0.0,
+        }
+        for offset in range(days)
+    }
+    provenance = {
+        "human": {"reports": 0, "volume_usdc": 0.0},
+        "agent": {"reports": 0, "volume_usdc": 0.0},
+    }
+    settled_groups = []
+    settled_rows = []
+
+    for group in report_groups.values():
+        first = group[0]
+        if payment_event_tier(first) not in {"preview", "full"}:
+            continue
+        if not all(payment_event_is_final(event) for event in group):
+            continue
+        amount = sum(float(event.get("amount_usdc") or 0) for event in group)
+        paid_at = max(float(event.get("paid_at") or 0) for event in group)
+        buyer_type = str(first.get("buyer_type") or "human")
+        if buyer_type not in provenance:
+            buyer_type = "human"
+        provenance[buyer_type]["reports"] += 1
+        provenance[buyer_type]["volume_usdc"] += amount
+        settled_groups.append((paid_at, amount, group))
+        day = datetime.fromtimestamp(paid_at, timezone.utc).date().isoformat() if paid_at else ""
+        if day in daily:
+            daily[day]["reports"] += 1
+            daily[day]["volume_usdc"] += amount
+        settled_rows.extend(group)
+
+    settled_groups.sort(key=lambda item: item[0], reverse=True)
+    settled_rows.sort(key=lambda item: float(item.get("paid_at") or 0), reverse=True)
+    current_paid_reports = int(summary.get("current_paid_count") or 0)
+    current_revenue = float(summary.get("current_revenue_usdc") or 0)
+    settled_volume = sum(item[1] for item in settled_groups)
+
+    public_providers = [
+        {
+            "provider_id": provider.get("provider_id"),
+            "provider_name": provider.get("provider_name"),
+            "payments": provider.get("payments", 0),
+            "revenue_usdc": provider.get("revenue_usdc", 0.0),
+            "creator_earned_usdc": provider.get("creator_earned_usdc", 0.0),
+            "platform_fee_usdc": provider.get("platform_fee_usdc", 0.0),
+            "withdrawal_mode": provider.get("withdrawal_mode"),
+            "settlement_currency": provider.get("settlement_currency", "USDC"),
+        }
+        for provider in (summary.get("revenue_by_provider") or [])
+    ]
+
+    return {
+        "summary": {
+            "current_paid_reports": current_paid_reports,
+            "settled_reports": len(settled_groups),
+            "current_revenue_usdc": round(current_revenue, 6),
+            "settled_volume_usdc": round(settled_volume, 6),
+            "unique_payers": int(summary.get("current_unique_payers") or 0),
+            "average_paid_report_usdc": round(current_revenue / current_paid_reports, 6) if current_paid_reports else 0.0,
+            "average_settled_report_usdc": round(settled_volume / len(settled_groups), 6) if settled_groups else 0.0,
+        },
+        "provenance": {
+            key: {
+                "reports": value["reports"],
+                "volume_usdc": round(value["volume_usdc"], 6),
+            }
+            for key, value in provenance.items()
+        },
+        "daily_settled": [
+            {
+                "date": item["date"],
+                "reports": item["reports"],
+                "volume_usdc": round(item["volume_usdc"], 6),
+            }
+            for item in daily.values()
+        ],
+        "providers": public_providers,
+        "recent_settlements": [compact_payment_event_fn(event) for event in settled_rows[:recent_limit]],
+        "generated_at": now_value,
     }
 
 

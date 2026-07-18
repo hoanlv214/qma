@@ -180,6 +180,47 @@ class HttpContractL11Tests(unittest.TestCase):
             )
         self.assertEqual(missing_wallet_token.status_code, 404)
 
+    def test_report_routes_preserve_full_json_key_sets(self):
+        preview_keys = {
+            "query_symbol", "query", "query_hash", "tier", "funding_context",
+            "regime_cluster", "regime_description", "is_ood", "ood_p_value",
+            "win_rate_band", "rough_win_rate", "top_analogs", "upgrade_cta",
+            "invoice", "provider_note", "analysis_focus", "turnover_context",
+            "provider_diagnostics", "provider_id", "provider_name",
+        }
+        full_keys = {
+            "query_symbol", "is_ood", "ood_p_value", "ood_empirical_nn_distance",
+            "ood_empirical_p99_threshold", "ood_empirical_percentile", "matched_k",
+            "average_similarity", "regime_cluster", "regime_description",
+            "regime_support", "weighted_win_rate", "ci_win_rate_95",
+            "weighted_avg_profit", "ci_avg_profit_95", "percentiles",
+            "effective_sample_size", "bootstrap_rounds", "distance_summary",
+            "query_features", "data_quality", "validation_warnings", "risk_flags",
+            "analogs", "query", "query_hash", "provider_id", "provider_name",
+            "provider_owner_wallet", "invoice", "tier", "paid_at",
+        }
+        cases = (
+            ("/api/v1/providers/funding_memory/preview", "preview", preview_keys),
+            ("/api/v1/providers/funding_memory/full-report", "full", full_keys),
+            ("/api/v1/preview", "preview", preview_keys),
+            ("/api/v1/analyze", "full", full_keys),
+        )
+
+        for index, (endpoint, tier, expected_keys) in enumerate(cases):
+            invoice = paid_invoice(f"inv_contract_keys_{index}", tier)
+            app_module.state.invoices_db = {invoice["invoice_id"]: invoice}
+            app_module.state.paid_reports = {}
+            access_token = app_module.issue_invoice_access_token(invoice["invoice_id"], invoice)
+            with self.report_patches()[0], self.report_patches()[1], self.report_patches()[2], self.report_patches()[3]:
+                response = self.client.post(
+                    f"{endpoint}?invoice_id={invoice['invoice_id']}",
+                    headers={"X-QMA-Access-Token": access_token},
+                    json={"symbol": "APDSTOCK"},
+                )
+
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(set(response.json()), expected_keys, endpoint)
+
 
 if __name__ == "__main__":
     unittest.main()

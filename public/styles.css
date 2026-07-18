@@ -500,7 +500,7 @@ header {
 
 .split-tables {
     display: grid;
-    grid-template-columns: 1.35fr 1fr;
+    /* grid-template-columns: 1.35fr 1fr; */
     gap: 16px;
 }
 

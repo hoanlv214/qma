@@ -15,7 +15,6 @@ const WITHDRAW_FEE_RESERVE_USDC = 0.0035;
 
 type ToastTone = "info" | "success" | "warning" | "error";
 type SameAddress = (a?: string, b?: string) => boolean;
-type RefreshPlatformTables = (paymentPage?: number, payerPage?: number) => Promise<void>;
 type LoadQuickProfileData = () => Promise<void>;
 type WaitForTxReceipt = (hash: string) => Promise<any>;
 type SaveLocalAction = (type: string, amount: string, hash: string) => void;
@@ -30,7 +29,6 @@ interface UseProviderEarningsOptions {
   gatewayMinterAddress: string;
   arcUsdcAddress: string;
   withdrawMode: string;
-  refreshPlatformTables: RefreshPlatformTables;
   loadQuickProfileData: LoadQuickProfileData;
   waitForTxReceipt: WaitForTxReceipt;
   saveLocalAction: SaveLocalAction;
@@ -47,7 +45,6 @@ export function useProviderEarnings({
   gatewayMinterAddress,
   arcUsdcAddress,
   withdrawMode,
-  refreshPlatformTables,
   loadQuickProfileData,
   waitForTxReceipt,
   saveLocalAction,
@@ -199,10 +196,7 @@ export function useProviderEarnings({
       const txHash = claim.transaction_hash || claim.tx_hash;
       if (txHash) saveLocalAction("creator_claim", Number(claim.amount_usdc || totalClaimable).toFixed(6), txHash);
       showToast(`Creator claim paid: ${Number(claim.amount_usdc || totalClaimable).toFixed(6)} USDC`, "success");
-      await Promise.all([
-        refreshProviderEarningsModal(),
-        refreshPlatformTables(1, 1).catch((err) => console.warn("Platform refresh after claim failed", err)),
-      ]);
+      await refreshProviderEarningsModal();
     } catch (err: any) {
       console.warn("Creator claim failed", err);
       setProviderEarningsError(err?.message || "Creator claim failed.");
@@ -296,7 +290,6 @@ export function useProviderEarnings({
       }
       await Promise.all([
         refreshProviderEarningsModal(),
-        refreshPlatformTables(1, 1).catch((err) => console.warn("Platform refresh after withdraw failed", err)),
         loadQuickProfileData().catch((err) => console.warn("Quick profile refresh after withdraw failed", err)),
       ]);
     } catch (err: any) {

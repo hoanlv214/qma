@@ -1,12 +1,15 @@
 """Pydantic schemas for migrated endpoint groups."""
 
 from backend.app.schemas.chat import ChatMessage, ChatRequest
+from backend.app.schemas.errors import ErrorResponse, RateLimitErrorResponse
 from backend.app.schemas.payments import (
     InvoiceRequest,
     PaymentVerifyRequest,
     QuoteRequest,
     SplitSettlementProof,
+    WithdrawRequest,
 )
+from backend.app.schemas.internal import RecordInternalSplitLegRequest
 from backend.app.schemas.providers import (
     CreatorApplicationRequest,
     CreatorClaimRequest,
@@ -15,10 +18,54 @@ from backend.app.schemas.providers import (
 )
 from backend.app.schemas.query import QueryModel
 from backend.app.schemas.wallets import WalletProfileSessionRequest
+from backend.app.schemas.health_responses import (
+    ClientConfigResponse,
+    GatewayInfoResponse,
+    HealthResponse,
+)
+from backend.app.schemas.payment_responses import (
+    InvoicePaymentStateResponse,
+    PaymentInvoiceResponse,
+    PaymentQuoteResponse,
+    PaymentSettlementResponse,
+    WithdrawResponse,
+)
+from backend.app.schemas.wallet_responses import (
+    EntitlementItem,
+    Page,
+    PayerBreakdownItem,
+    PaymentEventItem,
+    WalletEntitlementsResponse,
+    WalletMetricsResponse,
+    WalletPaymentsResponse,
+    WalletProfileSessionResponse,
+    WalletReportDetailResponse,
+    WalletSummaryResponse,
+)
+from backend.app.schemas.phase3_responses import (
+    AdminPublicConfigResponse,
+    AgentDecisionResponse,
+    AgentRecommendationsResponse,
+    ChatResponse,
+    CreatorApplicationsResponse,
+    CreatorClaimResponse,
+    LiveAnomaliesResponse,
+    PlatformMetricsResponse,
+    PlatformPaymentsResponse,
+    PlatformPayersResponse,
+    PlatformSummaryResponse,
+    ProviderApplicationResponse,
+    ProviderDetailResponse,
+    ProviderListResponse,
+    ProviderReportResponse,
+    ProviderStatsResponse,
+)
 
 __all__ = [
     "ChatMessage",
     "ChatRequest",
+    "ErrorResponse",
+    "RateLimitErrorResponse",
     "CreatorApplicationRequest",
     "CreatorClaimRequest",
     "CreatorReviewRequest",
@@ -29,4 +76,40 @@ __all__ = [
     "QuoteRequest",
     "SplitSettlementProof",
     "WalletProfileSessionRequest",
+    "ClientConfigResponse",
+    "GatewayInfoResponse",
+    "HealthResponse",
+    "InvoicePaymentStateResponse",
+    "PaymentInvoiceResponse",
+    "PaymentQuoteResponse",
+    "PaymentSettlementResponse",
+    "WalletEntitlementsResponse",
+    "WalletMetricsResponse",
+    "WalletPaymentsResponse",
+    "WalletProfileSessionResponse",
+    "WalletReportDetailResponse",
+    "WalletSummaryResponse",
+    "WithdrawResponse",
+    "Page",
+    "EntitlementItem",
+    "PaymentEventItem",
+    "PayerBreakdownItem",
+    "WithdrawRequest",
+    "RecordInternalSplitLegRequest",
+    "AdminPublicConfigResponse",
+    "AgentDecisionResponse",
+    "AgentRecommendationsResponse",
+    "ChatResponse",
+    "CreatorApplicationsResponse",
+    "CreatorClaimResponse",
+    "LiveAnomaliesResponse",
+    "PlatformMetricsResponse",
+    "PlatformPaymentsResponse",
+    "PlatformPayersResponse",
+    "PlatformSummaryResponse",
+    "ProviderApplicationResponse",
+    "ProviderDetailResponse",
+    "ProviderListResponse",
+    "ProviderReportResponse",
+    "ProviderStatsResponse",
 ]

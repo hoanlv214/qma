@@ -87,7 +87,13 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
             </svg>
             Marketplace
           </button>
-          <a className="landing-nav-link" href={`${API_BASE_URL}/docs`} target="_blank" rel="noopener noreferrer">
+          <button type="button" className="landing-nav-link text-btn" onClick={() => onNavigate("traction")}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M4 19V5" /><path d="M4 19h16" /><path d="m7 15 3-4 3 2 5-7" />
+            </svg>
+            Traction
+          </button>
+          <a className="landing-nav-link" href="/docs" target="_blank" rel="noopener noreferrer">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
               <polyline points="14 2 14 8 20 8"></polyline>
@@ -133,7 +139,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
             </svg>
             Launch App
           </button>
-          <a className="landing-secondary" href={`${API_BASE_URL}/docs`} target="_blank" rel="noopener noreferrer">
+          <a className="landing-secondary" href="/docs" target="_blank" rel="noopener noreferrer">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
               <polyline points="14 2 14 8 20 8"></polyline>
@@ -279,7 +285,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
             and receive a structured JSON report within its budget.
           </p>
           <div className="landing-actions">
-            <a className="btn-green landing-primary" href={`${API_BASE_URL}/docs`} target="_blank" rel="noopener noreferrer">Open API Docs</a>
+            <a className="btn-green landing-primary" href="/docs" target="_blank" rel="noopener noreferrer">Open API Docs</a>
             <a className="landing-secondary" href="https://github.com/hoanlv214/qma/blob/main/examples/README.md" target="_blank" rel="noopener noreferrer">View Agent Example</a>
           </div>
         </div>
@@ -322,7 +328,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
           </p>
           <div className="landing-actions" style={{ marginTop: 24 }}>
             <button type="button" className="btn-green landing-primary text-btn" onClick={() => onNavigate("marketplace")}>Become a Provider</button>
-            <a className="landing-secondary" href={`${API_BASE_URL}/docs`} target="_blank" rel="noopener noreferrer">View API Docs</a>
+            <a className="landing-secondary" href="/docs" target="_blank" rel="noopener noreferrer">View API Docs</a>
           </div>
         </div>
       </section>
@@ -376,7 +382,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
             <h3>Platform</h3>
             <a href="#source-code">Paid Intelligence Kit</a>
             <a href={`${API_BASE_URL}/api/v1/providers`} target="_blank" rel="noopener noreferrer">Provider API</a>
-            <a href={`${API_BASE_URL}/docs`} target="_blank" rel="noopener noreferrer">API Docs</a>
+            <a href="/docs" target="_blank" rel="noopener noreferrer">API Docs</a>
             <a href="https://testnet.arcscan.app/" target="_blank" rel="noopener noreferrer">Arcscan Explorer</a>
           </div>
           <div className="landing-footer-col">

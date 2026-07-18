@@ -1,5 +1,3 @@
-import { Loader } from "../ui/Loader";
-
 interface ReportWorkspaceProps {
   activeQuery: any;
   unlockedReport: any;
@@ -12,26 +10,6 @@ interface ReportWorkspaceProps {
   formatDateTime: any;
   formatRawPercent: any;
   shortAddress: any;
-  paymentDetails: any;
-  refreshPlatformTables: any;
-  platformTablesError: any;
-  platformSummary: any;
-  sellerAddress: any;
-  platformPaymentsTotal: any;
-  platformTablesLoading: any;
-  platformPayments: any;
-  gatewayStatusBadge: any;
-  renderSettlementRef: any;
-  platformPaymentsPage: any;
-  platformPaymentsTotalPages: any;
-  changePlatformPaymentsPage: any;
-  tierLabel: any;
-  formatUsdc: any;
-  platformPayers: any;
-  platformPayersPage: any;
-  platformPayersTotalPages: any;
-  platformPayersTotal: any;
-  changePlatformPayersPage: any;
   reportWinRateValue: any;
   reportWinRateCiLabel: any;
   reportAvgProfitLabel: any;
@@ -40,7 +18,7 @@ interface ReportWorkspaceProps {
 }
 
 export function ReportWorkspace(props: ReportWorkspaceProps) {
-  const { activeQuery, unlockedReport, reportCollapsed, reportDetailsOpen, setReportDetailsOpen, reportAnalogs, isPreviewReport, formatCompactMoney, formatDateTime, formatRawPercent, shortAddress, paymentDetails, refreshPlatformTables, platformTablesError, platformSummary, sellerAddress, platformPaymentsTotal, platformTablesLoading, platformPayments, gatewayStatusBadge, renderSettlementRef, platformPaymentsPage, platformPaymentsTotalPages, changePlatformPaymentsPage, tierLabel, formatUsdc, platformPayers, platformPayersPage, platformPayersTotalPages, platformPayersTotal, changePlatformPayersPage, reportWinRateValue, reportWinRateCiLabel, reportAvgProfitLabel, reportAvgProfitCiLabel, reportPercentileRows } = props;
+  const { activeQuery, unlockedReport, reportCollapsed, reportDetailsOpen, setReportDetailsOpen, reportAnalogs, isPreviewReport, formatCompactMoney, formatDateTime, formatRawPercent, shortAddress, reportWinRateValue, reportWinRateCiLabel, reportAvgProfitLabel, reportAvgProfitCiLabel, reportPercentileRows } = props;
   return (
     <>
       {/* REPORT VIEW */}
@@ -284,186 +262,6 @@ export function ReportWorkspace(props: ReportWorkspaceProps) {
             </div>
           </div>
 
-          <details
-            className="report-section section-span-all platform-stats-section platform-stats-section-compact"
-            onToggle={(event) => {
-              if ((event.currentTarget as HTMLDetailsElement).open) {
-                refreshPlatformTables(1, 1);
-              }
-            }}
-          >
-            <summary className="section-header platform-stats-summary">
-              Platform Analytics & Payment Activity <span className="platform-stats-hint">(Click to view)</span>
-            </summary>
-            {platformTablesError ? (
-              <div className="risk-item platform-tables-error">{platformTablesError}</div>
-            ) : null}
-            <div className="seller-balance-grid mt-16">
-              <div className="balance-tile green">
-                <span className="balance-tile-label">Seller Gateway - Available</span>
-                <span className="balance-tile-val">
-                  {platformSummary?.seller_gateway_balance?.available_usdc != null
-                    ? formatUsdc(platformSummary.seller_gateway_balance.available_usdc, 6)
-                    : paymentDetails.sellerAvailable || "n/a"}
-                </span>
-                <span className="balance-tile-sub">On-chain confirmed, withdrawable</span>
-              </div>
-              <div className="balance-tile amber">
-                <span className="balance-tile-label">Seller Gateway - Pending Batch</span>
-                <span className="balance-tile-val">
-                  {platformSummary?.seller_gateway_balance?.pending_batch_usdc != null
-                    ? formatUsdc(platformSummary.seller_gateway_balance.pending_batch_usdc, 6)
-                    : paymentDetails.sellerPending || "n/a"}
-                </span>
-                <span className="balance-tile-sub">Circle accepted, awaiting on-chain batch</span>
-              </div>
-              <div className="balance-tile neutral">
-                <span className="balance-tile-label">Seller Treasury Wallet</span>
-                <span className="balance-tile-val">{platformSummary?.seller_address || sellerAddress ? shortAddress(platformSummary?.seller_address || sellerAddress) : "n/a"}</span>
-                <span className="balance-tile-sub">Final destination after batch settlement</span>
-              </div>
-            </div>
-            <div className="split-tables">
-              <div className="split-table-col split-table-col--settlements">
-                <div className="subsection-title">
-                  Recent Settlements
-                  {platformPaymentsTotal ? <span className="table-count">({platformPaymentsTotal})</span> : null}
-                </div>
-                <div className="table-scroll-x">
-                  <table className="activity-table">
-                    <thead>
-                      <tr>
-                        <th>Symbol</th>
-                        <th>Provider</th>
-                        <th>Payer</th>
-                        <th>Amount</th>
-                        <th>Circle Status</th>
-                        <th>Settlement / Arcscan Tx</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {platformTablesLoading && !platformPayments.length ? (
-                        <tr><td colSpan={6}><Loader label="Loading payments..." compact size="sm" className="table-loader" /></td></tr>
-                      ) : platformPayments.length ? (
-                        platformPayments.map((event: any, idx: number) => (
-                          <tr key={event.event_id || event.settlement_id || event.invoice_id || idx}>
-                            <td className="mono-td">
-                              {event.symbol || "n/a"}
-                              <div className="table-meta table-meta-spaced">{formatDateTime(event.paid_at)}</div>
-                            </td>
-                            <td><span className="provider-badge">{event.provider_id || "funding_memory"}</span></td>
-                            <td title={event.payer_address || ""}>{event.payer_address ? shortAddress(event.payer_address) : "n/a"}</td>
-                            <td>
-                              {formatUsdc(event.amount_usdc)}
-                              <div className="table-meta">{tierLabel(event.tier_category || event.tier)}</div>
-                            </td>
-                            <td>{gatewayStatusBadge(event.gateway_status)}</td>
-                            <td className="mono-td">{renderSettlementRef(event)}</td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr><td colSpan={6} className="table-empty-cell">No payments yet.</td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="table-pager profile-pager">
-                  <button type="button" className="refresh-btn" disabled={platformPaymentsPage <= 1 || platformTablesLoading} onClick={() => changePlatformPaymentsPage(Math.max(1, platformPaymentsPage - 1))}>
-                    Prev
-                  </button>
-                  <span className="table-page-label">Page {platformPaymentsPage} / {platformPaymentsTotalPages}</span>
-                  <button type="button" className="refresh-btn" disabled={platformPaymentsPage >= platformPaymentsTotalPages || platformTablesLoading} onClick={() => changePlatformPaymentsPage(Math.min(platformPaymentsTotalPages, platformPaymentsPage + 1))}>
-                    Next
-                  </button>
-                </div>
-              </div>
-              <div className="split-table-col split-table-col--wallets">
-                <div className="subsection-title">Wallet Usage</div>
-                <div style={{ overflowX: "auto" }}>
-                  <table className="activity-table">
-                    <thead>
-                      <tr>
-                        <th>Wallet</th>
-                        <th>Providers</th>
-                        <th>Signals</th>
-                        <th>Spent</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {platformTablesLoading && !platformPayers.length ? (
-                        <tr><td colSpan={4}><Loader label="Loading wallets..." compact size="sm" className="table-loader" /></td></tr>
-                      ) : platformPayers.length ? (
-                        platformPayers.map((payer: any, idx: number) => {
-                          const symbols = (payer.symbols || []).slice(0, 5).join(", ") || "n/a";
-                          const overflow = (payer.symbols || []).length > 5 ? ` +${payer.symbols.length - 5}` : "";
-                          const providers = (payer.providers || []).join(", ") || "funding_memory";
-                          return (
-                            <tr key={payer.payer_address || idx} title={`Last paid: ${formatDateTime(payer.last_paid_at)}`}>
-                              <td className="mono-td" title={payer.payer_address || ""}>{payer.payer_address ? shortAddress(payer.payer_address) : "n/a"}</td>
-                              <td style={{ fontSize: "0.75rem" }}>{providers}</td>
-                              <td>{payer.payments || 0} / {symbols}{overflow}</td>
-                              <td>
-                                {formatUsdc(payer.spent_usdc)}
-                                <div style={{ color: "var(--t3)", fontSize: "0.66rem" }}>P:{payer.preview_count || 0} F:{payer.full_count || 0}</div>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      ) : (
-                        <tr><td colSpan={4} style={{ color: "var(--t3)", textAlign: "center" }}>No wallet activity yet.</td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="table-pager profile-pager">
-                  <button type="button" className="refresh-btn" disabled={platformPayersPage <= 1 || platformTablesLoading} onClick={() => changePlatformPayersPage(Math.max(1, platformPayersPage - 1))}>
-                    Prev
-                  </button>
-                  <span style={{ margin: "0 10px", fontSize: "0.8rem" }}>Page {platformPayersPage} / {platformPayersTotalPages}{platformPayersTotal ? ` (${platformPayersTotal})` : ""}</span>
-                  <button type="button" className="refresh-btn" disabled={platformPayersPage >= platformPayersTotalPages || platformTablesLoading} onClick={() => changePlatformPayersPage(Math.min(platformPayersTotalPages, platformPayersPage + 1))}>
-                    Next
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div className="split-table-col creator-split-ledger">
-              <div className="subsection-title">Marketplace Revenue Ledger</div>
-              <div style={{ overflowX: "auto" }}>
-                <table className="activity-table">
-                  <thead>
-                    <tr>
-                      <th>Provider</th>
-                      <th>Gross</th>
-                      <th>Creator Earned</th>
-                      <th>Platform Fee</th>
-                      <th>Claimable</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(platformSummary?.revenue_by_provider || []).length ? (
-                      platformSummary.revenue_by_provider.map((row: any, idx: number) => {
-                        const sharePct = Number(row.creator_share_bps || 0) / 100;
-                        return (
-                          <tr key={row.provider_id || idx} title={row.split_note || "Ledger estimate only."}>
-                            <td className="mono-td" title={row.owner_wallet || ""}>
-                              {row.provider_name || row.provider_id || "provider"}
-                              <div style={{ color: "var(--t3)", fontSize: "0.66rem" }}>{row.owner_wallet ? shortAddress(row.owner_wallet) : "n/a"}</div>
-                            </td>
-                            <td>{formatUsdc(row.revenue_usdc)}<div style={{ color: "var(--t3)", fontSize: "0.66rem" }}>{row.payments || 0} sales</div></td>
-                            <td>{formatUsdc(row.creator_earned_usdc)}<div style={{ color: "var(--t3)", fontSize: "0.66rem" }}>{sharePct.toFixed(1)}%</div></td>
-                            <td>{formatUsdc(row.platform_fee_usdc)}</td>
-                            <td>{formatUsdc(row.creator_claimable_usdc)}<div style={{ color: "var(--t3)", fontSize: "0.66rem" }}>ledger only</div></td>
-                          </tr>
-                        );
-                      })
-                    ) : (
-                      <tr><td colSpan={5} style={{ color: "var(--t3)", textAlign: "center" }}>No creator revenue yet.</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </details>
         </div>
       ) : (
         <div className="empty-state" style={{ textAlign: "center", color: "var(--t3)", marginTop: 80 }}>

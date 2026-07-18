@@ -36,7 +36,6 @@ import {
   formatUsdc,
   tierLabel,
   paidBadgeText,
-  gatewayStatusBadge,
   normalizeTierForCache,
 } from "../../utils/format";
 import type {
@@ -58,21 +57,7 @@ export function AppPage({
 
   const {
     metrics,
-    platformSummary,
-    platformPayments,
-    platformPaymentsPage,
-    platformPaymentsTotalPages,
-    platformPaymentsTotal,
-    platformPayers,
-    platformPayersPage,
-    platformPayersTotalPages,
-    platformPayersTotal,
-    platformTablesLoading,
-    platformTablesError,
     loadPlatformSummary,
-    refreshPlatformTables,
-    changePlatformPaymentsPage,
-    changePlatformPayersPage,
   } = usePlatformMetrics();
 
   // Current Selection
@@ -318,7 +303,6 @@ export function AppPage({
     clearPendingInvoice,
     getCachedReport,
     getCachedReportsForSymbol,
-    refreshPlatformTables,
   });
 
   const {
@@ -349,7 +333,6 @@ export function AppPage({
     gatewayMinterAddress,
     arcUsdcAddress,
     withdrawMode,
-    refreshPlatformTables,
     loadQuickProfileData,
     waitForTxReceipt,
     saveLocalAction,
@@ -394,7 +377,6 @@ export function AppPage({
     setCurrentInvoice(entry.report?.invoice || entry.invoice || null);
     setPaywallOpen(false);
     setReportCollapsed(false);
-    refreshPlatformTables(1, 1).catch((err) => console.warn("Platform analytics refresh for cached report failed", err));
     return true;
   };
 
@@ -487,37 +469,6 @@ export function AppPage({
         width: preview ? item.previewWidth : Math.min(100, Math.max(0, Math.abs(value))),
       };
     });
-  };
-
-  const renderSettlementRef = (event: any) => {
-    const txHash = event?.transaction_hash || event?.tx_hash || event?.settlement_tx_hash;
-    const settlementId = event?.settlement_id;
-    const isFinalStatus = ["completed", "confirmed"].includes(String(event?.gateway_status || "").toLowerCase());
-    if (event?.explorer_url && txHash) {
-      return (
-        <a className="tx-link" href={event.explorer_url} target="_blank" rel="noreferrer" title={`Settlement: ${settlementId || ""}`}>
-          {shortAddress(txHash)}
-        </a>
-      );
-    }
-    if (txHash) {
-      return (
-        <a className="tx-link" href={`https://testnet.arcscan.app/tx/${txHash}`} target="_blank" rel="noreferrer" title={`Settlement: ${settlementId || ""}`}>
-          {shortAddress(txHash)}
-        </a>
-      );
-    }
-    if (settlementId) {
-      return (
-        <>
-          <span className="mono-td" title={`Settlement ID: ${settlementId}`}>{shortAddress(settlementId)}</span>
-          <div className={`settlement-status-note ${isFinalStatus ? "is-final" : "is-pending"}`}>
-            {isFinalStatus ? "Arcscan tx unavailable" : "Arcscan tx pending"}
-          </div>
-        </>
-      );
-    }
-    return <span className="text-muted-deep">n/a</span>;
   };
 
   return (
@@ -756,26 +707,6 @@ export function AppPage({
               formatDateTime={formatDateTime}
               formatRawPercent={formatRawPercent}
               shortAddress={shortAddress}
-              paymentDetails={paymentDetails}
-              refreshPlatformTables={refreshPlatformTables}
-              platformTablesError={platformTablesError}
-              platformSummary={platformSummary}
-              sellerAddress={sellerAddress}
-              platformPaymentsTotal={platformPaymentsTotal}
-              platformTablesLoading={platformTablesLoading}
-              platformPayments={platformPayments}
-              gatewayStatusBadge={gatewayStatusBadge}
-              renderSettlementRef={renderSettlementRef}
-              platformPaymentsPage={platformPaymentsPage}
-              platformPaymentsTotalPages={platformPaymentsTotalPages}
-              changePlatformPaymentsPage={changePlatformPaymentsPage}
-              tierLabel={tierLabel}
-              formatUsdc={formatUsdc}
-              platformPayers={platformPayers}
-              platformPayersPage={platformPayersPage}
-              platformPayersTotalPages={platformPayersTotalPages}
-              platformPayersTotal={platformPayersTotal}
-              changePlatformPayersPage={changePlatformPayersPage}
               reportWinRateValue={reportWinRateValue}
               reportWinRateCiLabel={reportWinRateCiLabel}
               reportAvgProfitLabel={reportAvgProfitLabel}

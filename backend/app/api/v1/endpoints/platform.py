@@ -4,14 +4,32 @@ from types import SimpleNamespace
 
 from fastapi import APIRouter, Query
 
+from backend.app.schemas import (
+    PlatformMetricsResponse,
+    PlatformPaymentsResponse,
+    PlatformPayersResponse,
+    PlatformSummaryResponse,
+)
+from backend.app.schemas.platform import TractionResponse
+from backend.app.core.openapi_responses import documented_errors
 
-router = APIRouter(tags=["platform"])
+router = APIRouter(tags=["Traction & analytics"])
 
 
 def create_platform_router(deps: SimpleNamespace) -> APIRouter:
-    migrated = APIRouter(tags=["platform"])
+    migrated = APIRouter(tags=["Traction & analytics"])
 
-    @migrated.get("/api/v1/metrics")
+    @migrated.get(
+        "/api/v1/metrics",
+        summary="Read landing-page traction metrics",
+        description="""Read aggregated platform metrics for the landing page. Called by anonymous visitors and the public frontend dashboard.
+        
+**Authentication:** This is a public route and does not require an access token.
+**Behavior & Edge Cases:** Paginates both `recent_payments` and `payer_breakdown` arrays (default 10 items each). Includes a mix of both current and legacy paid invoice counts. Triggers a live Gateway balance fetch for the seller address.""",
+        response_model=PlatformMetricsResponse,
+        response_model_exclude_unset=True,
+        responses=documented_errors(429, 500, 503),
+    )
     def get_metrics(
         payment_page: int = Query(default=1, ge=1),
         payment_page_size: int = Query(default=10, ge=1, le=100),
@@ -50,7 +68,17 @@ def create_platform_router(deps: SimpleNamespace) -> APIRouter:
             "recent_payments_page": recent_payments_page,
         }
 
-    @migrated.get("/api/v1/platform/summary")
+    @migrated.get(
+        "/api/v1/platform/summary",
+        summary="Read platform analytics summary",
+        description="""Read high-level platform transaction summary. Called by admin dashboards or traction displays.
+        
+**Authentication:** Public route. No token required.
+**Behavior & Edge Cases:** Forces a sync of any unresolved payment events (`maybe_refresh_unresolved_payment_events`) before calculating the summary. Uses cached Gateway balance to prevent rate limits. Returns `current_payments` separately from `legacy_payments` based on schema history.""",
+        response_model=PlatformSummaryResponse,
+        response_model_exclude_unset=True,
+        responses=documented_errors(429, 500, 503),
+    )
     def get_platform_summary():
         deps.maybe_refresh_unresolved_payment_events()
         events = deps.load_platform_payment_events()
@@ -78,7 +106,41 @@ def create_platform_router(deps: SimpleNamespace) -> APIRouter:
             "last_paid_at": summary["last_paid_at"],
         }
 
-    @migrated.get("/api/v1/platform/payments")
+    @migrated.get(
+        "/api/v1/traction",
+        response_model=TractionResponse,
+        summary="Read public traction snapshot",
+        description="""Read a time-bounded snapshot of traction data. Called by marketing or public traction pages.
+        
+**Authentication:** Public route without token enforcement.
+**Behavior & Edge Cases:** Filters events strictly by the `days` parameter (default 14, max 30) rather than returning all-time metrics. Truncates recent events to `recent_limit` (max 50) and compacts them into a lightweight schema to reduce payload size.""",
+        responses=documented_errors(429, 500, 503)
+    )
+    def get_traction(
+        days: int = Query(default=14, ge=1, le=30),
+        recent_limit: int = Query(default=20, ge=1, le=50),
+    ):
+        events = deps.load_platform_payment_events()
+        summary = deps.summarize_payment_events(events)
+        return deps.build_traction_snapshot(
+            events,
+            summary,
+            deps.compact_payment_event,
+            days=days,
+            recent_limit=recent_limit,
+        )
+
+    @migrated.get(
+        "/api/v1/platform/payments",
+        summary="List recent settled payments",
+        description="""List a paginated ledger of recent settled payments across the platform. Called by block explorers or traction pages.
+        
+**Authentication:** Public endpoint, no authorization needed.
+**Behavior & Edge Cases:** All returned payment events are run through `compact_payment_event` to remove sensitive fields. Max page size is capped at 100.""",
+        response_model=PlatformPaymentsResponse,
+        response_model_exclude_unset=True,
+        responses=documented_errors(429, 500, 503),
+    )
     def get_platform_payments(
         page: int = Query(default=1, ge=1),
         page_size: int = Query(default=10, ge=1, le=100),
@@ -90,7 +152,17 @@ def create_platform_router(deps: SimpleNamespace) -> APIRouter:
             "recent_payments_page": meta,
         }
 
-    @migrated.get("/api/v1/platform/payers")
+    @migrated.get(
+        "/api/v1/platform/payers",
+        summary="List payer traction breakdown",
+        description="""List the most active payers ranked by transaction count and volume. Called by platform analytics and leaderboards.
+        
+**Authentication:** Publicly accessible.
+**Behavior & Edge Cases:** Iterates over the aggregated `payer_breakdown` from the system summary. Paginated up to 100 items per page.""",
+        response_model=PlatformPayersResponse,
+        response_model_exclude_unset=True,
+        responses=documented_errors(429, 500, 503),
+    )
     def get_platform_payers(
         page: int = Query(default=1, ge=1),
         page_size: int = Query(default=10, ge=1, le=100),

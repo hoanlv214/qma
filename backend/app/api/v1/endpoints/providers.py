@@ -7,26 +7,72 @@ from types import SimpleNamespace
 from typing import Optional
 
 import requests
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Security
 
 from backend.app.schemas import (
+    AdminPublicConfigResponse,
     CreatorApplicationRequest,
     CreatorClaimRequest,
     CreatorReviewRequest,
+    CreatorApplicationsResponse,
+    CreatorClaimResponse,
+    ProviderApplicationResponse,
+    ProviderDetailResponse,
+    ProviderListResponse,
+    ProviderStatsResponse,
     ProviderToggleRequest,
 )
+from backend.app.core.security_schemes import qma_admin_token_header
+from backend.app.core.openapi_responses import documented_error, documented_errors
 
 
-router = APIRouter(tags=["providers"])
+router = APIRouter(tags=["Provider discovery"])
+
+
+ADMIN_AUTH_RESPONSES = {
+    **documented_errors(429, 500),
+    403: documented_error(403, "Admin token is missing or invalid."),
+    503: documented_error(503, "Admin token or provider storage is not configured."),
+}
+PROVIDER_LOOKUP_RESPONSES = {
+    **documented_errors(429, 500),
+    403: documented_error(403, "Admin token is missing or invalid when including disabled providers."),
+    404: documented_error(404, "Provider not found or disabled."),
+    503: documented_error(503, "Admin token is not configured."),
+}
+CREATOR_APPLICATION_RESPONSES = {
+    **documented_errors(429, 500),
+    403: documented_error(403, "Wallet or admin authorization is required."),
+    404: documented_error(404, "Creator application not found."),
+    503: documented_error(503, "Creator application storage is not configured."),
+}
+CREATOR_APPLICATION_LIST_RESPONSES = {
+    **documented_errors(429, 500),
+    403: documented_error(403, "A creator wallet or admin authorization is required."),
+}
+CREATOR_CLAIM_RESPONSES = {
+    **documented_errors(429),
+    400: documented_error(400, "Claim intent, amount, or claim policy validation failed."),
+    403: documented_error(403, "Wallet ownership or creator signature validation failed."),
+    500: documented_error(500, "Creator claim request could not be persisted."),
+    502: documented_error(502, "Creator payout executor failed or was unavailable."),
+    503: documented_error(503, "Required signing or creator claim configuration is unavailable."),
+}
 
 
 def create_providers_router(deps: SimpleNamespace) -> APIRouter:
-    migrated = APIRouter(tags=["providers"])
+    migrated = APIRouter()
 
-    @migrated.get("/api/v1/providers")
+    @migrated.get(
+        "/api/v1/providers",
+        tags=["Provider discovery"],
+        response_model=ProviderListResponse,
+        response_model_exclude_unset=True,
+        responses=ADMIN_AUTH_RESPONSES,
+    )
     def list_providers(
         include_disabled: bool = Query(default=False),
-        x_qma_admin_token: Optional[str] = Header(default=None),
+        x_qma_admin_token: Optional[str] = Security(qma_admin_token_header),
     ):
         """Lists paid intelligence providers available to buyers/agents."""
         if include_disabled:
@@ -41,55 +87,76 @@ def create_providers_router(deps: SimpleNamespace) -> APIRouter:
                 "stats": deps.build_provider_stats(provider["provider_id"]),
             })
         return {
-            "status": "success",
             "providers": providers,
         }
 
-    @migrated.get("/api/v1/providers/{provider_id}")
+    @migrated.get(
+        "/api/v1/providers/{provider_id}",
+        tags=["Provider discovery"],
+        response_model=ProviderDetailResponse,
+        response_model_exclude_unset=True,
+        responses=PROVIDER_LOOKUP_RESPONSES,
+    )
     def get_provider(
         provider_id: str,
         include_disabled: bool = Query(default=False),
-        x_qma_admin_token: Optional[str] = Header(default=None),
+        x_qma_admin_token: Optional[str] = Security(qma_admin_token_header),
     ):
         """Returns provider metadata, pricing, schemas, owner wallet, and supported report types."""
         if include_disabled:
             deps.require_admin_token(x_qma_admin_token)
         return {
-            "status": "success",
             "provider": deps.provider_metadata(deps.get_provider_or_404(provider_id, allow_disabled=include_disabled)),
         }
 
-    @migrated.get("/api/v1/providers/{provider_id}/stats")
+    @migrated.get(
+        "/api/v1/providers/{provider_id}/stats",
+        tags=["Provider discovery"],
+        response_model=ProviderStatsResponse,
+        response_model_exclude_unset=True,
+        responses=PROVIDER_LOOKUP_RESPONSES,
+    )
     def get_provider_stats(
         provider_id: str,
         include_disabled: bool = Query(default=False),
-        x_qma_admin_token: Optional[str] = Header(default=None),
+        x_qma_admin_token: Optional[str] = Security(qma_admin_token_header),
     ):
         """Returns creator-facing sales, revenue split, and recent payment stats for one provider."""
         if include_disabled:
             deps.require_admin_token(x_qma_admin_token)
         deps.get_provider_or_404(provider_id, allow_disabled=include_disabled)
         return {
-            "status": "success",
             "stats": deps.build_provider_stats(provider_id),
         }
 
-    @migrated.get("/api/v1/admin/public-config")
+    @migrated.get(
+        "/api/v1/admin/public-config",
+        tags=["Admin / operations"],
+        summary="Read public admin capability hints",
+        response_model=AdminPublicConfigResponse,
+        response_model_exclude_unset=True,
+        responses=documented_errors(429, 500),
+    )
     def get_admin_public_config():
         """Public hints for showing admin/seller controls in the browser."""
         return {
-            "status": "success",
             "seller_wallet": deps.normalize_address(deps.payment_wallet_address),
             "admin_wallet": deps.normalize_address(deps.admin_wallet_address),
             "admin_token_required": True,
             "admin_token_configured": bool(deps.admin_token),
         }
-
-    @migrated.post("/api/v1/providers/{provider_id}/toggle")
+    @migrated.post(
+        "/api/v1/providers/{provider_id}/toggle",
+        tags=["Admin / operations"],
+        summary="Toggle a provider",
+        response_model=ProviderDetailResponse,
+        response_model_exclude_unset=True,
+        responses={**ADMIN_AUTH_RESPONSES, 404: documented_error(404, "Provider not found.")},
+    )
     def toggle_provider_plugin(
         provider_id: str,
         req: ProviderToggleRequest,
-        x_qma_admin_token: Optional[str] = Header(default=None),
+        x_qma_admin_token: Optional[str] = Security(qma_admin_token_header),
     ):
         """Admin-only runtime on/off switch for built-in provider plugins."""
         deps.require_admin_token(x_qma_admin_token)
@@ -106,11 +173,17 @@ def create_providers_router(deps: SimpleNamespace) -> APIRouter:
             )
         deps.provider_runtime_controls[provider.provider_id] = control
         return {
-            "status": "success",
             "provider": deps.provider_metadata(provider),
         }
 
-    @migrated.post("/api/v1/creators/apply")
+    @migrated.post(
+        "/api/v1/creators/apply",
+        tags=["Creator operations"],
+        summary="Apply to publish a provider",
+        response_model=ProviderApplicationResponse,
+        response_model_exclude_unset=True,
+        responses={**documented_errors(429, 500), 503: documented_error(503, "Creator application storage is not configured.")},
+    )
     def apply_creator_provider(req: CreatorApplicationRequest):
         """Submits a new creator/provider application for admin review."""
         payload = deps.model_to_dict(req)
@@ -133,16 +206,22 @@ def create_providers_router(deps: SimpleNamespace) -> APIRouter:
         if not deps.save_creator_application(application):
             raise HTTPException(status_code=503, detail="Creator application storage is not configured. Run the Supabase migration or use JSON storage locally.")
         return {
-            "status": "success",
             "message": "Creator provider application submitted for review.",
             "application": application,
         }
 
-    @migrated.get("/api/v1/creators/applications")
+    @migrated.get(
+        "/api/v1/creators/applications",
+        tags=["Creator operations"],
+        summary="List creator applications",
+        response_model=CreatorApplicationsResponse,
+        response_model_exclude_unset=True,
+        responses=CREATOR_APPLICATION_LIST_RESPONSES,
+    )
     def list_creator_applications(
         wallet: Optional[str] = Query(default=None),
         status_filter: Optional[str] = Query(default=None, alias="status"),
-        x_qma_admin_token: Optional[str] = Header(default=None),
+        x_qma_admin_token: Optional[str] = Security(qma_admin_token_header),
     ):
         """Lists creator applications. Wallet can read its own; admin can read all."""
         deps.reload_persistent_state(include_reports=False)
@@ -157,16 +236,22 @@ def create_providers_router(deps: SimpleNamespace) -> APIRouter:
             records = [item for item in records if item.get("status") == status_filter]
         records = sorted(records, key=lambda item: item.get("created_at") or 0, reverse=True)
         return {
-            "status": "success",
             "count": len(records),
             "applications": records[:100],
         }
 
-    @migrated.post("/api/v1/creators/applications/{application_id}/review")
+    @migrated.post(
+        "/api/v1/creators/applications/{application_id}/review",
+        tags=["Admin / operations"],
+        summary="Review a creator application",
+        response_model=ProviderApplicationResponse,
+        response_model_exclude_unset=True,
+        responses={**ADMIN_AUTH_RESPONSES, 404: documented_error(404, "Creator application not found.")},
+    )
     def review_creator_application(
         application_id: str,
         req: CreatorReviewRequest,
-        x_qma_admin_token: Optional[str] = Header(default=None),
+        x_qma_admin_token: Optional[str] = Security(qma_admin_token_header),
     ):
         """Admin review endpoint for marketplace provider applications."""
         deps.require_admin_token(x_qma_admin_token)
@@ -184,11 +269,17 @@ def create_providers_router(deps: SimpleNamespace) -> APIRouter:
         if not deps.save_creator_application(application):
             raise HTTPException(status_code=503, detail="Creator application storage is not configured.")
         return {
-            "status": "success",
             "application": application,
         }
 
-    @migrated.post("/api/v1/creators/claim")
+    @migrated.post(
+        "/api/v1/creators/claim",
+        tags=["Creator operations"],
+        summary="Claim creator earnings",
+        response_model=CreatorClaimResponse,
+        response_model_exclude_unset=True,
+        responses=CREATOR_CLAIM_RESPONSES,
+    )
     def create_creator_claim(payload: CreatorClaimRequest):
         """Creator-initiated claim: verify owner signature, debit ledger, and execute USDC payout."""
         claimant = deps.normalize_address(payload.claimant_address)
@@ -280,7 +371,6 @@ def create_providers_router(deps: SimpleNamespace) -> APIRouter:
             deps.save_creator_claim_record(record)
             deps.reload_persistent_state(include_reports=False)
             return {
-                "status": "success",
                 "claim": record,
                 "message": "Creator claim paid on-chain.",
             }

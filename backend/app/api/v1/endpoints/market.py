@@ -5,13 +5,15 @@ from typing import Optional
 
 from fastapi import APIRouter, Query
 
+from backend.app.schemas import AgentRecommendationsResponse, LiveAnomaliesResponse
+from backend.app.core.openapi_responses import documented_errors
 from backend.app.services.agent_recommendations import build_agent_recommendations
 
-router = APIRouter(tags=["market"])
+router = APIRouter(tags=["Market data"])
 
 
 def create_market_router(deps: SimpleNamespace) -> APIRouter:
-    migrated = APIRouter(tags=["market"])
+    migrated = APIRouter()
 
     def live_anomalies_payload() -> dict:
         import time
@@ -28,18 +30,23 @@ def create_market_router(deps: SimpleNamespace) -> APIRouter:
             deps.logger.info("Serving live anomalies from cache.")
 
         return {
-            "status": "success",
             "last_updated": deps.live_anomalies_cache["last_updated"],
             "count": len(deps.live_anomalies_cache["data"]),
             "anomalies": deps.live_anomalies_cache["data"],
         }
 
-    @migrated.get("/api/v1/live-anomalies")
+    @migrated.get(
+        "/api/v1/live-anomalies",
+        tags=["Market data"],
+        response_model=LiveAnomaliesResponse,
+        response_model_exclude_unset=True,
+        responses=documented_errors(429, 500, 503),
+    )
     def get_live_anomalies():
         """Returns real-time MEXC funding anomalies with caching."""
         return live_anomalies_payload()
 
-    @migrated.get("/api/v1/market-data/cache")
+    @migrated.get("/api/v1/market-data/cache", tags=["Market data"], include_in_schema=False)
     def get_market_data_cache(
         symbol: Optional[str] = Query(default=None),
         refresh: bool = Query(default=False),
@@ -55,7 +62,14 @@ def create_market_router(deps: SimpleNamespace) -> APIRouter:
             }
         return deps.market_data_adapter.cache_status(symbol=normalized_symbol, refresh=refresh)
 
-    @migrated.get("/api/v1/agent/recommendations")
+    @migrated.get(
+        "/api/v1/agent/recommendations",
+        tags=["Agent decisioning"],
+        summary="Rank purchase candidates for an agent",
+        response_model=AgentRecommendationsResponse,
+        response_model_exclude_unset=True,
+        responses=documented_errors(429, 500, 503),
+    )
     def get_agent_recommendations(limit: int = Query(default=8, ge=1, le=25)):
         """Ranks live anomalies as user-confirmed paid report candidates."""
         return build_agent_recommendations(deps, limit)

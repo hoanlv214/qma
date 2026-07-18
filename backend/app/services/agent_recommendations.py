@@ -86,7 +86,6 @@ def build_agent_recommendations(deps: SimpleNamespace, limit: int = 8) -> dict:
 
     picks = sorted(picks, key=lambda item: item["score"], reverse=True)[:limit]
     return {
-        "status": "success",
         "mode": "suggest_then_pay",
         "provider_strategy": "single_provider_invoice",
         "pricing": deps.pricing_config(),

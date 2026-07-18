@@ -140,9 +140,11 @@ def enforce_withdraw_relay_policy(intent: dict) -> None:
     while bucket and now - bucket[0] > 86400:
         bucket.popleft()
     if len(bucket) >= WITHDRAW_RELAY_DAILY_LIMIT:
+        retry_after = max(1, int(86400 - (now - bucket[0])))
         raise HTTPException(
             status_code=429,
             detail=f"Daily platform-relayed withdraw limit reached ({WITHDRAW_RELAY_DAILY_LIMIT}/day)",
+            headers={"Retry-After": str(retry_after)},
         )
 
 

@@ -12,10 +12,13 @@ import time
 import logging
 from types import SimpleNamespace
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.openapi.utils import get_openapi
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from scalar_fastapi import get_scalar_api_reference
 
 import paid_intelligence_kit as paid_kit
 from qma_engine import QMAEngine
@@ -182,6 +185,7 @@ from backend.app.services.settlement_validation import (
     validate_arc_split_leg_payment,
 )
 from backend.app.services.payment_events_service import (
+    build_traction_snapshot,
     summarize_payment_events,
     merge_payment_sources,
     load_platform_payment_events,
@@ -212,14 +216,268 @@ logger = logging.getLogger("QMA-API")
 # ---------------------------------------------------------------------------
 # FastAPI app
 # ---------------------------------------------------------------------------
+OPENAPI_TAGS = [
+    {
+        "name": "System",
+        "description": "Health checks and stable runtime capabilities exposed to API consumers.",
+    },
+    {
+        "name": "Provider discovery",
+        "description": "Discover provider identity, supported report types, pricing metadata, and provider statistics.",
+    },
+    {
+        "name": "Market data",
+        "description": "Live market anomalies and ranked candidates used by buyers and agents.",
+    },
+    {
+        "name": "Agent decisioning",
+        "description": "Turn a buyer policy into one validated, provider-bound purchase decision.",
+    },
+    {
+        "name": "Payments & settlement",
+        "description": "Quote, create, inspect, verify, and settle QMA invoices through Circle Gateway x402.",
+    },
+    {
+        "name": "Reports",
+        "description": "Retrieve paid provider previews and full reports after entitlement verification.",
+    },
+    {
+        "name": "Wallet & entitlements",
+        "description": "Read wallet history, private sessions, entitlements, and wallet-bound report snapshots.",
+    },
+    {
+        "name": "Traction & analytics",
+        "description": "Read public product traction, payment activity, payer breakdowns, and platform summaries.",
+    },
+    {
+        "name": "Creator operations",
+        "description": "Apply as a provider, inspect owned applications, and claim eligible creator earnings.",
+    },
+    {
+        "name": "Admin / operations",
+        "description": "Administrative provider controls and review operations. Requires the configured admin token where indicated.",
+    },
+    {
+        "name": "Report chat",
+        "description": "Ask questions about a report after presenting a valid paid invoice.",
+    },
+    {
+        "name": "Legacy compatibility",
+        "description": "Deprecated aliases retained for existing clients. New integrations should use provider-specific report routes.",
+    },
+]
+
 app = FastAPI(
-    title="Quant Memory Agent (QMA) Server",
+    title="QMA Intelligence & Payments API",
     description=(
-        "Paid intelligence API for Arc/Circle USDC micropayments. "
-        "List providers, create query-bound invoices, verify settlement, then call paid preview/full report endpoints."
+        "# QMA Intelligence & Payments API\n\n"
+        "QMA is a provider marketplace for quantitative market intelligence. "
+        "Clients discover live signals, select a provider-bound report, create a "
+        "query-bound invoice, verify Circle Gateway x402 settlement, and retrieve "
+        "the resulting preview or full report.\n\n"
+        "## Recommended buyer flow\n"
+        "1. Discover providers with `GET /api/v1/providers` or live candidates with `GET /api/v1/agent/recommendations`.\n"
+        "2. Optional: call `POST /api/v1/payment/quote` for a provider-bound price.\n"
+        "3. Create an invoice with `POST /api/v1/payment/invoice`.\n"
+        "4. Pay the returned Circle Gateway requirement, then verify with `POST /api/v1/payment/verify`.\n"
+        "5. Poll `GET /api/v1/payment/invoices/{invoice_id}/status` when settlement is still processing.\n"
+        "6. Retrieve the paid provider report from the provider-specific Reports route.\n\n"
+        "## Agent flow\n"
+        "Use `POST /api/v1/agent/decision` to turn a bounded budget and provider/tier policy into a validated purchase decision. "
+        "The payment executor remains responsible for signing and submitting payment; this API does not custody browser wallet keys.\n\n"
+        "All monetary values are denominated in USDC. Report access is granted only after the invoice and required settlement legs pass server-side verification."
     ),
     version="1.0.0",
+    contact={"name": "TODO: provide QMA maintainer contact"},
+    license_info={"name": "TODO: provide project license"},
+    servers=[
+        {"url": "http://127.0.0.1:8000", "description": "Local development API"},
+        {"url": "https://qma-api.onrender.com", "description": "Production API"},
+    ],
+    openapi_tags=OPENAPI_TAGS,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url="/openapi.json",
 )
+
+
+_HTTP_ERROR_CODES = {
+    400: "bad_request",
+    401: "unauthorized",
+    402: "payment_required",
+    403: "forbidden",
+    404: "not_found",
+    409: "conflict",
+    429: "rate_limited",
+    500: "internal_server_error",
+    502: "bad_gateway",
+    503: "service_unavailable",
+}
+
+
+def _error_code_for(status_code: int, detail) -> str:
+    if isinstance(detail, dict) and isinstance(detail.get("error"), str) and detail["error"]:
+        return detail["error"]
+    return _HTTP_ERROR_CODES.get(status_code, "http_error")
+
+
+def _error_message_for(detail) -> str:
+    if isinstance(detail, dict):
+        if isinstance(detail.get("message"), str) and detail["message"]:
+            return detail["message"]
+        if isinstance(detail.get("detail"), str) and detail["detail"]:
+            return detail["detail"]
+    if isinstance(detail, str) and detail:
+        return detail
+    return "The request could not be completed."
+
+
+@app.exception_handler(HTTPException)
+async def qma_http_exception_handler(request: Request, exc: HTTPException):
+    """Return a stable error envelope while preserving the legacy detail field."""
+    detail = exc.detail
+    headers = dict(exc.headers or {})
+    if exc.status_code == 429 and "retry-after" not in {k.lower() for k in headers}:
+        headers["Retry-After"] = str(RATE_LIMIT_WINDOW_SECONDS)
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": _error_code_for(exc.status_code, detail),
+            "message": _error_message_for(detail),
+            "status_code": exc.status_code,
+            "detail": jsonable_encoder(detail),
+        },
+        headers=headers if headers else None,
+    )
+
+
+from fastapi.exceptions import RequestValidationError
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Wrap FastAPI 422 validation errors in the standard QMA error envelope."""
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": "validation_error",
+            "message": "The request contains invalid parameters or body.",
+            "status_code": 422,
+            "detail": jsonable_encoder(exc.errors()),
+        },
+    )
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Ensure unhandled 500 errors also return the standard QMA error envelope."""
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "internal_error",
+            "message": "The server could not complete the request.",
+            "status_code": 500,
+            "detail": "An unexpected error occurred.",
+        },
+    )
+
+
+AUDIENCE_TAGS = {
+    "agent": {"Agent decisioning", "Market data", "Provider discovery", "Payments & settlement", "Reports", "System"},
+    "wallet": {"Wallet & entitlements", "Traction & analytics", "System", "Payments & settlement", "Creator operations", "Report chat", "Reports"},
+    "admin": {"Admin / operations", "Provider discovery", "Traction & analytics", "System", "Internal gateway", "Payments & settlement"},
+}
+
+@app.get("/openapi/{audience}.json", include_in_schema=False)
+async def get_audience_openapi(audience: str):
+    import copy
+    from fastapi import HTTPException
+    
+    if audience not in AUDIENCE_TAGS:
+        raise HTTPException(status_code=404, detail="Audience not found")
+        
+    allowed_tags = AUDIENCE_TAGS[audience]
+    schema = copy.deepcopy(app.openapi())
+    
+    paths_to_keep = {}
+    for path, path_item in schema.get("paths", {}).items():
+        new_path_item = {}
+        for method, operation in path_item.items():
+            if method.lower() in ["get", "post", "put", "delete", "patch", "options", "head", "trace"]:
+                op_tags = set(operation.get("tags", []))
+                if op_tags.intersection(allowed_tags):
+                    new_path_item[method] = operation
+            else:
+                new_path_item[method] = operation
+        if new_path_item:
+            paths_to_keep[path] = new_path_item
+            
+    schema["paths"] = paths_to_keep
+    
+    if "tags" in schema:
+        schema["tags"] = [t for t in schema["tags"] if t["name"] in allowed_tags]
+        
+    return schema
+
+@app.get("/scalar", include_in_schema=False)
+async def scalar_html():
+    return get_scalar_api_reference(
+        openapi_url=app.openapi_url,
+        title=app.title,
+    )
+
+@app.get("/docs/{audience}", include_in_schema=False)
+async def scalar_audience_html(audience: str):
+    from fastapi import HTTPException
+    if audience not in AUDIENCE_TAGS:
+        raise HTTPException(status_code=404, detail="Audience not found")
+    return get_scalar_api_reference(
+        openapi_url=f"/openapi/{audience}.json",
+        title=f"QMA {audience.title()} API",
+    )
+
+
+_default_openapi = app.openapi
+
+
+def qma_openapi():
+    """Add optional-auth semantics without changing request handling."""
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    schema = _default_openapi()
+    components = schema.setdefault("components", {})
+    security_schemes = components.setdefault("securitySchemes", {})
+    security_schemes.setdefault(
+        "x-qma-internal-secret",
+        {
+            "type": "apiKey",
+            "in": "header",
+            "name": "x-qma-internal-secret",
+            "description": "Internal gateway secret. Internal routes are intentionally hidden from the public schema.",
+        },
+    )
+
+    optional_security = {
+        "/api/v1/metrics/wallet/{address}": "X-QMA-Wallet-Token",
+        "/api/v1/wallets/{address}/payments": "X-QMA-Wallet-Token",
+        "/api/v1/entitlements/wallet/{address}": "X-QMA-Wallet-Token",
+        "/api/v1/providers": "x-qma-admin-token",
+        "/api/v1/providers/{provider_id}": "x-qma-admin-token",
+        "/api/v1/providers/{provider_id}/stats": "x-qma-admin-token",
+        "/api/v1/creators/applications": "x-qma-admin-token",
+    }
+    for path in optional_security:
+        for operation in schema.get("paths", {}).get(path, {}).values():
+            if not isinstance(operation, dict) or "security" not in operation:
+                continue
+            requirements = operation["security"]
+            if {} not in requirements:
+                requirements.append({})
+
+    app.openapi_schema = schema
+    return schema
+
+
+app.openapi = qma_openapi
 
 app.add_middleware(
     CORSMiddleware,
@@ -360,6 +618,9 @@ async def qma_rate_limit_middleware(request: Request, call_next):
         return JSONResponse(
             status_code=429,
             content={
+                "error": "rate_limited",
+                "message": "Request rate limit exceeded.",
+                "status_code": 429,
                 "detail": "rate_limited",
                 "scope": scope,
                 "limit": limit,
@@ -1134,6 +1395,7 @@ app.include_router(create_providers_router(SimpleNamespace(
 )))
 
 app.include_router(create_platform_router(SimpleNamespace(
+    build_traction_snapshot=build_traction_snapshot,
     compact_payment_event=compact_payment_event,
     fetch_gateway_balance_cached=fetch_gateway_balance_cached,
     invoices_db=state.invoices_db,

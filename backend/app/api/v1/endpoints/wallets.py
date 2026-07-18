@@ -3,11 +3,33 @@
 from types import SimpleNamespace
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Security
 
-from backend.app.schemas import WalletProfileSessionRequest
+from backend.app.schemas import (
+    WalletEntitlementsResponse,
+    WalletMetricsResponse,
+    WalletPaymentsResponse,
+    WalletProfileSessionRequest,
+    WalletProfileSessionResponse,
+    WalletReportDetailResponse,
+    WalletSummaryResponse,
+)
+from backend.app.core.security_schemes import qma_wallet_token_header
+from backend.app.core.openapi_responses import documented_error, documented_errors
 
-router = APIRouter(tags=["wallets"])
+router = APIRouter(tags=["Wallet & entitlements"])
+
+
+WALLET_TOKEN_RESPONSES = {
+    **documented_errors(429, 500),
+    403: documented_error(403, "Wallet profile token is missing, invalid, expired, or bound to another wallet."),
+}
+WALLET_SESSION_RESPONSES = {
+    **documented_errors(429, 500),
+    400: documented_error(400, "Wallet profile signature is expired or invalid."),
+    403: documented_error(403, "Wallet profile signature does not match the requested wallet."),
+    503: documented_error(503, "Wallet signature verification is not configured or unavailable."),
+}
 
 
 def wallet_events_with_invoice_fallback(address: str, deps: SimpleNamespace) -> list:
@@ -76,16 +98,28 @@ def wallet_events_with_invoice_fallback(address: str, deps: SimpleNamespace) -> 
 
 
 def create_wallets_router(deps: SimpleNamespace) -> APIRouter:
-    migrated = APIRouter(tags=["wallets"])
+    migrated = APIRouter()
 
-    @migrated.get("/api/v1/metrics/wallet/{address}")
+    @migrated.get(
+        "/api/v1/metrics/wallet/{address}",
+        response_model=WalletMetricsResponse,
+        response_model_exclude_unset=True,
+        tags=["Legacy compatibility"],
+        deprecated=True,
+        summary="Read wallet metrics (Legacy)",
+        description="""Read aggregated wallet metrics (payments and entitlements). Called by the legacy frontend dashboard.
+        
+**Authentication:** Optional token (`X-QMA-Wallet-Token` header or `wallet_token` query). If a valid token is provided, full private entitlement details are returned. If omitted, entitlements are stripped to public summaries.
+**Behavior & Edge Cases:** Polyfills legacy invoices that lack native payment events. Triggers a live token verification if a token is supplied. Limited to 100 items per page.""",
+        responses=WALLET_TOKEN_RESPONSES,
+    )
     def get_wallet_metrics(
         address: str,
         payment_page: int = Query(default=1, ge=1),
         payment_page_size: int = Query(default=10, ge=1, le=100),
         entitlement_page: int = Query(default=1, ge=1),
         entitlement_page_size: int = Query(default=50, ge=1, le=100),
-        qma_wallet_token: Optional[str] = Header(default=None, alias="X-QMA-Wallet-Token"),
+        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
         wallet_token: Optional[str] = Query(default=None),
     ):
         events = deps.load_payment_events_for_wallet(address)
@@ -155,7 +189,18 @@ def create_wallets_router(deps: SimpleNamespace) -> APIRouter:
             "recent_payments_page": recent_payments_page,
         }
 
-    @migrated.get("/api/v1/wallets/{address}/summary")
+    @migrated.get(
+        "/api/v1/wallets/{address}/summary",
+        response_model=WalletSummaryResponse,
+        response_model_exclude_unset=True,
+        tags=["Wallet & entitlements"],
+        summary="Read wallet purchase summary",
+        description="""Read wallet lifetime purchase summary (spent USDC, total payments, provider counts). Called by modern wallet profile UI.
+        
+**Authentication:** Public route. No token required.
+**Behavior & Edge Cases:** Attempts to refresh unresolved payments globally before building the summary. Includes legacy invoice fallback for backwards compatibility. Returns the cached Gateway balance.""",
+        responses=documented_errors(429, 500)
+    )
     def get_wallet_summary(address: str):
         deps.maybe_refresh_unresolved_payment_events()
         events = wallet_events_with_invoice_fallback(address, deps)
@@ -180,17 +225,28 @@ def create_wallets_router(deps: SimpleNamespace) -> APIRouter:
             "last_paid_at": summary["last_paid_at"],
         }
 
-    @migrated.get("/api/v1/wallets/{address}")
+    @migrated.get("/api/v1/wallets/{address}", response_model=WalletSummaryResponse, response_model_exclude_unset=True, summary="Read wallet profile alias", deprecated=True, tags=["Legacy compatibility"], responses=documented_errors(429, 500))
     def get_wallet_profile_alias(address: str):
         """Returns the wallet summary for direct wallet profile API probes."""
         return get_wallet_summary(address)
 
-    @migrated.get("/api/v1/wallets/{address}/payments")
+    @migrated.get(
+        "/api/v1/wallets/{address}/payments",
+        response_model=WalletPaymentsResponse,
+        response_model_exclude_unset=True,
+        tags=["Wallet & entitlements"],
+        summary="List wallet payment history",
+        description="""List a paginated ledger of a wallet's payment history. Called by the wallet profile page.
+        
+**Authentication:** Optional `X-QMA-Wallet-Token` or `wallet_token`. When authenticated, returns full payment details with attached report summaries. When unauthenticated, returns `public_payment_row` (sensitive data redacted).
+**Behavior & Edge Cases:** Uses invoice fallback to gracefully handle older payments. Limits page size to 100 items.""",
+        responses=WALLET_TOKEN_RESPONSES,
+    )
     def get_wallet_payments(
         address: str,
         page: int = Query(default=1, ge=1),
         page_size: int = Query(default=10, ge=1, le=100),
-        qma_wallet_token: Optional[str] = Header(default=None, alias="X-QMA-Wallet-Token"),
+        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
         wallet_token: Optional[str] = Query(default=None),
     ):
         events = wallet_events_with_invoice_fallback(address, deps)
@@ -209,7 +265,18 @@ def create_wallets_router(deps: SimpleNamespace) -> APIRouter:
             "recent_payments_page": meta,
         }
 
-    @migrated.post("/api/v1/wallets/{address}/session")
+    @migrated.post(
+        "/api/v1/wallets/{address}/session",
+        response_model=WalletProfileSessionResponse,
+        response_model_exclude_unset=True,
+        tags=["Wallet & entitlements"],
+        summary="Create a wallet profile session",
+        description="""Exchange a signed message for a short-lived wallet session JWT. Called by the frontend upon wallet connection.
+        
+**Authentication:** Requires a valid EIP-191/SIWE-like signature over the `nonce` and `issued_at` payload.
+**Behavior & Edge Cases:** Validates the signature against the requested `address`. The resulting JWT is required for viewing full private reports and detailed payment histories.""",
+        responses=WALLET_SESSION_RESPONSES,
+    )
     def create_wallet_profile_session(address: str, payload: WalletProfileSessionRequest):
         token_payload = deps.wallet_profile_token_payload(address, payload)
         return {
@@ -223,11 +290,22 @@ def create_wallets_router(deps: SimpleNamespace) -> APIRouter:
             "message": deps.wallet_profile_message(address, payload.nonce, payload.issued_at),
         }
 
-    @migrated.get("/api/v1/wallets/{address}/reports/{entitlement_id}")
+    @migrated.get(
+        "/api/v1/wallets/{address}/reports/{entitlement_id}",
+        response_model=WalletReportDetailResponse,
+        response_model_exclude_unset=True,
+        tags=["Wallet & entitlements"],
+        summary="Read an owned report snapshot",
+        description="""Fetch the complete private content of a purchased report. Called by buyers to view their unlocked data.
+        
+**Authentication:** STRICTLY PRIVATE. Requires a valid `X-QMA-Wallet-Token` or `wallet_token`. Throws 403 Forbidden if missing or invalid.
+**Behavior & Edge Cases:** Validates that the requested `entitlement_id` actually belongs to the authenticated `address`. Returns a 404 if the report does not exist or ownership validation fails.""",
+        responses={**WALLET_TOKEN_RESPONSES, 404: documented_error(404, "Paid report snapshot not found for this wallet.")},
+    )
     def get_wallet_report_detail(
         address: str,
         entitlement_id: str,
-        qma_wallet_token: Optional[str] = Header(default=None, alias="X-QMA-Wallet-Token"),
+        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
         wallet_token: Optional[str] = Query(default=None),
     ):
         deps.verify_wallet_profile_token(address, qma_wallet_token or wallet_token or "")
@@ -239,12 +317,23 @@ def create_wallets_router(deps: SimpleNamespace) -> APIRouter:
             "entitlement": record,
         }
 
-    @migrated.get("/api/v1/entitlements/wallet/{address}")
+    @migrated.get(
+        "/api/v1/entitlements/wallet/{address}",
+        response_model=WalletEntitlementsResponse,
+        response_model_exclude_unset=True,
+        tags=["Wallet & entitlements"],
+        summary="List wallet entitlements",
+        description="""List purchased entitlements (unlocked reports) for a wallet. Called by wallet UI and API consumers.
+        
+**Authentication:** Optional token (`X-QMA-Wallet-Token`). If valid, returns raw private data (including unlocked URLs). If omitted, strips sensitive data using `public_entitlement_row`.
+**Behavior & Edge Cases:** Supports query filtering by `symbol` and `provider_id`. Hard-limits the returned array strictly to the first 100 items (no native pagination on this endpoint).""",
+        responses=WALLET_TOKEN_RESPONSES,
+    )
     def get_wallet_entitlements(
         address: str,
         symbol: Optional[str] = Query(default=None),
         provider_id: Optional[str] = Query(default=None),
-        qma_wallet_token: Optional[str] = Header(default=None, alias="X-QMA-Wallet-Token"),
+        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
         wallet_token: Optional[str] = Query(default=None),
     ):
         wallet_reports = deps.load_paid_reports_for_wallet(address, symbol=symbol, provider_id=provider_id)

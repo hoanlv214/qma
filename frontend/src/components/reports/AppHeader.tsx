@@ -36,7 +36,8 @@ export function AppHeader({ wallet, viewMode, metrics, walletRole, ownedProvider
       </a>
       <span className="logo-tag">v1.0.0</span>
     </div>
-    <div className="status-indicators">
+      <div className="status-indicators">
+      <button type="button" className="header-nav-link" onClick={() => onNavigate("traction")} title="View public traction ledger">Traction</button>
       <div className="indicator" id="clock">{timeStr}</div>
       <div className="view-toggle" role="group" aria-label="View mode">
         <button type="button" className={`view-toggle-btn ${viewMode === "basic" ? "active" : ""}`} onClick={() => onViewModeChange("basic")}>Simple</button>

@@ -38,11 +38,11 @@ export default defineConfig({
         target: "http://localhost:8000",
         changeOrigin: true,
       },
-      "/docs": {
+      "/openapi.json": {
         target: "http://localhost:8000",
         changeOrigin: true,
       },
-      "/openapi.json": {
+      "/openapi/": {
         target: "http://localhost:8000",
         changeOrigin: true,
       },

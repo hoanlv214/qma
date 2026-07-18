@@ -109,7 +109,6 @@ def summarize_gateway_info(data: Optional[dict] = None, *, include_raw: bool = F
         })
     arc_domain = next((item for item in domains if item.get("domain") == 26), None)
     result = {
-        "status": "ok" if raw else "unavailable",
         "api": ARC_GATEWAY_API,
         "runtime_rail": SETTLEMENT_RAIL,
         "runtime_currency": SETTLEMENT_CURRENCY,

@@ -25,9 +25,12 @@ function apiUrl(path: string) {
 }
 
 function errorMessage(payload: unknown, fallback: string) {
-  if (payload && typeof payload === "object" && "detail" in payload) {
-    const detail = (payload as { detail?: unknown }).detail;
-    return typeof detail === "string" ? detail : JSON.stringify(detail);
+  if (payload && typeof payload === "object") {
+    const body = payload as { message?: unknown; error?: unknown; detail?: unknown };
+    if (typeof body.message === "string" && body.message) return body.message;
+    if (typeof body.detail === "string" && body.detail) return body.detail;
+    if (body.detail !== undefined) return JSON.stringify(body.detail);
+    if (typeof body.error === "string" && body.error) return body.error;
   }
   return fallback;
 }

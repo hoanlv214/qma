@@ -6,8 +6,10 @@ from types import SimpleNamespace
 from fastapi import APIRouter, Query
 from fastapi.responses import HTMLResponse
 
+from backend.app.schemas import HealthResponse, ClientConfigResponse
+from backend.app.core.openapi_responses import documented_errors
 
-router = APIRouter(tags=["health"])
+router = APIRouter(tags=["System"])
 
 
 def serve_html_file(root_dir: Path, filename: str, fallback: str, status_code: int = 200):
@@ -18,50 +20,50 @@ def serve_html_file(root_dir: Path, filename: str, fallback: str, status_code: i
 
 
 def create_health_router(deps: SimpleNamespace) -> APIRouter:
-    migrated = APIRouter(tags=["health"])
+    migrated = APIRouter(tags=["System"])
 
-    @migrated.get("/", response_class=HTMLResponse)
+    @migrated.get("/", response_class=HTMLResponse, include_in_schema=False)
     def get_landing():
         """Serves the short Lepton landing page."""
         return serve_html_file(deps.root_dir, "index.html", "<h1>QMA Landing File not found</h1>", status_code=404)
 
-    @migrated.get("/app", response_class=HTMLResponse)
+    @migrated.get("/app", response_class=HTMLResponse, include_in_schema=False)
     def get_app():
         """Serves the front-end dashboard UI."""
         return serve_html_file(deps.root_dir, "app.html", "<h1>QMA UI File not found</h1>", status_code=404)
 
-    @migrated.get("/user", response_class=HTMLResponse)
+    @migrated.get("/user", response_class=HTMLResponse, include_in_schema=False)
     def get_user_profile():
         """Serves the wallet profile/history UI."""
         return serve_html_file(deps.root_dir, "user.html", "<h1>QMA User Profile File not found</h1>", status_code=404)
 
-    @migrated.get("/profile", response_class=HTMLResponse)
+    @migrated.get("/profile", response_class=HTMLResponse, include_in_schema=False)
     def get_private_profile():
         """Serves the owner-only wallet profile UI."""
         return serve_html_file(deps.root_dir, "user.html", "<h1>QMA User Profile File not found</h1>", status_code=404)
 
-    @migrated.get("/marketplace", response_class=HTMLResponse)
+    @migrated.get("/marketplace", response_class=HTMLResponse, include_in_schema=False)
     def get_marketplace():
         """Serves the creator/provider marketplace UI."""
         return serve_html_file(deps.root_dir, "marketplace.html", "<h1>QMA Marketplace File not found</h1>", status_code=404)
 
-    @migrated.get("/api/v1/health")
+    @migrated.get("/api/v1/health", response_model=HealthResponse, response_model_exclude_unset=True, summary="Check API health", responses=documented_errors(429, 500))
     def get_health():
+        """Returns a lightweight readiness response without exposing secrets."""
         return {
-            "status": "ok",
             "engine": "ready",
             "storage_backend": deps.storage_backend.backend_name,
             "payment_network": deps.payment_network,
             "payment_network_name": deps.payment_network_name,
         }
 
-    @migrated.get("/api/v1/config")
+    @migrated.get("/api/v1/config", response_model=ClientConfigResponse, response_model_exclude_unset=True, summary="Read client runtime configuration", responses=documented_errors(429, 500, 503))
     def get_client_config():
+        """Returns public client configuration required to initialize QMA flows."""
         seller_balance = deps.fetch_gateway_balance_cached(deps.platform_treasury_address)
         gateway_info = deps.fetch_gateway_info_cached()
         creator_claim_status = deps.fetch_creator_claim_status_cached()
         return {
-            "status": "ok",
             "engine": "ready",
             "storage_backend": deps.storage_backend.backend_name,
             "dataset": deps.engine.dataset_profile,
@@ -131,10 +133,9 @@ def create_health_router(deps: SimpleNamespace) -> APIRouter:
         """Returns Circle Gateway capability diagnostics for QMA's current USDC-only runtime."""
         return deps.fetch_gateway_info_cached(include_raw=include_raw)
 
-    @migrated.get("/api/v1/engine/profile")
+    @migrated.get("/api/v1/engine/profile", include_in_schema=False)
     def get_engine_profile():
         return {
-            "status": "success",
             "dataset": deps.engine.dataset_profile,
             "features": deps.engine.feature_cols,
             "ood_reference": deps.engine.empirical_nn_thresholds,

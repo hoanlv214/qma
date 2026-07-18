@@ -4,16 +4,22 @@ from types import SimpleNamespace
 
 from fastapi import APIRouter, HTTPException, status
 
-from backend.app.schemas import ChatRequest
+from backend.app.schemas import ChatRequest, ChatResponse
+from backend.app.core.openapi_responses import documented_errors
 
 
-router = APIRouter(tags=["chat"])
+router = APIRouter(tags=["Report chat"])
 
 
 def create_chat_router(deps: SimpleNamespace) -> APIRouter:
-    migrated = APIRouter(tags=["chat"])
+    migrated = APIRouter(tags=["Report chat"])
 
-    @migrated.post("/api/v1/chat")
+    @migrated.post(
+        "/api/v1/chat",
+        response_model=ChatResponse,
+        response_model_exclude_unset=True,
+        responses=documented_errors(402, 404, 429, 500),
+    )
     def handle_chat_request(payload: ChatRequest):
         """Answers interactive user queries regarding a paid report."""
         invoice_id = payload.invoice_id

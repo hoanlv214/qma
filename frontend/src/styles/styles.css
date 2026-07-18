@@ -93,7 +93,7 @@ body {
     color: var(--t1);
     font-family: var(--sans);
     height: 100vh;
-    overflow: hidden;
+    /* overflow: hidden; */
     display: flex;
     flex-direction: column;
     background-image:
@@ -499,7 +499,7 @@ header {
 
 .split-tables {
     display: grid;
-    grid-template-columns: 1.35fr 1fr;
+    /* grid-template-columns: 1.35fr 1fr; */
     gap: 16px;
 }
 

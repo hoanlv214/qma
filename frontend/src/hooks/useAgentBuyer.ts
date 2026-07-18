@@ -40,7 +40,6 @@ interface UseAgentBuyerOptions {
   clearPendingInvoice: (signal: Signal, tier: "preview" | "full", providerId: string, account: string) => void;
   getCachedReport: (signal: Signal, tier: "preview" | "full", providerId?: string) => any;
   getCachedReportsForSymbol: (symbol: string, providerId?: string) => any[];
-  refreshPlatformTables: (paymentPage?: number, payerPage?: number) => Promise<void>;
 }
 
 export function useAgentBuyer({
@@ -60,7 +59,6 @@ export function useAgentBuyer({
   clearPendingInvoice,
   getCachedReport,
   getCachedReportsForSymbol,
-  refreshPlatformTables,
 }: UseAgentBuyerOptions) {
   const [agentPrompt, setAgentPrompt] = useState("");
   const [agentTrace, setAgentTrace] = useState<AgentTraceEntry[]>([]);
@@ -499,7 +497,7 @@ export function useAgentBuyer({
         setAgentSelectReason(backendDecision?.plan.reason || "No candidate met policy constraints within budget.");
         setAgentTrace((prev) => [
           ...prev,
-          { text: "Copilot: No anomalies found meeting parameters under budget.", tone: "t-error" },
+          { text: "Copilot: No eligible reports matched the budget and maximum per-report price.", tone: "t-error" },
         ]);
         setAgentRunning(false);
         return;
@@ -703,9 +701,6 @@ export function useAgentBuyer({
       clearPendingInvoice(pickQuery, pickTier, pickProviderId, wallet);
       setReportCollapsed(false);
       setAgentSessionStage("unlocked");
-      void refreshPlatformTables(1, 1).catch((err) => {
-        console.warn("Platform analytics refresh after Copilot payment failed", err);
-      });
     } catch (err: any) {
       setAgentSessionStage("error");
       setAgentTrace((prev) => [...prev, { text: `Error: ${err.message || err}`, tone: "t-error" }]);

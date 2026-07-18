@@ -1,4 +1,3 @@
-import { API_BASE_URL } from "../../services/api";
 import { shortAddress } from "../../services/wallet";
 import { Loader } from "../ui/Loader";
 
@@ -155,7 +154,7 @@ export function PaywallPanel(props: PaywallPanelProps) {
                 <div className="paywall-trust-layer">
                   <div className="paywall-trust-title">Wallet connection only exposes your public address.</div>
                   <div className="paywall-trust-links">
-                    <a href={`${API_BASE_URL}/docs`} target="_blank" rel="noreferrer">API docs</a>
+                    <a href="/docs" target="_blank" rel="noreferrer">API docs</a>
                     <a href="https://testnet.arcscan.app/" target="_blank" rel="noreferrer">Arcscan</a>
                   </div>
                 </div>
