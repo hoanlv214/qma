@@ -531,7 +531,7 @@ GET /api/v1/engine/profile
 Returns feature columns, dataset profile, cluster metadata, OOD reference thresholds, and validation warnings.
 
 ```http
-GET /api/v1/live-anomalies
+GET /api/v1/providers/funding_memory/live-anomalies
 ```
 
 Scans MEXC futures tickers for highly negative funding anomalies. Results are cached for 30 seconds.

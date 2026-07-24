@@ -35,7 +35,7 @@ Default scopes:
 | `payment_verify` | `/api/v1/payment/verify` | 8/min/IP |
 | `payment_invoice` | `/api/v1/payment/invoice` | 20/min/IP |
 | `paid_report` | `/api/v1/preview`, `/api/v1/analyze`, `/api/v1/providers/{id}/preview`, `/api/v1/providers/{id}/full-report` | 30/min/IP |
-| `public_market` | `/api/v1/live-anomalies`, `/api/v1/agent/recommendations` | 120/min/IP |
+| `public_market` | `/api/v1/providers/*/live-anomalies`, `/api/v1/agent/recommendations` | 120/min/IP |
 | `creator_apply` | `/api/v1/creators/apply` | 6/min/IP |
 | `api_default` | other `/api/v1/*` endpoints | 240/min/IP |
 

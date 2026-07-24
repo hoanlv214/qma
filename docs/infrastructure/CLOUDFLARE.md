@@ -103,7 +103,7 @@ Suggested rules:
 | `/api/v1/payment/invoice` | 20 requests / minute / IP | Block or Managed Challenge |
 | `/api/v1/payment/verify` | 8 requests / minute / IP | Block |
 | `/api/v1/creators/apply` | 6 requests / minute / IP | Managed Challenge |
-| `/api/v1/live-anomalies` | 120 requests / minute / IP | Throttle/Block |
+| `/api/v1/providers/*/live-anomalies` | 120 requests / minute / IP | Throttle/Block |
 | `/api/v1/agent/recommendations` | 120 requests / minute / IP | Throttle/Block |
 | `/api/v1/providers/*/preview` | 30 requests / minute / IP | Block |
 | `/api/v1/providers/*/full-report` | 30 requests / minute / IP | Block |

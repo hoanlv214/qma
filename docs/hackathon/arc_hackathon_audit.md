@@ -31,7 +31,7 @@ Locations:
 - `market_data.py` and the provider implementations — live market input adapters.
 - `frontend/src/hooks/useAgentBuyer.ts` — browser decision fallback and candidate consumption.
 
-Evidence: the backend exposes `/api/v1/live-anomalies` and `/api/v1/agent/recommendations`; the agent decision service consumes live recommendations and produces evaluated candidates. The source includes provider IDs, symbols, scores, query snapshots, tiers and suggested prices.
+Evidence: the backend exposes `/api/v1/providers/*/live-anomalies` and `/api/v1/agent/recommendations`; the agent decision service consumes live recommendations and produces evaluated candidates. The source includes provider IDs, symbols, scores, query snapshots, tiers and suggested prices.
 
 Description: QMA turns live market conditions into candidate reports rather than selling a generic static dataset.
 
