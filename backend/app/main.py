@@ -21,9 +21,9 @@ from fastapi.staticfiles import StaticFiles
 from scalar_fastapi import get_scalar_api_reference
 
 import paid_intelligence_kit as paid_kit
-from qma_engine import QMAEngine
 from market_data import create_market_data_adapter
-from providers import create_default_registry
+from qma_engine import QMAEngine
+
 from storage import create_storage_backend
 
 from backend.app.core.config import (
@@ -203,6 +203,7 @@ from backend.app.api.v1.endpoints.payments import create_payments_router
 from backend.app.api.v1.endpoints.platform import create_platform_router
 from backend.app.api.v1.endpoints.providers import create_providers_router
 from backend.app.api.v1.endpoints.reports import create_reports_router
+from backend.app.api.v1.endpoints.sessions import create_sessions_router
 from backend.app.api.v1.endpoints.wallets import create_wallets_router
 
 from backend.app.schemas import InvoiceRequest, PaymentVerifyRequest
@@ -479,10 +480,13 @@ def qma_openapi():
 
 app.openapi = qma_openapi
 
+cors_origins = settings.cors_allowed_origins
+allow_credentials = "*" not in cors_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -502,9 +506,14 @@ storage_backend = create_storage_backend(
     provider_controls_path=str(settings.provider_controls_path),
 )
 
-provider_registry = create_default_registry(engine=engine, default_owner_wallet=PAYMENT_WALLET_ADDRESS)
-market_data_adapter = create_market_data_adapter(os.getenv("QMA_MARKET_DATA_SOURCE", "mexc_futures"))
+from backend.app.core.provider_registry import ProviderRegistryV2
+from backend.app.services.plugins.funding_provider import FundingProviderV2
+from backend.app.services.plugins.oi_provider import OpenInterestMemoryProviderV2
+from backend.app.services.providers_meta import provider_metadata
 
+provider_registry = ProviderRegistryV2()
+provider_registry.register(FundingProviderV2(owner_wallet=os.getenv("QMA_FUNDING_MEMORY_OWNER_WALLET", PAYMENT_WALLET_ADDRESS)))
+provider_registry.register(OpenInterestMemoryProviderV2(owner_wallet=os.getenv("QMA_OI_MEMORY_OWNER_WALLET", "0x2222222222222222222222222222222222222222")))
 CREATOR_CLAIMS_PATH = str(settings.creator_claims_path)
 
 
@@ -634,18 +643,6 @@ async def qma_rate_limit_middleware(request: Request, call_next):
 
 
 # ---------------------------------------------------------------------------
-# Live market scanner
-# ---------------------------------------------------------------------------
-def scan_mexc_live():
-    try:
-        data = market_data_adapter.scan_anomalies()
-        return data or state.live_anomalies_cache.get("data", [])
-    except Exception as e:
-        logger.error(f"Failed to scan live market data: {e}")
-        return []
-
-
-# ---------------------------------------------------------------------------
 # Paid invoice events (uses both repos and services)
 # ---------------------------------------------------------------------------
 def load_paid_invoice_events():
@@ -747,15 +744,59 @@ def create_invoice(req: InvoiceRequest):
     buyer_wallet_address = normalize_address(buyer_wallet_address) if buyer_wallet_address else None
     provider = get_provider_or_404(provider_registry, provider_id)
     req_data = normalize_query_for_provider(provider, req_data)
-    quote = provider.quote_price(req_data, tier)
+    
+    if hasattr(provider, "score"):
+        # V2 Provider Interface
+        context = {"query": req_data, "tier": tier}
+        score_result = provider.score(context)
+        amount_usdc = score_result["amount_usdc"]
+        complexity_score = score_result.get("complexity_score", 0)
+        base_usdc = amount_usdc  # Approximate for V2
+        _score_cache_key = score_result.get("_score_cache_key")
+        declared_confidence = score_result.get("declared_confidence")
+    else:
+        # V1 Provider Interface fallback
+        quote = provider.quote_price(req_data, tier)
+        amount_usdc = quote["amount_usdc"]
+        complexity_score = quote["complexity_score"]
+        base_usdc = quote["base_usdc"]
+        _score_cache_key = None
+        declared_confidence = None
+
+    if run_source and str(run_source).startswith("agent_session_") and hasattr(storage_backend, "_request"):
+        session_id = str(run_source).replace("agent_session_", "")
+        import uuid
+        is_uuid = False
+        try:
+            uuid.UUID(session_id)
+            is_uuid = True
+        except ValueError:
+            pass
+            
+        if is_uuid:
+            session_rows = storage_backend._request("GET", "agent_sessions", params={"id": f"eq.{session_id}", "limit": "1"})
+            if session_rows and session_rows[0].get("budget_usdc") is not None:
+                budget = float(session_rows[0]["budget_usdc"])
+                invoices = _load_invoices()
+                total_spent = sum(
+                    float(inv.get("amount") or 0)
+                    for inv in invoices.values()
+                    if inv.get("run_source") == run_source and inv.get("status") in ("paid", "pending")
+                )
+                if total_spent + float(amount_usdc) > budget:
+                    raise HTTPException(
+                        status_code=402,
+                        detail=f"Session budget exceeded. Limit: {budget} USDC. Spent/Pending: {total_spent} USDC. Requested: {amount_usdc} USDC."
+                    )
+
     invoice, requirement = paid_kit.create_invoice(
         query=req_data,
         tier=tier,
-        amount_usdc=quote["amount_usdc"],
+        amount_usdc=amount_usdc,
         resource_type=resource_type,
         provider_id=provider.provider_id,
         buyer_type=buyer_type,
-        owner_wallet=provider.owner_wallet,
+        owner_wallet=getattr(provider, "owner_wallet", PAYMENT_WALLET_ADDRESS),
         network=PAYMENT_NETWORK,
         network_name=PAYMENT_NETWORK_NAME,
         seller_address=PAYMENT_WALLET_ADDRESS,
@@ -768,22 +809,36 @@ def create_invoice(req: InvoiceRequest):
         settlement_token_address=ARC_TESTNET_USDC,
         settlement_decimals=6,
     )
+    
+    if _score_cache_key:
+        invoice["_score_cache_key"] = _score_cache_key
+    if declared_confidence is not None:
+        invoice["declared_confidence"] = declared_confidence
+
     hydrate_payment_schema(invoice)
-    smode = provider_settlement_mode(provider)
+    
+    # Try to safely extract settlement mode and revenue wallet for both V1 and V2
+    smode = provider_settlement_mode(provider) if hasattr(provider, "settlement_mode") or hasattr(provider, "revenue_wallet") else DEFAULT_SETTLEMENT_MODE
     invoice["settlement"]["mode"] = smode
+    
+    # Provider revenue sharing
+    rev_wallet = provider_revenue_wallet(provider) if hasattr(provider, "revenue_wallet") else getattr(provider, "owner_wallet", PAYMENT_WALLET_ADDRESS)
+    rev_share_bps = int(getattr(provider, "revenue_share_bps", 8000))
     invoice["accounting"] = {
         **invoice.get("accounting", {}),
         "settlement_mode": smode,
-        "creator_wallet": provider_revenue_wallet(provider),
-        "creator_share_bps": int(getattr(provider, "revenue_share_bps", 8000)),
-        "platform_share_bps": 10000 - int(getattr(provider, "revenue_share_bps", 8000)),
+        "creator_wallet": rev_wallet,
+        "creator_share_bps": rev_share_bps,
+        "platform_share_bps": 10000 - rev_share_bps,
     }
+    
     invoice["wallet_address"] = PLATFORM_TREASURY_ADDRESS
     invoice["platform_treasury_wallet"] = normalize_address(PLATFORM_TREASURY_ADDRESS)
     invoice["synthetic"] = synthetic
     invoice["agent_label"] = agent_label
     invoice["run_source"] = run_source
     invoice["buyer_wallet_address"] = buyer_wallet_address
+    
     if smode == "x402_direct_split":
         invoice["expires_at"] = invoice["created_at"] + SPLIT_INVOICE_TTL_SECONDS
         invoice["split"] = build_invoice_split(
@@ -797,6 +852,7 @@ def create_invoice(req: InvoiceRequest):
         requirement["split"] = invoice["split"]
         requirement["settlement"]["mode"] = smode
         requirement["pay_to"] = None
+        
     state.invoices_db[invoice["invoice_id"]] = invoice
     _save_invoice(invoice)
     return {
@@ -811,16 +867,16 @@ def create_invoice(req: InvoiceRequest):
         "network": PAYMENT_NETWORK,
         "network_name": PAYMENT_NETWORK_NAME,
         "provider_id": invoice["provider_id"],
-        "provider_name": provider.provider_name,
+        "provider_name": getattr(provider, "provider_name", invoice["provider_id"]),
         "buyer_type": invoice["buyer_type"],
         "tier": invoice["tier"],
         "tier_label": paid_kit.SUPPORTED_TIERS[invoice["tier"]]["label"],
-        "base_usdc": quote["base_usdc"],
-        "complexity_score": quote["complexity_score"],
+        "base_usdc": base_usdc,
+        "complexity_score": complexity_score,
         "resource_type": invoice["resource_type"],
         "wallet_address": invoice["wallet_address"],
         "platform_treasury_wallet": invoice.get("platform_treasury_wallet"),
-        "provider_owner_wallet": invoice["owner_wallet"],
+        "provider_owner_wallet": getattr(provider, "owner_wallet", PAYMENT_WALLET_ADDRESS),
         "synthetic": invoice.get("synthetic", False),
         "agent_label": invoice.get("agent_label"),
         "run_source": invoice.get("run_source"),
@@ -932,8 +988,8 @@ def verify_split_payment(invoice_id, invoice, proof):
                 )
             if not receipt_valid:
                 raise HTTPException(status_code=400, detail=f"Invalid sidecar receipt for split leg {leg_id}.")
-            if settlement_id_already_claimed(submitted.settlement_id, exclude_invoice_id=invoice_id, load_invoices_fn=_load_invoices, invoices_db=state.invoices_db):
-                raise HTTPException(status_code=409, detail=f"settlement_id for leg {leg_id} is already claimed by another invoice/leg.")
+            if settlement_id_already_claimed(submitted.settlement_id, exclude_invoice_id=invoice_id, load_invoices_fn=_load_invoices, invoices_db=state.invoices_db, storage_backend=storage_backend):
+                raise HTTPException(status_code=400, detail="Settlement ID already claimed by another invoice/leg.")
             if has_authoritative_gateway_claims:
                 # Arc Gateway already fetched and validated this settlement
                 # against Circle before signing the sidecar receipt. The HMAC
@@ -948,6 +1004,11 @@ def verify_split_payment(invoice_id, invoice, proof):
                 # Compatibility path for receipts issued before payer/status
                 # were included in the signed sidecar proof.
                 settlement = fetch_circle_settlement(submitted.settlement_id)
+                # FIX: Circle Gateway API abstracts gasless payments and returns the Relayer address in fromAddress.
+                # Since legacy receipts don't have authoritative gateway claims, we restore the true payer
+                # from the webhook-recorded leg if it exists.
+                if leg.get("payer_address") and normalize_address(settlement.get("fromAddress")) != normalize_address(leg.get("payer_address")):
+                    settlement["fromAddress"] = leg.get("payer_address")
             validate_arc_split_leg_payment(invoice, leg, settlement, payer_address=proof.payer_address)
             settlement_payer = normalize_address(settlement.get("fromAddress"))
             if payer and settlement_payer != payer:
@@ -1014,8 +1075,8 @@ def verify_payment(invoice_id, proof=None):
         return verify_split_payment(invoice_id, invoice, proof)
     if not proof.settlement_id:
         raise HTTPException(status_code=400, detail="settlement_id is required.")
-    if settlement_id_already_claimed(proof.settlement_id, exclude_invoice_id=invoice_id, load_invoices_fn=_load_invoices, invoices_db=state.invoices_db):
-        raise HTTPException(status_code=409, detail="settlement_id is already claimed by another invoice.")
+    if settlement_id_already_claimed(proof.settlement_id, exclude_invoice_id=invoice_id, load_invoices_fn=_load_invoices, invoices_db=state.invoices_db, storage_backend=storage_backend):
+        raise HTTPException(status_code=409, detail="settlement_id already claimed by another invoice.")
     with state.cross_process_lock("split_leg:" + invoice_id):
         invoice = get_invoice_or_402(state.invoices_db, invoice_id)
         hydrate_payment_schema(invoice)
@@ -1247,27 +1308,71 @@ def run_paid_provider_report(*, provider_id, query, invoice_id, token, required_
     from fastapi.encoders import jsonable_encoder
     from backend.app.schemas import QueryModel
     provider = get_provider_or_404(provider_registry, provider_id)
-    normalized_query = normalize_query_for_provider(provider, model_to_dict(query))
+    raw_query = model_to_dict(query)
+    
+    # Strip invoice metadata fields that might leak into the query payload from UI state.
+    # This ensures the query fingerprint exactly matches the one computed during create_invoice.
+    for k in ["provider_id", "tier", "buyer_type", "buyer_wallet_address", "synthetic", "agent_label", "run_source", "resource_type"]:
+        raw_query.pop(k, None)
+        
+    normalized_query = normalize_query_for_provider(provider, raw_query)
     invoice = authorize_paid_invoice(
         query=normalized_query, invoice_id=invoice_id, token=token,
-        required_tier=required_tier, provider_id=provider.provider_id,
+        required_tier=required_tier, provider_id=getattr(provider, "provider_id", provider_id),
     )
     refresh_invoice_batch_tx(invoice)
-    full_report = provider.full_report(normalized_query)
-    full_report["query"] = invoice.get("query") or canonical_query_payload(normalized_query)
-    full_report["query_hash"] = invoice.get("query_hash")
-    full_report["provider_id"] = provider.provider_id
-    full_report["provider_name"] = provider.provider_name
-    full_report["provider_owner_wallet"] = provider.owner_wallet
-    full_report["invoice"] = invoice_report_meta(invoice_id, invoice)
-    if required_tier == "preview":
-        report = build_preview_report(full_report, invoice)
-        report["provider_id"] = provider.provider_id
-        report["provider_name"] = provider.provider_name
+    
+    if hasattr(provider, "deliver"):
+        # V2 Provider Interface
+        context = {
+            "query": invoice.get("query") or normalized_query,
+            "tier": invoice.get("tier", required_tier),
+        }
+        if "_score_cache_key" in invoice:
+            context["_score_cache_key"] = invoice["_score_cache_key"]
+        if "declared_confidence" in invoice:
+            context["declared_confidence"] = invoice["declared_confidence"]
+            
+        payload_data = provider.deliver(context, invoice_id)
+        
+        from backend.app.schemas import ProviderReportResponse
+        
+        # Build proper typed model instead of dict hacking
+        report_kwargs = {
+            "query_symbol": payload_data.get("query_symbol"),
+            "query": context.get("query"),
+            "query_hash": invoice.get("query_hash"),
+            "tier": payload_data.get("tier", required_tier),
+            "invoice": invoice_report_meta(invoice_id, invoice),
+            "provider_id": getattr(provider, "provider_id", provider_id),
+            "provider_name": getattr(provider, "provider_name", provider_id),
+            "provider_owner_wallet": getattr(provider, "owner_wallet", PAYMENT_WALLET_ADDRESS),
+            "paid_at": invoice.get("paid_at"),
+            "payload": payload_data,
+        }
+        if "upgrade_cta" in payload_data:
+            report_kwargs["upgrade_cta"] = payload_data["upgrade_cta"]
+            
+        report_obj = ProviderReportResponse(**report_kwargs)
+        report = report_obj.model_dump(exclude_unset=True, by_alias=True)
     else:
-        full_report["tier"] = "full"
-        full_report["paid_at"] = invoice.get("paid_at")
-        report = full_report
+        # V1 Provider Interface fallback
+        full_report = provider.full_report(normalized_query)
+        full_report["query"] = invoice.get("query") or canonical_query_payload(normalized_query)
+        full_report["query_hash"] = invoice.get("query_hash")
+        full_report["provider_id"] = provider.provider_id
+        full_report["provider_name"] = provider.provider_name
+        full_report["provider_owner_wallet"] = provider.owner_wallet
+        full_report["invoice"] = invoice_report_meta(invoice_id, invoice)
+        if required_tier == "preview":
+            report = build_preview_report(full_report, invoice)
+            report["provider_id"] = provider.provider_id
+            report["provider_name"] = provider.provider_name
+        else:
+            full_report["tier"] = "full"
+            full_report["paid_at"] = invoice.get("paid_at")
+            report = full_report
+
     invoice["used_at"] = time.time()
     _save_invoice(invoice)
     paid_kit.record_entitlement(state.paid_reports, invoice=invoice, report=jsonable_encoder(report))
@@ -1305,7 +1410,7 @@ def _provider_metadata(provider):
     return provider_metadata(provider)
 
 def _settlement_id_already_claimed(sid, *, exclude_invoice_id=None):
-    return settlement_id_already_claimed(sid, exclude_invoice_id=exclude_invoice_id, load_invoices_fn=_load_invoices, invoices_db=state.invoices_db)
+    return settlement_id_already_claimed(sid, exclude_invoice_id=exclude_invoice_id, load_invoices_fn=_load_invoices, invoices_db=state.invoices_db, storage_backend=storage_backend)
 
 def _get_agent_recommendations(limit=25):
     return build_agent_recommendations(SimpleNamespace(
@@ -1317,7 +1422,7 @@ def _get_agent_recommendations(limit=25):
         pricing_config=paid_kit.pricing_config,
         provider_control=provider_control,
         provider_registry=provider_registry,
-        scan_mexc_live=scan_mexc_live,
+        scan_mexc_live=None,
     ), limit)
 
 
@@ -1411,12 +1516,10 @@ app.include_router(create_market_router(SimpleNamespace(
     live_anomalies_cache=state.live_anomalies_cache,
     live_scan_lock=state.live_scan_lock,
     logger=logger,
-    market_data_adapter=market_data_adapter,
     normalize_query_for_provider=normalize_query_for_provider,
     pricing_config=paid_kit.pricing_config,
     provider_control=provider_control,
     provider_registry=provider_registry,
-    scan_mexc_live=scan_mexc_live,
 )))
 
 app.include_router(create_agent_router(SimpleNamespace(
@@ -1497,4 +1600,8 @@ app.include_router(create_payments_router(SimpleNamespace(
 app.include_router(create_reports_router(SimpleNamespace(
     logger=logger,
     run_paid_provider_report=run_paid_provider_report,
+)))
+
+app.include_router(create_sessions_router(SimpleNamespace(
+    storage_backend=storage_backend,
 )))

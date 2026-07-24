@@ -33,22 +33,29 @@ def fetch_json_or_none(
     context: str = "request",
     headers: Optional[dict] = None,
 ) -> Optional[dict]:
-    try:
-        resp = requests.get(url, params=params, headers=headers or MEXC_HEADERS, timeout=timeout)
-        content_type = (resp.headers.get("content-type") or "").lower()
-        if resp.status_code >= 400:
-            logger.warning("%s returned HTTP %s", context, resp.status_code)
-            return None
-        if "json" not in content_type and not resp.text.strip().startswith(("{", "[")):
-            logger.warning("%s returned non-JSON content-type=%s", context, content_type or "unknown")
-            return None
-        return resp.json()
-    except requests.Timeout:
-        logger.warning("%s timed out", context)
-    except ValueError:
-        logger.warning("%s returned invalid JSON", context)
-    except requests.RequestException as exc:
-        logger.warning("%s request failed: %s", context, exc)
+    for attempt in range(2):
+        try:
+            resp = requests.get(url, params=params, headers=headers or MEXC_HEADERS, timeout=timeout)
+            content_type = (resp.headers.get("content-type") or "").lower()
+            if resp.status_code >= 400:
+                logger.warning("%s returned HTTP %s", context, resp.status_code)
+                return None
+            if "json" not in content_type and not resp.text.strip().startswith(("{", "[")):
+                logger.warning("%s returned non-JSON content-type=%s", context, content_type or "unknown")
+                return None
+            return resp.json()
+        except requests.Timeout:
+            logger.warning("%s timed out", context)
+            break
+        except ValueError:
+            logger.warning("%s returned invalid JSON", context)
+            break
+        except requests.RequestException as exc:
+            if attempt == 0 and isinstance(exc, (requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError)):
+                time.sleep(0.3)
+                continue
+            logger.warning("%s request failed: %s", context, exc)
+            break
     return None
 
 

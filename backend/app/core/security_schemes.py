@@ -48,3 +48,12 @@ qma_internal_secret_header = APIKeyHeader(
     scheme_name="x-qma-internal-secret",
     auto_error=False,
 )
+
+qma_invoice_secret_header = APIKeyHeader(
+    name="X-QMA-Invoice-Secret",
+    scheme_name="X-QMA-Invoice-Secret",
+    auto_error=False,
+    description="""Invoice secret used to prove ownership/buyer binding for an invoice status check.
+
+**Fallback:** Can be passed via the `invoice_secret` query parameter for backward compatibility.""",
+)

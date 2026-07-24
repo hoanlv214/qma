@@ -181,12 +181,10 @@ def test_reserve_returns_404_for_unknown_leg():
 def test_internal_auth_missing_and_invalid():
     invoice = {"invoice_id": "test_auth", "status": "pending", "split": {"legs": []}}
     
-    # Missing secret
     client = build_client(invoice)
     response = client.get("/api/internal/invoices/test_auth/split-leg/creator")
     assert response.status_code == 403
 
-    # Invalid secret
     response = client.get("/api/internal/invoices/test_auth/split-leg/creator", headers={"x-qma-internal-secret": "wrong"})
     assert response.status_code == 403
 
@@ -267,7 +265,6 @@ def test_record_rejects_invalid_amount_or_pay_to():
     }
     client = build_client(invoice)
     
-    # Wrong amount
     response = client.post(
         "/api/internal/invoices/inv_record/split-leg/creator/record",
         headers={"x-qma-internal-secret": "test-secret"},
@@ -276,7 +273,6 @@ def test_record_rejects_invalid_amount_or_pay_to():
     assert response.status_code == 400
     assert "amount does not match" in response.json()["detail"]
 
-    # Wrong pay_to
     response = client.post(
         "/api/internal/invoices/inv_record/split-leg/creator/record",
         headers={"x-qma-internal-secret": "test-secret"},
@@ -295,7 +291,6 @@ def test_record_rejects_missing_or_claimed_settlement():
     }
     client = build_client(invoice)
     
-    # Missing settlement
     response = client.post(
         "/api/internal/invoices/inv_record/split-leg/creator/record",
         headers={"x-qma-internal-secret": "test-secret"},
@@ -303,7 +298,6 @@ def test_record_rejects_missing_or_claimed_settlement():
     )
     assert response.status_code == 400
     
-    # Claimed settlement
     response = client.post(
         "/api/internal/invoices/inv_record/split-leg/creator/record",
         headers={"x-qma-internal-secret": "test-secret"},
@@ -378,12 +372,6 @@ def test_get_internal_split_leg():
 
 def test_internal_auth_missing_env():
     invoice = {"invoice_id": "test_env", "status": "pending", "split": {"legs": []}}
-    # Override secret to None
-    from types import SimpleNamespace
-    import time
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
-    from backend.app.api.v1.endpoints.internal import create_internal_router
     deps = SimpleNamespace(
         arc_gateway_internal_secret=None,
         invoices_db={invoice["invoice_id"]: invoice},
@@ -405,30 +393,24 @@ def test_internal_auth_missing_env():
 def test_get_internal_split_leg_not_found():
     invoice = {"invoice_id": "inv_get_404", "status": "pending", "split": {"legs": []}}
     client = build_client(invoice)
-    # invoice not found
     response = client.get("/api/internal/invoices/inv_missing/split-leg/creator", headers={"x-qma-internal-secret": "test-secret"})
     assert response.status_code == 404
-    # leg not found
     response = client.get("/api/internal/invoices/inv_get_404/split-leg/creator", headers={"x-qma-internal-secret": "test-secret"})
     assert response.status_code == 404
 
 def test_release_internal_split_leg_not_found():
     invoice = {"invoice_id": "inv_release_404", "status": "pending", "split": {"legs": []}}
     client = build_client(invoice)
-    # invoice not found
     response = client.post("/api/internal/invoices/inv_missing/split-leg/creator/release", headers={"x-qma-internal-secret": "test-secret"}, json={})
     assert response.status_code == 404
-    # leg not found
     response = client.post("/api/internal/invoices/inv_release_404/split-leg/creator/release", headers={"x-qma-internal-secret": "test-secret"}, json={})
     assert response.status_code == 404
 
 def test_record_internal_split_leg_not_found():
     invoice = {"invoice_id": "inv_record_404", "status": "pending", "split": {"legs": []}}
     client = build_client(invoice)
-    # invoice not found
     response = client.post("/api/internal/invoices/inv_missing/split-leg/creator/record", headers={"x-qma-internal-secret": "test-secret"}, json={"amount_raw": "0", "pay_to": "0x", "settlement_id": "s"})
     assert response.status_code == 404
-    # leg not found
     response = client.post("/api/internal/invoices/inv_record_404/split-leg/creator/record", headers={"x-qma-internal-secret": "test-secret"}, json={"amount_raw": "0", "pay_to": "0x", "settlement_id": "s"})
     assert response.status_code == 404
 
@@ -466,12 +448,6 @@ def test_record_fallback_verification():
     }
     
     saved_invoices = []
-    
-    # We create a client where verify_split_receipt checks if we passed buyer_wallet_address
-    from types import SimpleNamespace
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
-    from backend.app.api.v1.endpoints.internal import create_internal_router
     deps = SimpleNamespace(
         arc_gateway_internal_secret="test-secret",
         invoices_db={invoice["invoice_id"]: invoice},

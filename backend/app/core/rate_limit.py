@@ -24,7 +24,7 @@ def rate_limit_for_path(path: str) -> tuple[str, int]:
         return "paid_report", int(os.getenv("QMA_RATE_LIMIT_REPORT_PER_MIN", "30"))
     if path.startswith("/api/v1/preview") or path.startswith("/api/v1/analyze"):
         return "paid_report", int(os.getenv("QMA_RATE_LIMIT_REPORT_PER_MIN", "30"))
-    if path.startswith("/api/v1/live-anomalies") or path.startswith("/api/v1/agent/recommendations"):
+    if (path.startswith("/api/v1/providers/") and path.endswith("/live-anomalies")) or path.startswith("/api/v1/agent/recommendations"):
         return "public_market", int(os.getenv("QMA_RATE_LIMIT_PUBLIC_MARKET_PER_MIN", "120"))
     if path.startswith("/api/v1/creators/apply"):
         return "creator_apply", int(os.getenv("QMA_RATE_LIMIT_CREATOR_APPLY_PER_MIN", "6"))

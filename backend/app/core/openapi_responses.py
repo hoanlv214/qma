@@ -16,6 +16,7 @@ ERROR_RESPONSES = {
     409: {"description": "The request conflicts with the current resource state."},
     429: {"description": "The request was rate limited. Retry after the indicated delay."},
     500: {"description": "The server could not complete the request."},
+    501: {"description": "The requested feature is not implemented by the provider."},
     502: {"description": "An upstream Gateway or relayer request failed."},
     503: {"description": "A required service or configuration is unavailable."},
 }

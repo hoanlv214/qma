@@ -273,6 +273,19 @@ class JsonStorage:
             return record
         return None
 
+    def is_settlement_id_claimed(self, settlement_id: str, exclude_invoice_id: Optional[str] = None) -> bool:
+        if not settlement_id:
+            return False
+        for other_id, invoice in self.load_invoices().items():
+            if other_id == exclude_invoice_id:
+                continue
+            if invoice.get("settlement_id") == settlement_id:
+                return True
+            for leg in (invoice.get("split") or {}).get("legs") or []:
+                if leg.get("settlement_id") == settlement_id:
+                    return True
+        return False
+
     def save_paid_reports(self, reports: dict) -> None:
         self._save_json(self.reports_path, reports)
 
@@ -500,6 +513,26 @@ class SupabaseStorage:
     def load_paid_report_by_id(self, address: str, entitlement_id: str) -> Optional[dict]:
         record = self.load_paid_reports().get(entitlement_id)
         return record if wallet_matches(record, address) else None
+
+    def is_settlement_id_claimed(self, settlement_id: str, exclude_invoice_id: Optional[str] = None) -> bool:
+        if not settlement_id:
+            return False
+        try:
+            rows = self._request(
+                "GET",
+                "qma_payment_events",
+                params={
+                    "select": "invoice_id",
+                    "settlement_id": f"eq.{settlement_id}",
+                    "limit": "1"
+                },
+            ) or []
+            for row in rows:
+                if row.get("invoice_id") != exclude_invoice_id:
+                    return True
+        except RuntimeError:
+            pass
+        return False
 
     def save_paid_reports(self, reports: dict) -> None:
         rows = []

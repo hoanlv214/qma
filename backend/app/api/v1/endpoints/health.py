@@ -1,10 +1,8 @@
-"""Static shell, health, and public config endpoints."""
+"""Health and public config endpoints."""
 
-from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Query
-from fastapi.responses import HTMLResponse
 
 from backend.app.schemas import HealthResponse, ClientConfigResponse
 from backend.app.core.openapi_responses import documented_errors
@@ -12,40 +10,8 @@ from backend.app.core.openapi_responses import documented_errors
 router = APIRouter(tags=["System"])
 
 
-def serve_html_file(root_dir: Path, filename: str, fallback: str, status_code: int = 200):
-    html_path = root_dir / filename
-    if html_path.exists():
-        return html_path.read_text(encoding="utf-8")
-    return HTMLResponse(fallback, status_code=status_code)
-
-
 def create_health_router(deps: SimpleNamespace) -> APIRouter:
     migrated = APIRouter(tags=["System"])
-
-    @migrated.get("/", response_class=HTMLResponse, include_in_schema=False)
-    def get_landing():
-        """Serves the short Lepton landing page."""
-        return serve_html_file(deps.root_dir, "index.html", "<h1>QMA Landing File not found</h1>", status_code=404)
-
-    @migrated.get("/app", response_class=HTMLResponse, include_in_schema=False)
-    def get_app():
-        """Serves the front-end dashboard UI."""
-        return serve_html_file(deps.root_dir, "app.html", "<h1>QMA UI File not found</h1>", status_code=404)
-
-    @migrated.get("/user", response_class=HTMLResponse, include_in_schema=False)
-    def get_user_profile():
-        """Serves the wallet profile/history UI."""
-        return serve_html_file(deps.root_dir, "user.html", "<h1>QMA User Profile File not found</h1>", status_code=404)
-
-    @migrated.get("/profile", response_class=HTMLResponse, include_in_schema=False)
-    def get_private_profile():
-        """Serves the owner-only wallet profile UI."""
-        return serve_html_file(deps.root_dir, "user.html", "<h1>QMA User Profile File not found</h1>", status_code=404)
-
-    @migrated.get("/marketplace", response_class=HTMLResponse, include_in_schema=False)
-    def get_marketplace():
-        """Serves the creator/provider marketplace UI."""
-        return serve_html_file(deps.root_dir, "marketplace.html", "<h1>QMA Marketplace File not found</h1>", status_code=404)
 
     @migrated.get("/api/v1/health", response_model=HealthResponse, response_model_exclude_unset=True, summary="Check API health", responses=documented_errors(429, 500))
     def get_health():

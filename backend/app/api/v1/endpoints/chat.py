@@ -2,10 +2,13 @@
 
 from types import SimpleNamespace
 
-from fastapi import APIRouter, HTTPException, status
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException, status, Security
 
 from backend.app.schemas import ChatRequest, ChatResponse
 from backend.app.core.openapi_responses import documented_errors
+from backend.app.core.security_schemes import qma_access_token_header
 
 
 router = APIRouter(tags=["Report chat"])
@@ -20,10 +23,17 @@ def create_chat_router(deps: SimpleNamespace) -> APIRouter:
         response_model_exclude_unset=True,
         responses=documented_errors(402, 404, 429, 500),
     )
-    def handle_chat_request(payload: ChatRequest):
+    def handle_chat_request(
+        payload: ChatRequest,
+        qma_access_token: Optional[str] = Security(qma_access_token_header),
+    ):
         """Answers interactive user queries regarding a paid report."""
         invoice_id = payload.invoice_id
         user_message = payload.message
+
+        token_payload = deps.verify_access_token(qma_access_token or "")
+        if token_payload.get("invoice_id") != invoice_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access token does not match requested invoice.")
 
         deps.reload_persistent_state()
 

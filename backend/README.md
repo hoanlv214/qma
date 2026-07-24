@@ -146,7 +146,7 @@ npm start
 ```
 
 Read [`PAYMENT_FLOW.md`](../PAYMENT_FLOW.md) before changing payment or
-settlement behavior. Read [`docs/DEPLOYMENT_SETUP.md`](../docs/DEPLOYMENT_SETUP.md)
+settlement behavior. Read [`docs/infrastructure/DEPLOYMENT_SETUP.md`](../docs/infrastructure/DEPLOYMENT_SETUP.md)
 before changing Render startup or service variables.
 
 ## Verification

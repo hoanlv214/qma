@@ -44,8 +44,18 @@ class Settings:
         return os.getenv("QMA_ACCESS_TOKEN_SECRET") or os.getenv("QMA_SESSION_SECRET") or "qma-local-demo-secret-change-me"
 
     @property
-    def arc_gateway_base_url(self) -> str:
-        return os.getenv("QMA_ARC_GATEWAY_URL", "http://127.0.0.1:3000")
+    def cors_allowed_origins(self) -> list[str]:
+        raw = os.getenv("QMA_CORS_ALLOWED_ORIGINS", "")
+        if raw:
+            return [o.strip() for o in raw.split(",") if o.strip()]
+        return [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "https://qma-api.onrender.com",
+            "https://qma-arc-gateway.onrender.com",
+        ]
 
 
 settings = Settings()

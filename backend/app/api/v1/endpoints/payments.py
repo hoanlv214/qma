@@ -3,7 +3,7 @@
 from types import SimpleNamespace
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Security, HTTPException
 
 from backend.app.schemas import (
     InvoicePaymentStateResponse,
@@ -17,6 +17,7 @@ from backend.app.schemas import (
     WithdrawRequest,
 )
 from backend.app.core.openapi_responses import documented_errors
+from backend.app.core.security_schemes import qma_invoice_secret_header
 
 
 router = APIRouter(tags=["Payments & settlement"])
@@ -33,7 +34,16 @@ def create_payments_router(deps: SimpleNamespace) -> APIRouter:
         tier = deps.normalize_tier(req_data.pop("tier", "full"))
         provider = deps.get_provider_or_404(provider_id)
         req_data = deps.normalize_query_for_provider(provider, req_data)
-        quote = provider.quote_price(req_data, tier)
+        if hasattr(provider, "score"):
+            res = provider.score({"query": req_data, "tier": tier})
+            quote = {
+                "amount_usdc": res["amount_usdc"],
+                "tier": tier,
+                "declared_confidence": res.get("declared_confidence"),
+            }
+        else:
+            quote = provider.quote_price(req_data, tier)
+            
         return {
             "pricing": deps.pricing_config(),
             **quote,
@@ -64,16 +74,20 @@ def create_payments_router(deps: SimpleNamespace) -> APIRouter:
         """Creates a QMA invoice bound to a Circle x402 Arc Testnet payment."""
         return deps.create_invoice(req)
 
-    @migrated.get("/api/v1/payment/invoices/{invoice_id}/status", response_model=InvoicePaymentStateResponse, response_model_exclude_unset=True, tags=["Payments & settlement"], summary="Read invoice payment status", responses=documented_errors(402, 403, 404, 429, 500))
+    @migrated.get("/api/v1/payment/invoices/{invoice_id}/status", response_model=InvoicePaymentStateResponse, response_model_exclude_unset=True, tags=["Payments & settlement"], summary="Read invoice payment status", responses=documented_errors(400, 402, 403, 404, 429, 500))
     def get_payment_invoice_status(
         invoice_id: str,
-        invoice_secret: str = Query(..., min_length=16),
+        invoice_secret_header: Optional[str] = Security(qma_invoice_secret_header),
+        invoice_secret: Optional[str] = Query(default=None),
         refresh: bool = Query(default=True),
     ):
         """Returns the authoritative resumable payment state for one invoice."""
+        secret = invoice_secret_header or invoice_secret
+        if not secret or len(secret) < 16:
+            raise HTTPException(status_code=400, detail="invoice_secret header X-QMA-Invoice-Secret or query parameter is required (min length 16)")
         return deps.get_payment_invoice_status(
             invoice_id=invoice_id,
-            invoice_secret=invoice_secret,
+            invoice_secret=secret,
             refresh=refresh,
         )
 

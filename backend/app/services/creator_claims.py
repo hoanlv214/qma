@@ -154,7 +154,7 @@ def record_withdraw_relay(intent: dict) -> None:
     state.withdraw_relay_daily_events[normalize_address(intent.get("depositor"))].append(time.time())
 
 
-CLAIM_RESERVED_STATUSES = {"requested", "submitted", "paid"}
+CLAIM_RESERVED_STATUSES = {"requested", "submitted", "paid", "unknown"}
 
 
 def creator_claim_records_for_provider(provider_id: str, owner_wallet: Optional[str] = None) -> list:

@@ -54,6 +54,7 @@ class OpenApiDocsTests(unittest.TestCase):
             {
                 "X-QMA-Access-Token",
                 "X-QMA-Wallet-Token",
+                "X-QMA-Invoice-Secret",
                 "x-qma-admin-token",
                 "x-qma-internal-secret",
             },
@@ -80,7 +81,7 @@ class OpenApiDocsTests(unittest.TestCase):
 
     def test_phase3_public_routes_have_response_models(self):
         expected = {
-            ("/api/v1/live-anomalies", "get"): "LiveAnomaliesResponse",
+            ("/api/v1/providers/{provider_id}/live-anomalies", "get"): "LiveAnomaliesResponse",
             ("/api/v1/agent/recommendations", "get"): "AgentRecommendationsResponse",
             ("/api/v1/providers/{provider_id}/preview", "post"): "ProviderReportResponse",
             ("/api/v1/providers/{provider_id}/full-report", "post"): "ProviderReportResponse",

@@ -53,9 +53,22 @@ def provider_control(provider_id: str) -> dict:
 
 
 def provider_metadata(provider) -> dict:
-    metadata = provider.metadata()
+    if hasattr(provider, "manifest"):
+        metadata = provider.manifest()
+        metadata["provider_name"] = metadata.get("name", provider.provider_id)
+    else:
+        metadata = provider.metadata()
+        metadata["provider_name"] = getattr(provider, "provider_name", metadata.get("provider_name", provider.provider_id))
+        
+    metadata["provider_id"] = provider.provider_id
     metadata["enabled"] = provider_control(provider.provider_id)["enabled"]
     metadata["control"] = provider_control(provider.provider_id)
+    
+    # Pass through wallet properties so the frontend UI can determine user roles correctly
+    metadata["owner_wallet"] = getattr(provider, "owner_wallet", None)
+    metadata["revenue_wallet"] = getattr(provider, "revenue_wallet", None)
+    metadata["revenue_share_bps"] = getattr(provider, "revenue_share_bps", 8000)
+
     return metadata
 
 
@@ -69,35 +82,27 @@ def get_provider_or_404(provider_registry, provider_id: str, *, allow_disabled: 
     return provider
 
 
+def _get_all_providers(provider_registry) -> list:
+    if hasattr(provider_registry, "list_providers"):
+        return provider_registry.list_providers()
+    return [provider_registry.require(item["provider_id"]) for item in provider_registry.list() if item.get("provider_id")]
+
+
 def provider_ids_owned_by(provider_registry, address: str) -> list[str]:
     owner = normalize_address(address)
     owned = []
-    for item in provider_registry.list():
-        provider_id = item.get("provider_id")
-        if not provider_id:
-            continue
-        try:
-            provider = provider_registry.require(provider_id)
-        except Exception:
-            continue
-        if same_address(provider.owner_wallet, owner):
-            owned.append(provider_id)
+    for provider in _get_all_providers(provider_registry):
+        if same_address(getattr(provider, "owner_wallet", None), owner):
+            owned.append(provider.provider_id)
     return sorted(owned)
 
 
 def provider_ids_by_revenue_wallet(provider_registry, address: str) -> list[str]:
     wallet = normalize_address(address)
     matched = []
-    for item in provider_registry.list():
-        provider_id = item.get("provider_id")
-        if not provider_id:
-            continue
-        try:
-            provider = provider_registry.require(provider_id)
-        except Exception:
-            continue
+    for provider in _get_all_providers(provider_registry):
         if same_address(provider_revenue_wallet(provider), wallet):
-            matched.append(provider_id)
+            matched.append(provider.provider_id)
     return sorted(matched)
 
 
@@ -270,9 +275,10 @@ def build_provider_stats(
         if event.get("symbol"):
             top_symbols[event["symbol"]] = top_symbols.get(event["symbol"], 0) + 1
     tier_counts.pop("_seen", None)
+    provider_name = provider.manifest().get("name") if hasattr(provider, "manifest") else getattr(provider, "provider_name", provider_id)
     return {
         "provider_id": provider_id,
-        "provider_name": provider.provider_name,
+        "provider_name": provider_name,
         "owner_wallet": provider.owner_wallet,
         "revenue_wallet": revenue_wallet,
         "status": getattr(provider, "status", "approved"),

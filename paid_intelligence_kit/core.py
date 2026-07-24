@@ -89,38 +89,29 @@ def accounting_profile(*, amount_usdc: float, currency: str = DEFAULT_SETTLEMENT
     }
 
 
-def signal_complexity_score(query: dict) -> float:
-    """0-100 score from live signal structure; higher means a richer/more unusual setup."""
-    funding_pct = abs(float(query.get("fundingRate") or 0) * 100)
-    volume = float(query.get("volume24h") or 0)
-    market_cap = max(float(query.get("marketCap") or 0), 1)
-    circ = float(query.get("circRatio") or 0)
-    ath = abs(float(query.get("fromATH") or 0))
-    volume_score = min(25.0, (volume / market_cap) * 100)
-    funding_score = min(45.0, funding_pct * 18)
-    structure_score = min(20.0, max(0.0, 1.0 - abs(circ - 0.65)) * 20)
-    discount_score = min(10.0, ath / 10)
-    return round(min(100.0, funding_score + volume_score + structure_score + discount_score), 1)
+def compute_complexity_uplift(base_price: float, complexity_score: float, uplift_max: float) -> float:
+    """Generic uplift calculator based on a provider-supplied complexity score (0-100)."""
+    if uplift_max <= 0 or complexity_score <= 0:
+        return base_price
+    multiplier = 1.0 + (min(100.0, complexity_score) / 100.0) * uplift_max
+    return round(base_price * multiplier, 6)
 
 
 def quote_tier_price(
-    query: dict,
     tier: Optional[str],
     *,
     base_preview: Optional[float] = None,
     base_full: Optional[float] = None,
+    complexity_score: float = 0,
 ) -> float:
-    """Base tier price adjusted by signal complexity. Uplift defaults to 0 for backward compatibility."""
+    """Base tier price adjusted by an explicit provider complexity score."""
     normalized = normalize_tier(tier)
     base = float(base_preview if normalized == "preview" else base_full) if (
         base_preview if normalized == "preview" else base_full
     ) is not None else tier_price(normalized)
+    
     uplift_max = float(os.getenv("QMA_PRICE_COMPLEXITY_UPLIFT_MAX", "0"))
-    if uplift_max <= 0:
-        return round(base, 6)
-    score = signal_complexity_score(query)
-    multiplier = 1.0 + (score / 100.0) * uplift_max
-    return round(base * multiplier, 6)
+    return compute_complexity_uplift(base, complexity_score, uplift_max)
 
 
 def has_tier_access(purchased_tier: Optional[str], required_tier: Optional[str]) -> bool:
@@ -130,27 +121,19 @@ def has_tier_access(purchased_tier: Optional[str], required_tier: Optional[str])
 
 
 def canonical_query_payload(query: dict) -> dict:
-    """Stable query payload so paid access cannot be reused for changed inputs."""
-
-    def as_float(value):
-        if value is None:
-            return None
-        return round(float(value), 12)
-
-    return {
-        "symbol": str(query.get("symbol", "")).upper(),
-        "fundingRate": as_float(query.get("fundingRate")),
-        "marketCap": as_float(query.get("marketCap")),
-        "FDV": as_float(query.get("FDV")),
-        "circRatio": as_float(query.get("circRatio")),
-        "fromATH": as_float(query.get("fromATH")),
-        "volume24h": as_float(query.get("volume24h")),
-        "amount": as_float(query.get("amount")),
-        "openInterest": as_float(query.get("openInterest")),
-        "openInterestChange24h": as_float(query.get("openInterestChange24h")),
-        "longShortRatio": as_float(query.get("longShortRatio")),
-        "price": as_float(query.get("price")),
-    }
+    """Stable, domain-agnostic query payload so paid access cannot be reused for changed inputs."""
+    def _normalize(item):
+        if isinstance(item, dict):
+            return {k: _normalize(v) for k, v in sorted(item.items())}
+        if isinstance(item, list):
+            return [_normalize(x) for x in item]
+        if isinstance(item, float):
+            return round(item, 12)
+        if isinstance(item, str):
+            return item.strip().upper()  # Consistent casing for simple string matching
+        return item
+    
+    return _normalize(query)
 
 
 def query_fingerprint(query: dict) -> str:
@@ -215,6 +198,7 @@ def payment_requirement(
         "facilitator": facilitator_url,
         "explorer": explorer_url,
         "expires_in_seconds": ttl_seconds,
+        "split_legs": [], # Placeholder for Two-Toll routing
     }
 
 

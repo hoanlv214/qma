@@ -1,4 +1,4 @@
-"""HTTP contract coverage for cutover batch A.
+"""HTTP contract coverage for Payments, Market, Providers, and Health endpoints.
 
 All persistence and gateway calls are isolated. These tests exercise the active
 FastAPI app through HTTP, but never contact Circle, Supabase, or a wallet.
@@ -100,7 +100,7 @@ def make_split_invoice(invoice_id: str = "inv_http_contract") -> dict:
     }
 
 
-class HttpContractBatchATests(unittest.TestCase):
+class ApiHealthMarketProvidersTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.client = TestClient(app_module.app)
@@ -216,18 +216,23 @@ class HttpContractBatchATests(unittest.TestCase):
         pending = make_split_invoice("inv_http_secret")
         self.seed_invoice(pending)
         with patch.object(app_module, "_save_invoice", lambda *_args, **_kwargs: None):
-            response = self.client.get(
+            response_header = self.client.get(
+                f"/api/v1/payment/invoices/{invoice['invoice_id']}/status",
+                headers={"X-QMA-Invoice-Secret": invoice["invoice_secret"]},
+            )
+            response_query = self.client.get(
                 f"/api/v1/payment/invoices/{invoice['invoice_id']}/status",
                 params={"invoice_secret": invoice["invoice_secret"]},
             )
             invalid = self.client.get(
                 f"/api/v1/payment/invoices/{pending['invoice_id']}/status",
-                params={"invoice_secret": "wrong-secret-value-123"},
+                headers={"X-QMA-Invoice-Secret": "wrong-secret-value-123"},
             )
 
-        self.assertEqual(response.status_code, 402)
-        self.assertEqual(response.json()["detail"]["error"], "invoice_expired")
-        self.assertIn("Create a fresh invoice", response.json()["detail"]["message"])
+        self.assertEqual(response_header.status_code, 402)
+        self.assertEqual(response_query.status_code, 402)
+        self.assertEqual(response_header.json()["detail"]["error"], "invoice_expired")
+        self.assertIn("Create a fresh invoice", response_header.json()["detail"]["message"])
         self.assertEqual(invalid.status_code, 403)
         self.assertEqual(invalid.json()["detail"], "Invoice secret mismatch.")
 

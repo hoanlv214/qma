@@ -357,8 +357,10 @@ def create_providers_router(deps: SimpleNamespace) -> APIRouter:
             )
             data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
             if not resp.ok or data.get("error"):
+                upstream_status = resp.status_code
+                status_to_raise = 400 if (400 <= upstream_status < 500) else 502
                 raise HTTPException(
-                    status_code=502,
+                    status_code=status_to_raise,
                     detail=data.get("error") or f"Claim payout executor returned {resp.status_code}: {resp.text[:240]}",
                 )
             record.update({
@@ -375,8 +377,9 @@ def create_providers_router(deps: SimpleNamespace) -> APIRouter:
                 "message": "Creator claim paid on-chain.",
             }
         except HTTPException as exc:
+            status_val = "unknown" if exc.status_code >= 500 else "failed"
             record.update({
-                "status": "failed",
+                "status": status_val,
                 "failed_at": time.time(),
                 "error": exc.detail,
             })
@@ -385,12 +388,12 @@ def create_providers_router(deps: SimpleNamespace) -> APIRouter:
             raise
         except Exception as exc:
             record.update({
-                "status": "failed",
+                "status": "unknown",
                 "failed_at": time.time(),
-                "error": str(exc),
+                "error": f"Timeout or unexpected error: {str(exc)}",
             })
             deps.save_creator_claim_record(record)
             deps.reload_persistent_state(include_reports=False)
-            raise HTTPException(status_code=502, detail=f"Creator claim payout failed: {exc}")
+            raise HTTPException(status_code=502, detail=f"Creator claim payout status unknown: {exc}")
 
     return migrated

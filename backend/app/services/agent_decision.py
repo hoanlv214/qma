@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+import time
 from types import SimpleNamespace
 from typing import Optional
 
@@ -91,6 +92,8 @@ def _has_entitlement(entitlements: list, symbol: str, tier: str, provider_id: Op
 
 def _price_for(deps: SimpleNamespace, candidate: dict, tier: str) -> float:
     provider = deps.provider_registry.require(candidate["provider_id"])
+    if hasattr(provider, "score"):
+        return round(float(provider.score({"query": candidate.get("query") or {}, "tier": tier})["amount_usdc"]), 6)
     return round(float(provider.quote_price(candidate.get("query") or {}, tier)["amount_usdc"]), 6)
 
 

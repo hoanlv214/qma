@@ -16,18 +16,39 @@ from backend.app.schemas import PaymentVerifyRequest
 
 app = _backend.app
 
+# Re-export state and config constants for test shim compatibility
+state = _state
+storage = getattr(_backend, "storage", None)
+ARC_GATEWAY_WALLET = getattr(_backend, "ARC_GATEWAY_WALLET", None)
+ARC_GATEWAY_MINTER = getattr(_backend, "ARC_GATEWAY_MINTER", None)
+ARC_TESTNET_USDC = getattr(_backend, "ARC_TESTNET_USDC", None)
+WITHDRAW_MODE = getattr(_backend, "WITHDRAW_MODE", None)
+
 # Legacy mutable globals used by tests and old scripts. Wrapper functions below
 # sync these into backend.app.core.state before delegating to backend services.
 invoices_db = _state.invoices_db
 payment_events = _state.payment_events
 
 save_invoice = _backend._save_invoice
+_save_invoice = _backend._save_invoice
 save_payment_ledger = _backend._save_payment_ledger
+_save_payment_ledger = _backend._save_payment_ledger
 reload_persistent_state = _backend.reload_persistent_state
 load_invoices = _backend._load_invoices
+_load_invoices = _backend._load_invoices
 fetch_circle_settlement = _backend.fetch_circle_settlement
 find_arc_batch_tx = _backend.find_arc_batch_tx
 refresh_split_leg_batch_txs = _backend.refresh_split_leg_batch_txs
+authorized_gateway_withdraw_depositor = getattr(_backend, "authorized_gateway_withdraw_depositor", None)
+save_paid_reports = getattr(_backend, "save_paid_reports", lambda *args, **kwargs: None)
+load_paid_reports = getattr(_backend, "load_paid_reports", lambda *args, **kwargs: {})
+load_paid_reports_for_wallet = getattr(_backend, "load_paid_reports_for_wallet", lambda *args, **kwargs: {})
+get_provider_or_404 = getattr(_backend, "get_provider_or_404", None)
+provider_registry = getattr(_backend, "provider_registry", None)
+normalize_query_for_provider = getattr(_backend, "normalize_query_for_provider", None)
+query_fingerprint = getattr(_backend, "query_fingerprint", None)
+issue_invoice_access_token = getattr(_backend, "issue_invoice_access_token", None)
+paid_kit = getattr(_backend, "paid_kit", None)
 
 sign_split_receipt = _backend.sign_split_receipt
 

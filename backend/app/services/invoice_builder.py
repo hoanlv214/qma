@@ -170,11 +170,14 @@ def settlement_id_already_claimed(
     exclude_invoice_id: Optional[str] = None,
     load_invoices_fn=None,
     invoices_db=None,
+    storage_backend=None,
 ) -> bool:
     """True if settlement_id is already recorded against a paid leg on a
     *different* invoice."""
     if not settlement_id:
         return False
+    if storage_backend and hasattr(storage_backend, "is_settlement_id_claimed"):
+        return storage_backend.is_settlement_id_claimed(settlement_id, exclude_invoice_id)
     try:
         all_invoices = load_invoices_fn() if load_invoices_fn else (invoices_db or {})
     except Exception:

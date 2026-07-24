@@ -42,7 +42,7 @@ def make_app(entitlements=None, recommendations=None):
     return app
 
 
-class AgentDecisionContractTests(unittest.TestCase):
+class AgentDecisionApiTests(unittest.TestCase):
     def setUp(self):
         self.previous_key = os.environ.pop("OPENAI_API_KEY", None)
 
@@ -64,14 +64,15 @@ class AgentDecisionContractTests(unittest.TestCase):
         self.assertEqual(body["resolved_candidate"]["price_usdc"], 0.001)
 
     def test_endpoint_skips_full_entitlement(self):
-        response = TestClient(make_app([{"symbol": "SXT", "tier": "full"}])).post(
+        import time
+        response = TestClient(make_app([{"symbol": "SXT", "tier": "full", "paid_at": time.time()}])).post(
             "/api/v1/agent/decision",
             json={"prompt": "Find the best report under 0.01 USDC", "wallet": "0x1111111111111111111111111111111111111111"},
         )
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual(body["plan"]["action"], "skip")
-        self.assertIsNone(body["resolved_candidate"])
+        self.assertIsNone(body.get("resolved_candidate"))
 
     def test_endpoint_exposes_provider_comparison_and_selection_basis(self):
         recommendations = [
@@ -242,3 +243,7 @@ class AgentDecisionContractTests(unittest.TestCase):
             json={"prompt": "monitor reports", "allowed_tiers": ["intraday"]},
         )
         self.assertEqual(response.status_code, 422)
+
+
+if __name__ == "__main__":
+    unittest.main()
