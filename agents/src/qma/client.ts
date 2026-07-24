@@ -88,13 +88,19 @@ function mapEntitlement(value: unknown): QmaEntitlement {
 
 export class QmaClient {
   private readonly baseUrl: string;
+  private readonly apiKey?: string;
 
-  constructor(baseUrl = process.env.QMA_API_URL || "http://127.0.0.1:8000") {
-    this.baseUrl = baseUrl.replace(/\/$/, "");
+  constructor(options: { baseUrl?: string; apiKey?: string } = {}) {
+    this.baseUrl = (options.baseUrl || process.env.QMA_API_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
+    this.apiKey = options.apiKey || process.env.QMA_API_KEY;
   }
 
   private async getJson<T>(path: string): Promise<T> {
-    const response = await fetch(`${this.baseUrl}${path}`);
+    const headers: Record<string, string> = {};
+    if (this.apiKey) {
+      headers["Authorization"] = `Bearer ${this.apiKey}`;
+    }
+    const response = await fetch(`${this.baseUrl}${path}`, { headers });
     const body = await response.text();
     let data: unknown = {};
     try {
@@ -104,6 +110,29 @@ export class QmaClient {
     }
     if (!response.ok) {
       throw new Error(`QMA ${path} returned HTTP ${response.status}: ${body}`);
+    }
+    return data as T;
+  }
+
+  private async postJson<T>(path: string, payload: unknown): Promise<T> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (this.apiKey) {
+      headers["Authorization"] = `Bearer ${this.apiKey}`;
+    }
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload)
+    });
+    const body = await response.text();
+    let data: unknown = {};
+    try {
+      data = body ? JSON.parse(body) : {};
+    } catch {
+      throw new Error(`QMA returned non-JSON response for POST ${path}.`);
+    }
+    if (!response.ok) {
+      throw new Error(`QMA POST ${path} returned HTTP ${response.status}: ${body}`);
     }
     return data as T;
   }
@@ -147,5 +176,13 @@ export class QmaClient {
       entitlements,
       pricing,
     };
+  }
+
+  async getAgentDecision(payload: Record<string, unknown>): Promise<any> {
+    return this.postJson(`/api/v1/agent/decision`, payload);
+  }
+
+  async createAgentInvoice(payload: Record<string, unknown>): Promise<any> {
+    return this.postJson(`/api/v1/payment/invoice`, payload);
   }
 }

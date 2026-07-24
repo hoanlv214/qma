@@ -25,6 +25,7 @@ export interface SessionDeps {
   purchase: (candidate: SessionCandidate, state: SessionState, policy: SessionPolicy) => Promise<PurchaseResult>;
   sleep?: (seconds: number, signal?: AbortSignal) => Promise<void>;
   onEvent?: (event: Record<string, unknown>) => void;
+  onStateChange?: (state: SessionState) => void;
   now?: () => number;
 }
 
@@ -62,12 +63,25 @@ function chooseCandidate(state: SessionState, policy: SessionPolicy, candidates:
     : { reason: "no candidate passed provider, tier, ownership, score, cooldown, and price policy" };
 }
 
-export async function runAutonomousSession(policy: SessionPolicy, deps: SessionDeps, signal?: AbortSignal): Promise<Record<string, unknown>> {
+export async function runAutonomousSession(policy: SessionPolicy, deps: SessionDeps, signal?: AbortSignal, initialState?: Partial<SessionState>): Promise<Record<string, unknown>> {
   const state = createSessionState(policy);
-  startSession(state);
+  if (initialState) {
+    Object.assign(state, initialState);
+  }
+  const isResume = !!initialState;
+
+  if (state.status === "completed" || state.status === "failed") {
+    throw new Error("Cannot resume a completed or failed session");
+  }
+
+  if (state.status === "created") startSession(state);
+  else if (state.status === "paused") state.status = "running";
   const sleep = deps.sleep || defaultSleep;
   const now = deps.now || (() => Date.now());
-  deps.onEvent?.({ event: "session_started", session_id: state.sessionId });
+  
+  if (!isResume) deps.onEvent?.({ event: "session_started", session_id: state.sessionId });
+  else deps.onEvent?.({ event: "session_resumed", session_id: state.sessionId });
+  deps.onStateChange?.(state);
 
   try {
     while (state.status === "running") {
@@ -110,7 +124,15 @@ export async function runAutonomousSession(policy: SessionPolicy, deps: SessionD
         deps.onEvent?.({ event: "wait", session_id: state.sessionId, reason: decision.reason });
       } else {
         const action = decision.candidate.upgrade ? "upgrade" : "purchase";
-        recordAction(state, { action, candidate_id: decision.candidate.candidate_id, symbol: decision.candidate.symbol, reason: decision.reason });
+        recordAction(state, { 
+          action, 
+          candidate_id: decision.candidate.candidate_id, 
+          symbol: decision.candidate.symbol, 
+          tier: decision.candidate.tier,
+          provider: decision.candidate.provider_id,
+          amount_usdc: decision.candidate.price_usdc,
+          reason: decision.reason 
+        });
         const result = await deps.purchase(decision.candidate, state, policy);
         if (result.status === "completed") {
           recordPurchase(state, policy, decision.candidate, result);
@@ -123,6 +145,7 @@ export async function runAutonomousSession(policy: SessionPolicy, deps: SessionD
         }
       }
       if (policy.runOnce) { finishSession(state, "completed", "run_once"); break; }
+      deps.onStateChange?.(state);
       await sleep(policy.pollIntervalSeconds, signal);
     }
   } catch (error) {
@@ -130,6 +153,7 @@ export async function runAutonomousSession(policy: SessionPolicy, deps: SessionD
     if (message === "manual_interrupt" || signal?.aborted) finishSession(state, "completed", "manual_interrupt");
     else { recordFailure(state, { error: message }); finishSession(state, "failed", message); }
   }
+  deps.onStateChange?.(state);
   deps.onEvent?.({ event: "session_finished", session_id: state.sessionId, stop_reason: state.stopReason });
   return sessionReport(state, policy);
 }

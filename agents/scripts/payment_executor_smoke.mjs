@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
-import {
-  createCircleAgentWalletExecutor,
-  createPaymentExecutor,
-} from "../dist/executor/paymentExecutor.js";
+import { createPaymentExecutor } from "../dist/executor/paymentExecutor.js";
+import { createCircleAgentWalletExecutor } from "../dist/wallets/circleSigner.js";
 
 const invoice = {
   invoice_id: "inv_smoke",
