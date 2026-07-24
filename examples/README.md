@@ -2,8 +2,8 @@
 
 This directory contains executable external-agent examples. The web dashboard
 is not required. For the complete architecture and sequence diagram, read
-[docs/AUTONOMOUS_AGENT.md](../docs/AUTONOMOUS_AGENT.md). For the HTTP contract,
-read [docs/AGENT_API.md](../docs/AGENT_API.md).
+[docs/architecture/AUTONOMOUS_AGENT.md](../docs/architecture/AUTONOMOUS_AGENT.md). For the HTTP contract,
+read [docs/specs/AGENT_API.md](../docs/specs/AGENT_API.md).
 
 ## Buyer flow
 

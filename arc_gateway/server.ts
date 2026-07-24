@@ -15,10 +15,11 @@ import {
 } from "viem";
 import { arcTestnet } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
-import { decodeBatch } from "./decode-batch.ts";
+import { decodeBatch } from "./decode-batch.js";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import circle from "@circle-fin/developer-controlled-wallets";
 
 type PaidRequest = express.Request & {
   payment?: {
@@ -70,11 +71,18 @@ const GATEWAY_MINTER =
   "0x0022222ABE238Cc2C7Bb1f21003F0a260052475B";
 const RELAYER_PRIVATE_KEY = process.env.QMA_WITHDRAW_RELAYER_PRIVATE_KEY as Hex | undefined;
 const RELAYER_ADDRESS = process.env.QMA_WITHDRAW_RELAYER_ADDRESS;
-const CLAIM_PAYOUT_PRIVATE_KEY = (
-  process.env.QMA_CREATOR_CLAIM_PAYOUT_PRIVATE_KEY ??
-  process.env.QMA_TREASURY_PAYOUT_PRIVATE_KEY ??
-  process.env.QMA_WITHDRAW_RELAYER_PRIVATE_KEY
-) as Hex | undefined;
+const TREASURY_WALLET_ID = process.env.TREASURY_WALLET_ID;
+const CIRCLE_CONSOLE_API_KEY = process.env.CIRCLE_CONSOLE_API_KEY;
+const CIRCLE_ENTITY_SECRET = process.env.CIRCLE_ENTITY_SECRET;
+
+let circleClient: ReturnType<typeof circle.initiateDeveloperControlledWalletsClient> | null = null;
+if (CIRCLE_CONSOLE_API_KEY && CIRCLE_ENTITY_SECRET) {
+  circleClient = circle.initiateDeveloperControlledWalletsClient({
+    apiKey: CIRCLE_CONSOLE_API_KEY,
+    entitySecret: CIRCLE_ENTITY_SECRET,
+  });
+}
+
 const INTERNAL_SECRET = process.env.QMA_ARC_GATEWAY_INTERNAL_SECRET ?? "";
 const SPLIT_LEG_URL_SECRET =
   process.env.QMA_SPLIT_LEG_URL_SECRET ??
@@ -491,7 +499,7 @@ app.get("/qma-access/split-leg", async (req, res) => {
       if (settledPayTo !== normalizeAddress(String(leg.pay_to))) {
         throw new RelayHttpError("settled split leg pay_to does not match invoice", 502);
       }
-      const payer = String(transfer.fromAddress ?? verify.payer ?? settle.payer ?? "");
+      const payer = String(verify.payer ?? settle.payer ?? transfer.fromAddress ?? "");
       // Circle Agent Wallet payments authorize with the backing EOA in the
       // x402 payload. The logical agent-wallet identity is bound at invoice
       // creation and returned by the internal invoice lookup; never replace
@@ -798,19 +806,11 @@ app.post("/api/withdraw/relay", async (req, res) => {
 });
 
 app.get("/api/creator/claim/status", (_req, res) => {
-  let executor = RELAYER_ADDRESS ?? null;
-  if (CLAIM_PAYOUT_PRIVATE_KEY) {
-    try {
-      executor = privateKeyToAccount(CLAIM_PAYOUT_PRIVATE_KEY).address;
-    } catch {
-      executor = RELAYER_ADDRESS ?? null;
-    }
-  }
   res.json({
     mode: "creator_initiated_hot_wallet_transfer",
-    configured: Boolean(CLAIM_PAYOUT_PRIVATE_KEY),
-    executor,
-    relayer: executor,
+    configured: Boolean(circleClient && TREASURY_WALLET_ID),
+    executor: TREASURY_WALLET_ID ?? null,
+    relayer: "circle_gas_station",
     treasury: SELLER,
     usdcAddress: ARC_TESTNET_USDC,
     requiresInternalSecret: Boolean(INTERNAL_SECRET),
@@ -820,63 +820,36 @@ app.get("/api/creator/claim/status", (_req, res) => {
 app.post("/api/creator/claim", async (req, res) => {
   try {
     requireInternalSecret(req);
-    if (!CLAIM_PAYOUT_PRIVATE_KEY) {
-      throw new RelayHttpError("creator claim payout private key is not configured", 503);
-    }
     const recipient = getAddress(String(req.body?.recipient || "") as Hex);
     const amountUsdc = String(req.body?.amountUsdc ?? req.body?.amount_usdc ?? "");
     const claimId = String(req.body?.claimId ?? req.body?.claim_id ?? "");
-    const amountRaw = parseUnits(amountUsdc, 6);
-    if (amountRaw <= 0n) {
-      throw new RelayHttpError("claim amount must be > 0", 400);
+    if (!circleClient || !TREASURY_WALLET_ID) {
+      throw new RelayHttpError("circle treasury wallet is not configured (missing TREASURY_WALLET_ID or api keys)", 503);
     }
-
-    const account = privateKeyToAccount(CLAIM_PAYOUT_PRIVATE_KEY);
-    const walletClient = createWalletClient({
-      account,
-      chain: arcTestnet,
-      transport: http(process.env.ARC_TESTNET_RPC ?? "https://rpc.testnet.arc.network"),
+    
+    console.log(`[Claim] Using Circle Paymaster for claim ${claimId}`);
+    
+    const response = await circleClient.createTransaction({
+      idempotencyKey: crypto.randomUUID(),
+      walletId: TREASURY_WALLET_ID,
+      destinationAddress: recipient,
+      amount: [amountUsdc],
+      tokenId: "ef87c8c3-85de-598a-af50-c5135eecfa74", // ARC-TESTNET USDC Token ID
+      fee: { 
+        type: "level",
+        config: { feeLevel: "MEDIUM" }
+      }
     });
-    const claimPublicClient = createPublicClient({
-      chain: arcTestnet,
-      transport: http(process.env.ARC_TESTNET_RPC ?? "https://rpc.testnet.arc.network"),
-    });
-    const balance = await claimPublicClient.readContract({
-      address: ARC_TESTNET_USDC,
-      abi: erc20Abi,
-      functionName: "balanceOf",
-      args: [account.address],
-    });
-    if (balance < amountRaw) {
-      throw new RelayHttpError(
-        `claim payout wallet has insufficient USDC: ${formatUnits(balance, 6)} available`,
-        409,
-      );
-    }
-
-    const txHash = await walletClient.writeContract({
-      address: ARC_TESTNET_USDC,
-      abi: erc20Abi,
-      functionName: "transfer",
-      args: [recipient, amountRaw],
-    });
-    const receipt = await claimPublicClient.waitForTransactionReceipt({
-      hash: txHash,
-      timeout: 90_000,
-    });
-    if (receipt.status !== "success") {
-      throw new RelayHttpError("creator claim transfer reverted on-chain", 502);
-    }
-
+    
     res.json({
       status: "success",
       claimId,
       recipient,
-      amount_usdc: formatUnits(amountRaw, 6),
-      payout_executor: account.address,
-      relayer: account.address,
-      transaction_hash: txHash,
-      explorer_url: `${ARC_EXPLORER}/tx/${txHash}`,
+      amount_usdc: amountUsdc,
+      payout_executor: TREASURY_WALLET_ID,
+      relayer: "circle_gas_station",
+      transaction_hash: response.data?.id,
+      explorer_url: "",
     });
   } catch (err) {
     const status = err instanceof RelayHttpError ? err.status : 502;

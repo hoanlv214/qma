@@ -8,6 +8,7 @@
     "decode-batch": "tsx decode-batch.ts"
   },
   "dependencies": {
+    "@circle-fin/developer-controlled-wallets": "^10.8.0",
     "@circle-fin/x402-batching": "^3.0.4",
     "@x402/core": "^2.11.0",
     "@x402/evm": "^2.11.0",

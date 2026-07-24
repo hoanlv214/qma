@@ -32,7 +32,7 @@ function loadEnv() {
 }
 loadEnv();
 
-const apiUrl = String(argValue("api", process.env.QMA_API_URL || "http://127.0.0.1:8000")).replace(/\/$/, "");
+const apiUrl = String(argValue("api", process.env.QMA_API_URL || "https://qma-api.onrender.com")).replace(/\/$/, "");
 const executor = argValue("executor", process.env.QMA_AGENT_EXECUTOR || "local-private-key");
 const wallet = executor === "circle-agent-wallet"
   ? (process.env.CIRCLE_AGENT_WALLET_ADDRESS || process.env.QMA_CIRCLE_AGENT_WALLET_ADDRESS || argValue("wallet"))

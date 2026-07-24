@@ -18,13 +18,50 @@ authority for prices, invoices, settlement, entitlements, and access tokens.
 | Rebuild API | [qma-api-rebuild.onrender.com](https://qma-api-rebuild.onrender.com) |
 | Arc Gateway sidecar | [qma-arc-gateway-rebuild.onrender.com](https://qma-arc-gateway-rebuild.onrender.com) |
 | API documentation | `/docs` on the active API deployment |
-| CLI autonomous session | `npm run agent` |
+| CLI autonomous session | `qma agent run` |
 | Marketplace | `/marketplace` on the React application |
 | Metrics | `/api/v1/metrics?payment_page_size=1&payer_page_size=1` |
 
 The rebuild services are Arc Testnet targets. Verify the deployment branch and
 environment configuration before treating a live URL as current; see
-[docs/DEPLOYMENT_SETUP.md](docs/DEPLOYMENT_SETUP.md).
+[docs/infrastructure/DEPLOYMENT_SETUP.md](docs/infrastructure/DEPLOYMENT_SETUP.md).
+
+## CLI Installation & Usage
+
+You can install the QMA Autonomous Agent CLI directly via NPM. This allows you to run autonomous sessions locally using your own wallet and compute resources.
+
+```bash
+# Install globally
+npm install -g qma
+
+# Check available commands and configuration options
+qma --help
+```
+
+### Running an Autonomous Session
+
+Out of the box, QMA CLI runs in a safe **dry-run** mode. It will connect to the API, make decisions, and simulate purchases without deducting any real USDC:
+
+```bash
+$ qma agent run --budget 0.05
+```
+
+### Live Execution (Real USDC)
+
+To run the agent in live mode, you must configure a wallet to sign transactions on the Arc Testnet.
+
+**Option 1: Local Private Key (Default)**
+Export your EVM private key and run with `--live`:
+```bash
+export AGENT_PRIVATE_KEY="0xYourPrivateKey..."
+qma agent run --live --budget 0.05
+```
+
+**Option 2: Circle Agent Wallet**
+If you have the Circle CLI configured, you can delegate execution to your Circle Agent Wallet:
+```bash
+qma agent run --live --budget 0.05 --executor circle-agent-wallet --wallet <your_circle_wallet_address>
+```
 
 ## The problem
 
@@ -165,7 +202,7 @@ Important fields include:
 
 Metrics must be read with their deployment timestamp and classified as real
 settlements, simulated activity, or engine-generated agent activity. The
-tracking policy is documented in [docs/TRACTION.md](docs/TRACTION.md).
+tracking policy is documented in [docs/business/TRACTION.md](docs/business/TRACTION.md).
 
 ## Payment rails
 
@@ -261,16 +298,16 @@ QMA is an active rebuild, not a claim of production completeness:
 
 ## Documentation map
 
-- [docs/AUTONOMOUS_AGENT.md](docs/AUTONOMOUS_AGENT.md) — canonical autonomous
-  session flow, policy, accounting, and stop conditions.
-- [docs/AGENT_API.md](docs/AGENT_API.md) — HTTP decision contract.
+- [docs/architecture/AUTONOMOUS_AGENT.md](docs/architecture/AUTONOMOUS_AGENT.md) — canonical autonomous
+  policy loop and constraints.
+- [docs/specs/AGENT_API.md](docs/specs/AGENT_API.md) — HTTP decision contract.
 - [examples/README.md](examples/README.md) — CLI commands and troubleshooting.
 - [agents/README.md](agents/README.md) — typed policy/session package.
 - [backend/README.md](backend/README.md) — FastAPI implementation boundary.
 - [frontend/README.md](frontend/README.md) — React routes, services, and wallet
   flow.
-- [docs/DEPLOYMENT_SETUP.md](docs/DEPLOYMENT_SETUP.md) — rebuild deployment.
-- [docs/TRACTION.md](docs/TRACTION.md) — metrics integrity and proof objects.
+- [docs/infrastructure/DEPLOYMENT_SETUP.md](docs/infrastructure/DEPLOYMENT_SETUP.md) — rebuild deployment.
+- [docs/business/TRACTION.md](docs/business/TRACTION.md) — metrics integrity and proof objects.
 - [docs/README.md](docs/README.md) — complete documentation ownership map.
 
 ## Security boundary
