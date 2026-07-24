@@ -139,4 +139,4 @@ rewrite in the root `vercel.json`.
 
 For payment behavior, consult [`PAYMENT_FLOW.md`](../PAYMENT_FLOW.md)
 before editing sensitive services. For deployment, consult
-[`docs/DEPLOYMENT_SETUP.md`](../docs/DEPLOYMENT_SETUP.md).
+[`docs/infrastructure/DEPLOYMENT_SETUP.md`](../docs/infrastructure/DEPLOYMENT_SETUP.md).

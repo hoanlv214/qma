@@ -1,6 +1,6 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
-import { API_BASE_URL } from "../services/api";
 import { extractGatewayBalanceUsdc, getOnChainUsdcBalance } from "../services/gatewayCrypto";
+import { getWalletSummary, getWalletPayments } from "../services/walletProfileSession";
 
 interface UseQuickProfileOptions {
   wallet: string;
@@ -80,30 +80,20 @@ export function useQuickProfile({
     }
 
     try {
-      const summaryResp = await fetch(`${API_BASE_URL}/api/v1/wallets/${account}/summary`);
-      if (summaryResp.ok) {
-        const summaryData = await summaryResp.json();
-        setProfileReportsCount(summaryData.current_payments ?? summaryData.payments ?? 0);
-        setProfileTotalSpent(`${Number(summaryData.spent_usdc || 0).toFixed(3)} USDC`);
-        setProfilePurchasedSymbols(Array.isArray(summaryData.purchased_symbols) ? summaryData.purchased_symbols : []);
-      }
+      const summaryData = await getWalletSummary(account);
+      setProfileReportsCount(summaryData.current_payments ?? summaryData.payments ?? 0);
+      setProfileTotalSpent(`${Number(summaryData.spent_usdc || 0).toFixed(3)} USDC`);
+      setProfilePurchasedSymbols(Array.isArray(summaryData.purchased_symbols) ? summaryData.purchased_symbols : []);
     } catch (err) {
       console.warn("Failed to load quick profile summary", err);
     }
 
     try {
-      const params = new URLSearchParams({ page: String(page), page_size: "10" });
-      const paymentsResp = await fetch(`${API_BASE_URL}/api/v1/wallets/${account}/payments?${params.toString()}`);
-      if (paymentsResp.ok) {
-        const paymentsData = await paymentsResp.json();
-        const rows = paymentsData.recent_payments || paymentsData.payments || [];
-        const pageMeta = paymentsData.recent_payments_page || paymentsData.meta || {};
-        setProfileVerifiedPayments(Array.isArray(rows) ? rows : []);
-        setProfileVerifiedPaymentsTotalPages(Number(pageMeta.total_pages || pageMeta.pages || 1));
-      } else {
-        setProfileVerifiedPayments([]);
-        setProfilePaymentsError(`Could not load payments (${paymentsResp.status}).`);
-      }
+      const paymentsData = await getWalletPayments(account, page, 10);
+      const rows = paymentsData.recent_payments || paymentsData.payments || [];
+      const pageMeta = paymentsData.recent_payments_page || paymentsData.meta || {};
+      setProfileVerifiedPayments(Array.isArray(rows) ? rows : []);
+      setProfileVerifiedPaymentsTotalPages(Number(pageMeta.total_pages || pageMeta.pages || 1));
     } catch (err) {
       console.warn("Failed to load quick profile payments", err);
       setProfileVerifiedPayments([]);

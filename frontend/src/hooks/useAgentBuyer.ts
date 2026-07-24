@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { API_BASE_URL } from "../services/api";
 import { payX402Resource, prepareX402Payment, submitX402Payment, X402PaymentError, type PreparedX402Payment } from "../services/x402";
-import { createInvoice } from "../services/invoices";
+import { createInvoice, verifyPayment } from "../services/invoices";
+import { getAgentRecommendations } from "../services/providers";
+import { getWalletEntitlements } from "../services/walletProfileSession";
 import { requestAgentDecision, type AgentDecisionResponse } from "../services/agent";
 import type { AgentSessionStage } from "../types/qma";
 import { normalizeTierForCache } from "../utils/format";
@@ -154,9 +156,8 @@ export function useAgentBuyer({
   const loadWalletEntitlements = async () => {
     if (!wallet) return [];
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/entitlements/wallet/${encodeURIComponent(wallet)}`);
-      const data = await response.json().catch(() => ({}));
-      return response.ok && Array.isArray(data.entitlements) ? data.entitlements : [];
+      const data = await getWalletEntitlements(wallet);
+      return Array.isArray(data.entitlements) ? data.entitlements : [];
     } catch (err) {
       console.warn("Could not load wallet entitlements for agent policy:", err);
       return [];
@@ -343,19 +344,18 @@ export function useAgentBuyer({
         }
         setAgentTrace((prev) => [...prev, { text: "pay:     x402 authorization accepted", tone: "t-green" }]);
         setAgentSessionStage("verifying");
-        const verifyResp = await fetch(`${API_BASE_URL}/api/v1/payment/verify?invoice_id=${encodeURIComponent(invData.invoice_id)}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ invoice_secret: invData.invoice_secret, payer_address: wallet, ...(settlementId ? { settlement_id: settlementId, amount_usdc: paidAmountUsdc } : {}), ...(splitSettlements.length ? { split_settlements: splitSettlements } : {}) }),
+        const verifyData = await verifyPayment(invData.invoice_id, {
+          invoice_secret: invData.invoice_secret,
+          payer_address: wallet,
+          ...(settlementId ? { settlement_id: settlementId, amount_usdc: paidAmountUsdc } : {}),
+          ...(splitSettlements.length ? { split_settlements: splitSettlements } : {}),
         });
-        const verifyData = await verifyResp.json();
-        if (!verifyResp.ok) throw new Error(verifyData.detail || "Verification failed");
         setAgentVerifyResult(verifyData);
         setAgentTrace((prev) => [...prev, { text: "result:  JSON report unlocked ok", tone: "t-accent" }]);
         setSelectedProviderId(pickProviderId);
         setActiveQuery(pickQuery);
         setCurrentInvoice(invData);
-        await fetchReportContent(invData.invoice_id, verifyData.access_token, invData, pickQuery, pickProviderId);
+        await fetchReportContent(invData.invoice_id, verifyData.access_token || "", invData, pickQuery, pickProviderId);
         clearPendingInvoice(pickQuery, pickTier, pickProviderId, wallet);
         setReportCollapsed(false);
         setAgentSessionStage("unlocked");
@@ -467,13 +467,11 @@ export function useAgentBuyer({
           setAgentRunning(false);
           return;
         }
-        const [resp, walletEntitlements] = await Promise.all([
-          fetch(`${API_BASE_URL}/api/v1/agent/recommendations?limit=25`),
+        const [data, walletEntitlements] = await Promise.all([
+          getAgentRecommendations(25),
           loadWalletEntitlements(),
         ]);
-        if (!resp.ok) throw new Error(`Agent API returned status ${resp.status}`);
-        const data = await resp.json();
-        picks = data.recommendations || [];
+        picks = (data.recommendations as any[]) || [];
         if (providerFilter) picks = picks.filter((p: any) => p.provider_id === providerFilter);
         const pricing = data.pricing || {};
         const maxPrice = Math.min(budgetVal, 0.005);
@@ -669,23 +667,15 @@ export function useAgentBuyer({
 
       // Verify tokens split Leg on backend
       setAgentSessionStage("verifying");
-      const verifyResp = await fetch(`${API_BASE_URL}/api/v1/payment/verify?invoice_id=${encodeURIComponent(
-        invData.invoice_id
-      )}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          invoice_secret: invData.invoice_secret,
-          payer_address: wallet,
-          ...(settlementId ? { settlement_id: settlementId, amount_usdc: paidAmountUsdc } : {}),
-          ...(splitSettlements.length ? { split_settlements: splitSettlements } : {}),
-        }),
+      const verifyData = await verifyPayment(invData.invoice_id, {
+        invoice_secret: invData.invoice_secret,
+        payer_address: wallet,
+        ...(settlementId ? { settlement_id: settlementId, amount_usdc: paidAmountUsdc } : {}),
+        ...(splitSettlements.length ? { split_settlements: splitSettlements } : {}),
       });
 
-      const verifyData = await verifyResp.json();
-      if (!verifyResp.ok) {
-        const detail = typeof verifyData.detail === "object" ? JSON.stringify(verifyData.detail) : verifyData.detail;
-        throw new Error(detail || "Verification failed");
+      if (!verifyData) {
+        throw new Error("Verification failed");
       }
       setAgentVerifyResult(verifyData);
       setAgentTrace((prev) => [
@@ -697,7 +687,7 @@ export function useAgentBuyer({
       setSelectedProviderId(pickProviderId);
       setActiveQuery(pickQuery);
       setCurrentInvoice(invData);
-      await fetchReportContent(invData.invoice_id, verifyData.access_token, invData, pickQuery, pickProviderId);
+      await fetchReportContent(invData.invoice_id, verifyData.access_token || "", invData, pickQuery, pickProviderId);
       clearPendingInvoice(pickQuery, pickTier, pickProviderId, wallet);
       setReportCollapsed(false);
       setAgentSessionStage("unlocked");

@@ -42,7 +42,7 @@ Rule of the branch: only add or edit files under `frontend/` until React reaches
 - `GET /api/v1/payment/settlement/{settlement_id}`
 - `POST /api/v1/providers/{provider_id}/preview?invoice_id=...`
 - `POST /api/v1/providers/{provider_id}/full-report?invoice_id=...`
-- `GET /api/v1/live-anomalies`
+- `GET /api/v1/providers/funding_memory/live-anomalies`
 - `GET /api/v1/agent/recommendations`
 - `GET /api/v1/wallets/{address}/summary`
 - `GET /api/v1/wallets/{address}/payments`

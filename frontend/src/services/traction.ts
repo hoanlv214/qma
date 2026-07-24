@@ -37,3 +37,15 @@ export function fetchTraction(days = 14, recentLimit = 20, init: RequestInit = {
   });
   return requestJson<TractionSnapshot>(`/api/v1/traction?${params.toString()}`, init);
 }
+
+export function getPlatformSummary() {
+  return requestJson<Record<string, any>>("/api/v1/platform/summary");
+}
+
+export function getPlatformPayments(page = 1, pageSize = 10) {
+  return requestJson<Record<string, any>>(`/api/v1/platform/payments?page=${page}&page_size=${pageSize}`);
+}
+
+export function getPlatformPayers(page = 1, pageSize = 10) {
+  return requestJson<Record<string, any>>(`/api/v1/platform/payers?page=${page}&page_size=${pageSize}`);
+}

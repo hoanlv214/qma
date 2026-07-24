@@ -54,3 +54,6 @@ export function withSyntheticFlag<T extends Record<string, unknown>>(payload: T)
     run_source: payload.run_source ? String(payload.run_source) : QMA_ENV || "local_react_dev",
   };
 }
+export function getClientConfig() {
+  return requestJson<Record<string, any>>("/api/v1/config");
+}

@@ -1,6 +1,16 @@
 import { useEffect, useState, useRef } from "react";
-import { API_BASE_URL } from "../../services/api";
+import { getClientConfig } from "../../services/api";
+import {
+  getAdminPublicConfig,
+  listCreatorApplications,
+  listProviders,
+  reviewCreatorApplication,
+  submitCreatorApplication,
+  toggleProvider,
+} from "../../services/providers";
 import { clearAllWalletProfileSessions } from "../../services/walletProfileSession";
+import { formatDateTime } from "../../utils/format";
+import { GlobalHeader } from "../ui/GlobalHeader";
 import { Loader } from "../ui/Loader";
 
 interface Provider {
@@ -191,12 +201,8 @@ export function MarketplaceReview({
     setLoadingProviders(true);
     setProvidersError("");
     try {
-      const resp = await fetch(`${API_BASE_URL}/api/v1/providers`);
-      const data = await resp.json();
-      if (!resp.ok) {
-        throw new Error(data.detail || "Failed to load providers");
-      }
-      setProviders(data.providers || []);
+      const data = await listProviders();
+      setProviders((data.providers || []) as any);
     } catch (err: any) {
       setProvidersError(err.message || "Failed to load providers");
     } finally {
@@ -206,26 +212,20 @@ export function MarketplaceReview({
 
   const loadAdminPublicConfig = async () => {
     try {
-      const resp = await fetch(`${API_BASE_URL}/api/v1/admin/public-config`);
-      const data = await resp.json();
-      if (!resp.ok) {
-        if (resp.status === 404) {
-          const fallbackResp = await fetch(`${API_BASE_URL}/api/v1/config`);
-          const fallbackData = await fallbackResp.json();
-          if (!fallbackResp.ok) throw new Error("Fallback failed");
-          setAdminConfig({
-            seller_wallet: fallbackData.seller_wallet,
-            admin_wallet: fallbackData.seller_wallet,
-            admin_token_required: true,
-            fallback: true,
-          });
-          return;
-        }
-        throw new Error();
-      }
+      const data: any = await getAdminPublicConfig();
       setAdminConfig(data);
     } catch (err) {
-      console.warn("Admin public config unavailable", err);
+      try {
+        const fallbackData = await getClientConfig();
+        setAdminConfig({
+          seller_wallet: fallbackData.seller_wallet,
+          admin_wallet: fallbackData.seller_wallet,
+          admin_token_required: true,
+          fallback: true,
+        });
+      } catch (fallbackErr) {
+        console.warn("Admin public config unavailable", err);
+      }
     }
   };
 
@@ -233,10 +233,7 @@ export function MarketplaceReview({
     if (!wallet) return;
     setLoadingApps(true);
     try {
-      const params = new URLSearchParams({ wallet });
-      const resp = await fetch(`${API_BASE_URL}/api/v1/creators/applications?${params.toString()}`);
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.detail || "Failed to load applications");
+      const data = await listCreatorApplications(wallet);
       setApplications(data.applications || []);
     } catch (err) {
       console.warn("Failed to load applications", err);
@@ -256,26 +253,13 @@ export function MarketplaceReview({
     setAdminLoading(true);
     setAdminStatus({ text: "Loading admin data...", type: "" });
     try {
-      const headers: Record<string, string> = adminToken ? { "X-QMA-Admin-Token": adminToken } : {};
       const canLoadApps = !adminConfig?.admin_token_required || !!adminToken;
-      const providerPath = canLoadApps ? "/api/v1/providers?include_disabled=true" : "/api/v1/providers";
-
-      const [providerResp, appResp] = await Promise.all([
-        fetch(`${API_BASE_URL}${providerPath}`, { headers }),
-        canLoadApps ? fetch(`${API_BASE_URL}/api/v1/creators/applications`, { headers }) : Promise.resolve(null),
+      const [providerData, appData] = await Promise.all([
+        listProviders(canLoadApps),
+        canLoadApps ? listCreatorApplications(undefined, adminToken) : Promise.resolve({ applications: [] }),
       ]);
 
-      const providerData = await providerResp.json();
-      if (!providerResp.ok) throw new Error(providerData.detail || "Failed to load admin providers");
-
-      let appData: any = { applications: [] };
-      if (appResp) {
-        appData = await appResp.json();
-        if (!appResp.ok) throw new Error(appData.detail || "Failed to load admin applications");
-      }
-
-
-      setAdminProviders(providerData.providers || []);
+      setAdminProviders((providerData.providers || []) as any);
       setAdminApplications(appData.applications || []);
 
       const readOnlyNote = canLoadApps
@@ -348,23 +332,7 @@ export function MarketplaceReview({
 
     try {
       setFormSubmitting(true);
-      const resp = await fetch(`${API_BASE_URL}/api/v1/creators/apply`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const resData = await resp.json();
-      if (!resp.ok) {
-        if (Array.isArray(resData.detail)) {
-          const apiErrs: Record<string, string> = {};
-          resData.detail.forEach((x: any) => {
-            const locField = Array.isArray(x.loc) ? x.loc.filter((p: any) => p !== "body")[0] : "";
-            if (locField) apiErrs[locField] = x.msg || "Invalid value";
-          });
-          setFormErrors(apiErrs);
-        }
-        throw new Error(resData.detail ? JSON.stringify(resData.detail) : "Request failed");
-      }
+      const resData = await submitCreatorApplication(payload);
       setFormStatus({
         text: `Submitted successfully. Application ID: ${resData.application?.application_id}`,
         type: "success",
@@ -379,19 +347,9 @@ export function MarketplaceReview({
   };
 
   const handleToggleProvider = async (providerId: string, nextEnabled: boolean) => {
-    const admin_note = adminNotes[providerId] || null;
     setAdminActionKey(`provider:${providerId}`);
     try {
-      const resp = await fetch(`${API_BASE_URL}/api/v1/providers/${encodeURIComponent(providerId)}/toggle`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-QMA-Admin-Token": adminToken,
-        },
-        body: JSON.stringify({ enabled: nextEnabled, admin_note }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.detail || "Request failed");
+      await toggleProvider(providerId, adminToken);
       setAdminStatus({ text: `${providerId} toggled successfully.`, type: "success" });
       loadProviders();
       loadAdminData();
@@ -406,16 +364,7 @@ export function MarketplaceReview({
     const admin_note = adminNotes[applicationId] || null;
     setAdminActionKey(`application:${applicationId}:${status}`);
     try {
-      const resp = await fetch(`${API_BASE_URL}/api/v1/creators/applications/${encodeURIComponent(applicationId)}/review`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-QMA-Admin-Token": adminToken,
-        },
-        body: JSON.stringify({ status, admin_note }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.detail || "Request failed");
+      await reviewCreatorApplication(applicationId, { status, admin_note }, adminToken);
       setAdminStatus({ text: `Application ${applicationId} marked as ${status}.`, type: "success" });
       loadAdminData();
     } catch (err: any) {
@@ -437,94 +386,14 @@ export function MarketplaceReview({
 
   return (
     <div className="marketplace-body">
-      <nav className="market-nav">
-        <div className="market-nav-inner">
-          <a
-            href="/"
-            className="logo-item qma-logo-item"
-            title="QMA"
-            onClick={(e) => {
-              e.preventDefault();
-              onNavigate("landing");
-            }}
-          >
-            <div className="logo-icon">QM</div>
-            <div className="logo-text">QMA</div>
-          </a>
-          <div className="market-nav-actions">
-            <button type="button" className="landing-secondary text-btn" onClick={() => onNavigate("app")}>
-              Launch App
-            </button>
-            <div className="wallet-area" style={{ position: "relative" }}>
-              <button
-                type="button"
-                className={`wallet-button ${wallet ? "connected" : ""}`}
-                onClick={wallet ? () => setWalletDropdownOpen(!walletDropdownOpen) : connect}
-              >
-                {wallet ? shortAddress(wallet) : "Connect Wallet"}
-              </button>
-
-              {walletDropdownOpen && wallet && (
-                <div className="wallet-menu open" style={{ right: 0, top: "100%", marginTop: 8 }}>
-                  <div className="wallet-menu-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div className="wallet-menu-identity">
-                      <div className="wallet-menu-address" style={{ fontSize: "0.72rem" }} title={wallet}>
-                        {shortAddress(wallet)}
-                      </div>
-                      <div className="wallet-role-label role-buyer">Creator</div>
-                    </div>
-                    <button
-                      type="button"
-                      className={`wallet-menu-icon-btn ${copySuccess ? "copied" : ""}`}
-                      style={{ display: "inline-flex" }}
-                      onClick={handleCopyAddress}
-                      title="Copy address"
-                      aria-label="Copy address"
-                    >
-                      <svg className="wallet-copy-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                      </svg>
-                      <svg className="wallet-copy-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M20 6L9 17l-5-5"></path>
-                      </svg>
-                    </button>
-                  </div>
-                  <button type="button" className="wallet-menu-item" onClick={() => { setWalletDropdownOpen(false); onNavigate("profile"); }}>
-                    <svg className="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                      <circle cx="12" cy="7" r="4"></circle>
-                    </svg>
-                    <span>View Profile Page</span>
-                  </button>
-                  <button type="button" className="wallet-menu-item" onClick={() => { setWalletDropdownOpen(false); onNavigate("app"); }}>
-                    <svg className="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                      <line x1="9" y1="9" x2="15" y2="9"></line>
-                      <line x1="9" y1="13" x2="15" y2="13"></line>
-                      <line x1="9" y1="17" x2="13" y2="17"></line>
-                    </svg>
-                    <span>Launch App Dashboard</span>
-                  </button>
-                  <button type="button" className="wallet-menu-item wallet-menu-item-danger" onClick={disconnect}>
-                    <svg className="wallet-menu-item-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                      <polyline points="16 17 21 12 16 7"></polyline>
-                      <line x1="21" y1="12" x2="9" y2="12"></line>
-                    </svg>
-                    <span>Disconnect</span>
-                  </button>
-                </div>
-              )}
-              {walletStatus ? (
-                <div className="modal-subtitle" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", whiteSpace: "nowrap" }}>
-                  {walletStatus}
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      </nav>
+      <GlobalHeader
+        activePage="marketplace"
+        onNavigate={onNavigate}
+        walletAddress={wallet}
+        onConnect={connect}
+        onDisconnect={disconnect}
+        userRole={isConnectedAdmin() ? "admin" : undefined}
+      />
 
       <main className="marketplace-shell">
         <section className="marketplace-hero">

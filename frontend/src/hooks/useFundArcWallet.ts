@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { getInjectedWallet, shortAddress } from "../services/wallet";
 import { extractGatewayBalanceUsdc, getOnChainUsdcBalance } from "../services/gatewayCrypto";
 
@@ -20,7 +20,7 @@ export function useFundArcWallet({ wallet, arcGatewayUrl }: UseFundArcWalletOpti
   const [fundPrimaryAction, setFundPrimaryAction] = useState({ action: "connect", label: "Connect wallet first" });
   const [fundShowAdvanced, setFundShowAdvanced] = useState(false);
 
-  const refreshFundingReadiness = async () => {
+  const refreshFundingReadiness = useCallback(async () => {
     const required = 0.005;
     const requiredLabel = `${required.toFixed(3)} USDC`;
     setFundRequiredAmount(requiredLabel);
@@ -84,14 +84,14 @@ export function useFundArcWallet({ wallet, arcGatewayUrl }: UseFundArcWalletOpti
     }
 
     try {
-      const cleanGatewayUrl = arcGatewayUrl.replace(/\/$/, "");
+      const cleanGatewayUrl = (arcGatewayUrl || "").replace(/\/$/, "");
       const [statusResp, balResp] = await Promise.all([
-        fetch(`${cleanGatewayUrl}/api/wallet-status/${wallet}`),
-        fetch(`${cleanGatewayUrl}/api/balance/${wallet}`),
+        fetch(`${cleanGatewayUrl}/api/wallet-status/${wallet}`).catch(() => null),
+        fetch(`${cleanGatewayUrl}/api/balance/${wallet}`).catch(() => null),
       ]);
 
       let walletBal = 0;
-      if (statusResp.ok) {
+      if (statusResp?.ok) {
         const statusData = await statusResp.json();
         const chainBal = getOnChainUsdcBalance(statusData);
         walletBal = chainBal ? Number(chainBal) : 0;
@@ -101,7 +101,7 @@ export function useFundArcWallet({ wallet, arcGatewayUrl }: UseFundArcWalletOpti
       }
 
       let gatewayBal = 0;
-      if (balResp.ok) {
+      if (balResp?.ok) {
         const balData = await balResp.json();
         gatewayBal = extractGatewayBalanceUsdc(balData) ?? 0;
         setFundGatewayBalance(`${gatewayBal.toFixed(3)} USDC`);
@@ -131,7 +131,11 @@ export function useFundArcWallet({ wallet, arcGatewayUrl }: UseFundArcWalletOpti
       setFundNextStep("Funding status is unavailable. Retry or continue to payment.");
       setFundPrimaryAction({ action: "refresh", label: "Retry readiness check" });
     }
-  };
+  }, [wallet, arcGatewayUrl]);
+
+  useEffect(() => {
+    refreshFundingReadiness();
+  }, [refreshFundingReadiness]);
 
   return {
     fundReadinessStatus,

@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { API_BASE_URL } from "../../services/api";
+import { getPlatformSummary } from "../../services/traction";
+import { LandingHeader } from "../ui/LandingHeader";
 
 interface Metrics {
   current_unique_payers: number;
@@ -26,11 +28,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
   useEffect(() => {
     async function loadLandingTraction() {
       try {
-        const resp = await fetch(`${API_BASE_URL}/api/v1/metrics?payment_page_size=1&payer_page_size=1`, {
-          headers: { Accept: "application/json" },
-        });
-        if (!resp.ok) throw new Error(`metrics ${resp.status}`);
-        const data = await resp.json();
+        const data = await getPlatformSummary();
         const tierCounts = data.tier_counts || {};
         const legacyPaidCount = Number(data.legacy_paid_count || 0);
         const buyerTypes = data.current_buyer_type_counts || (
@@ -73,55 +71,16 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
 
   return (
     <main className="landing-shell">
-      <nav className="landing-nav">
-        <a href="/" className="logo-item qma-logo-item" title="QMA" onClick={(e) => e.preventDefault()}>
-          <div className="logo-icon">QM</div>
-          <div className="logo-text">QMA</div>
-        </a>
-        <div className="landing-nav-links">
-          <button type="button" className="landing-nav-link text-btn" onClick={() => onNavigate("marketplace")}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path>
-              <line x1="3" y1="6" x2="21" y2="6"></line>
-              <path d="M16 10a4 4 0 0 1-8 0"></path>
-            </svg>
-            Marketplace
-          </button>
-          <button type="button" className="landing-nav-link text-btn" onClick={() => onNavigate("traction")}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M4 19V5" /><path d="M4 19h16" /><path d="m7 15 3-4 3 2 5-7" />
-            </svg>
-            Traction
-          </button>
-          <a className="landing-nav-link" href="/docs" target="_blank" rel="noopener noreferrer">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-              <polyline points="14 2 14 8 20 8"></polyline>
-              <line x1="16" y1="13" x2="8" y2="13"></line>
-              <line x1="16" y1="17" x2="8" y2="17"></line>
-              <polyline points="10 9 9 9 8 9"></polyline>
-            </svg>
-            Docs
-          </a>
-          <a className="landing-nav-link" href="https://github.com/hoanlv214/qma" target="_blank" rel="noopener noreferrer">
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.11.82-.26.82-.577v-2.234c-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22v3.293c0 .319.22.694.825.576C20.565 21.795 24 17.3 24 12c0-6.63-5.37-12-12-12z" />
-            </svg>
-            GitHub
-          </a>
-          <button type="button" className="landing-nav-link btn-green nav-cta text-btn" onClick={() => onNavigate("app")}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="7" y1="17" x2="17" y2="7"></line>
-              <polyline points="7 7 17 7 17 17"></polyline>
-            </svg>
-            Launch App
-          </button>
-        </div>
-      </nav>
+      <LandingHeader onNavigate={onNavigate} />
 
       <section className="landing-hero">
         <div className="landing-kicker">Evidence-Based Market Research</div>
-        <h1 className="landing-hero-title">See what happened the last time the market looked like this</h1>
+        <h1 className="landing-hero-title">
+          See what happened <br />
+          <span className="highlight-text">the last time</span>
+          <br />
+          the market looked like this
+        </h1>
         <p className="landing-hero-desc">
           QMA retrieves similar historical market situations and generates evidence-backed reports instead of
           trying to predict prices. Compare today's live signals with similar past events, and unlock detailed
@@ -189,7 +148,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
           </div>
           <h2>Market Memory Analysis</h2>
           <p className="landing-feature-desc">Instantly compare today's live signals against years of historical data to locate precise past
-              situations that match the current setup.</p>
+            situations that match the current setup.</p>
         </article>
         <article>
           <div className="feature-icon">
@@ -200,7 +159,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
           </div>
           <h2>Evidence-Backed Reports</h2>
           <p className="landing-feature-desc">Get detailed distribution outcomes, win rates, and similar event histories. Evaluate facts and
-              statistical probabilities, not predictions.</p>
+            statistical probabilities, not predictions.</p>
         </article>
         <article>
           <div className="feature-icon">
@@ -212,7 +171,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
           </div>
           <h2>Persistent Unlocks</h2>
           <p className="landing-feature-desc">No monthly plans or hidden commitments. Reports are bound securely to your wallet credentials,
-              allowing you to access them any time.</p>
+            allowing you to access them any time.</p>
         </article>
       </div>
 
@@ -289,30 +248,38 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
             <a className="landing-secondary" href="https://github.com/hoanlv214/qma/blob/main/examples/README.md" target="_blank" rel="noopener noreferrer">View Agent Example</a>
           </div>
         </div>
-        <pre className="agent-terminal" aria-label="Agent buyer flow example">
-          <code>
-            <span className="terminal-line terminal-command">
-              <span className="t-prompt">$</span>
-              <span className="t-cmd">npm run agent:dry</span>
-            </span>
-            <span className="terminal-line">
-              <span className="t-key">pick:</span>
-              <span><span className="t-val">H</span> score=<span className="t-num">41</span> tier=<span className="t-badge">preview</span></span>
-            </span>
-            <span className="terminal-line">
-              <span className="t-key">invoice:</span>
-              <span><span className="t-dim">inv_...</span> amount=<span className="t-green">0.001 USDC</span></span>
-            </span>
-            <span className="terminal-line">
-              <span className="t-key">pay:</span>
-              <span>x402 authorization <span className="t-green">accepted</span></span>
-            </span>
-            <span className="terminal-line">
-              <span className="t-key">result:</span>
-              <span>JSON report <span className="t-accent">unlocked ok</span></span>
-            </span>
-          </code>
-        </pre>
+        <div className="agent-terminal" aria-label="Agent buyer flow example">
+          <div className="mac-window-header">
+            <span className="mac-dot mac-red"></span>
+            <span className="mac-dot mac-yellow"></span>
+            <span className="mac-dot mac-green"></span>
+            <span className="mac-title">autonomous-session</span>
+          </div>
+          <pre style={{ margin: 0, background: "transparent" }}>
+            <code>
+              <span className="terminal-line terminal-command" style={{ marginBottom: 12 }}>
+                <span className="t-prompt">$</span>
+                <span className="t-cmd">qma agent run</span>
+              </span>
+              <span className="terminal-line terminal-command">
+                <span className="t-success" style={{ color: "var(--accent)" }}>✓</span>
+                <span>Found funding signal</span>
+              </span>
+              <span className="terminal-line terminal-command">
+                <span className="t-success" style={{ color: "var(--accent)" }}>✓</span>
+                <span>Purchased report <span className="t-dim">(e.g. 0.001 USDC)</span></span>
+              </span>
+              <span className="terminal-line terminal-command">
+                <span className="t-success" style={{ color: "var(--accent)" }}>✓</span>
+                <span>Gateway payment settled</span>
+              </span>
+              <span className="terminal-line terminal-command">
+                <span className="t-success" style={{ color: "var(--accent)" }}>✓</span>
+                <span>JSON report unlocked</span>
+              </span>
+            </code>
+          </pre>
+        </div>
       </section>
 
       <section className="landing-builders">

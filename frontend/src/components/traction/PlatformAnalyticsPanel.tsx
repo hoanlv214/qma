@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Loader } from "../ui/Loader";
-import { API_BASE_URL } from "../../services/api";
+import { getPlatformSummary, getPlatformPayments, getPlatformPayers } from "../../services/traction";
 import { shortAddress } from "../../services/wallet";
 import { formatDateTime, formatUsdc, gatewayStatusBadge, tierLabel } from "../../utils/format";
 
@@ -38,12 +38,6 @@ function renderSettlementRef(event: any) {
   return <span className="text-muted-deep">n/a</span>;
 }
 
-async function fetchJson(path: string) {
-  const response = await fetch(`${API_BASE_URL}${path}`);
-  if (!response.ok) throw new Error(`${path} returned ${response.status}`);
-  return response.json();
-}
-
 export function PlatformAnalyticsPanel() {
   const [platformSummary, setPlatformSummary] = useState<PlatformData | null>(null);
   const [platformPayments, setPlatformPayments] = useState<PlatformData[]>([]);
@@ -57,14 +51,14 @@ export function PlatformAnalyticsPanel() {
   const [platformTablesLoading, setPlatformTablesLoading] = useState(false);
   const [platformTablesError, setPlatformTablesError] = useState("");
 
-  const loadPlatformSummary = async () => {
-    const data = await fetchJson("/api/v1/platform/summary");
+  const loadPlatformSummaryData = async () => {
+    const data = await getPlatformSummary();
     setPlatformSummary(data);
     return data;
   };
 
-  const loadPlatformPayments = async (page: number) => {
-    const data = await fetchJson(`/api/v1/platform/payments?page=${page}&page_size=10`);
+  const loadPlatformPaymentsData = async (page: number) => {
+    const data = await getPlatformPayments(page, 10);
     const rows = Array.isArray(data.recent_payments) ? data.recent_payments : [];
     const meta = data.recent_payments_page || {};
     setPlatformPayments(rows);
@@ -73,8 +67,8 @@ export function PlatformAnalyticsPanel() {
     setPlatformPaymentsTotal(Number(meta.total || rows.length));
   };
 
-  const loadPlatformPayers = async (page: number) => {
-    const data = await fetchJson(`/api/v1/platform/payers?page=${page}&page_size=10`);
+  const loadPlatformPayersData = async (page: number) => {
+    const data = await getPlatformPayers(page, 10);
     const rows = Array.isArray(data.payer_breakdown) ? data.payer_breakdown : [];
     const meta = data.payer_breakdown_page || {};
     setPlatformPayers(rows);
@@ -88,9 +82,9 @@ export function PlatformAnalyticsPanel() {
     setPlatformTablesError("");
     try {
       await Promise.all([
-        loadPlatformSummary(),
-        loadPlatformPayments(paymentPage),
-        loadPlatformPayers(payerPage),
+        loadPlatformSummaryData(),
+        loadPlatformPaymentsData(paymentPage),
+        loadPlatformPayersData(payerPage),
       ]);
     } catch (error: any) {
       console.warn("Platform analytics unavailable", error);
@@ -104,7 +98,7 @@ export function PlatformAnalyticsPanel() {
     setPlatformTablesLoading(true);
     setPlatformTablesError("");
     try {
-      await loadPlatformPayments(page);
+      await loadPlatformPaymentsData(page);
     } catch (error: any) {
       setPlatformTablesError(error?.message || "Platform payments unavailable.");
     } finally {
@@ -116,7 +110,7 @@ export function PlatformAnalyticsPanel() {
     setPlatformTablesLoading(true);
     setPlatformTablesError("");
     try {
-      await loadPlatformPayers(page);
+      await loadPlatformPayersData(page);
     } catch (error: any) {
       setPlatformTablesError(error?.message || "Platform payers unavailable.");
     } finally {

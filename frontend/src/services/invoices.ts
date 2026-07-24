@@ -1,6 +1,13 @@
 import { requestJson, withSyntheticFlag } from "./api";
 import type { InvoiceRequest, InvoiceResponse, PaymentVerifyRequest, PaymentVerifyResponse } from "../types/qma";
 
+export function quotePrice(payload: Record<string, any>) {
+  return requestJson<{ amount_usdc: number; complexity_score?: number }>("/api/v1/payment/quote", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function createInvoice(payload: InvoiceRequest) {
   return requestJson<InvoiceResponse>("/api/v1/payment/invoice", {
     method: "POST",
@@ -20,10 +27,22 @@ export function verifyPayment(invoiceId: string, payload: PaymentVerifyRequest) 
 
 export function getInvoiceStatus(invoiceId: string, invoiceSecret: string) {
   return requestJson<any>(
-    `/api/v1/payment/invoices/${encodeURIComponent(invoiceId)}/status?invoice_secret=${encodeURIComponent(invoiceSecret)}`
+    `/api/v1/payment/invoices/${encodeURIComponent(invoiceId)}/status`,
+    {
+      headers: {
+        "X-QMA-Invoice-Secret": invoiceSecret,
+      },
+    }
   );
 }
 
 export function getSettlement(settlementId: string) {
   return requestJson<Record<string, unknown>>(`/api/v1/payment/settlement/${encodeURIComponent(settlementId)}`);
+}
+
+export function submitWithdrawal(payload: Record<string, unknown>) {
+  return requestJson<Record<string, any>>("/api/v1/payment/withdraw", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }

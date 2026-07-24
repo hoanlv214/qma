@@ -6,7 +6,7 @@ export function getProviderReport(options: {
   tier: Tier;
   invoiceId: string;
   accessToken: string;
-  query: QmaQuery;
+  query: QmaQuery | Record<string, any>;
 }) {
   const endpoint =
     options.tier === "preview"

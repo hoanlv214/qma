@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { API_BASE_URL } from "../services/api";
+import { getPlatformSummary } from "../services/traction";
 
 export function usePlatformMetrics() {
   const [metrics, setMetrics] = useState({
@@ -9,9 +9,7 @@ export function usePlatformMetrics() {
   });
 
   const loadPlatformSummary = async () => {
-    const resp = await fetch(`${API_BASE_URL}/api/v1/platform/summary`);
-    if (!resp.ok) throw new Error(`Platform summary returned ${resp.status}`);
-    const data = await resp.json();
+    const data = await getPlatformSummary();
     setMetrics({
       paid_count: data.current_paid_count ?? data.paid_count ?? 0,
       revenue_usdc: data.revenue_usdc || 0,

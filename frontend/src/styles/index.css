@@ -154,6 +154,7 @@
 }
 
 @keyframes pulse-dot {
+
     0%,
     100% {
         opacity: 1;
@@ -170,6 +171,17 @@
     font-weight: 750;
     line-height: 1.06;
     letter-spacing: 0;
+}
+
+.highlight-text {
+    background: linear-gradient(90deg,
+            #7c5cff,
+            #a78bfa,
+            #38e8c6);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    font-weight: 800;
 }
 
 .landing-hero-desc {
@@ -1163,16 +1175,28 @@
 }
 
 /* fake titlebar */
-.landing-body .agent-terminal::before {
-    content: 'nodejs';
-    display: block;
-    padding: 11px var(--space-5);
+.mac-window-header {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
     background: rgba(255, 255, 255, 0.03);
     border-bottom: 1px solid rgba(255, 255, 255, 0.055);
+    gap: 8px;
+}
+.mac-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+}
+.mac-red { background: #ff5f56; }
+.mac-yellow { background: #ffbd2e; }
+.mac-green { background: #27c93f; }
+.mac-title {
+    margin-left: 12px;
     font-family: var(--mono);
-    font-size: 0.58rem;
-    letter-spacing: 4px;
+    font-size: 0.75rem;
     color: var(--t3);
+    letter-spacing: 0.5px;
 }
 
 .landing-body .agent-terminal code {
@@ -1201,7 +1225,7 @@
     gap: 8px;
 }
 
-.landing-body .agent-terminal .terminal-line > span:last-child {
+.landing-body .agent-terminal .terminal-line>span:last-child {
     min-width: 0;
     overflow-wrap: anywhere;
 }

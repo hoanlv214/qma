@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { API_BASE_URL } from "../../services/api";
+import { getClientConfig } from "../../services/api";
 import {
   clearWalletProfileSession,
   getCachedWalletProfileToken,
+  getWalletPayments,
+  getWalletSummary,
   requestWalletProfileSession,
 } from "../../services/walletProfileSession";
+import { getWalletReport } from "../../services/reports";
 import { Loader } from "../ui/Loader";
+import { GlobalHeader } from "../ui/GlobalHeader";
 
 interface Payment {
   symbol?: string;
@@ -97,9 +101,7 @@ export function ProfileOrdersPage() {
   useEffect(() => {
     async function loadHealth() {
       try {
-        const resp = await fetch(`${API_BASE_URL}/api/v1/config`);
-        if (!resp.ok) return;
-        const data = await resp.json();
+        const data = await getClientConfig();
         setArcGatewayBaseUrl(data.arc_gateway || "");
       } catch (err) {
         console.warn("Health check failed", err);
@@ -169,6 +171,16 @@ export function ProfileOrdersPage() {
     } catch (err: any) {
       setPrivacyNotice(err.message || "Failed to connect wallet");
     }
+  };
+
+  const disconnect = () => {
+    if (wallet) {
+      clearWalletProfileSession(wallet);
+    }
+    setWallet("");
+    setWalletToken("");
+    setPrivateProfileUnlocked(false);
+    localStorage.removeItem("qma_connected_wallet");
   };
 
   const clearWalletToken = (account: string) => {
@@ -256,37 +268,37 @@ export function ProfileOrdersPage() {
     try {
       let token = tokenOverride || cachedWalletToken(account);
       const privateHeaders = token ? { "X-QMA-Wallet-Token": token } : undefined;
-      const params = new URLSearchParams({
-        page: String(page),
-        page_size: String(10),
-      });
-
-      const [summaryResp, initialPaymentsResp, walletStatus] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/v1/wallets/${account}/summary`),
-        fetch(`${API_BASE_URL}/api/v1/wallets/${account}/payments?${params.toString()}`, {
-          headers: privateHeaders,
-        }),
-        loadWalletStatus(account),
-      ]);
-
-      let paymentsResp = initialPaymentsResp;
-      if (paymentsResp.status === 403 && token) {
-        const payload = await paymentsResp.json().catch(() => ({}));
-        clearWalletToken(account);
-        token = "";
-        setPrivacyNotice(payload.detail || "Private session expired. Unlock snapshots again when needed.");
-        paymentsResp = await fetch(`${API_BASE_URL}/api/v1/wallets/${account}/payments?${params.toString()}`);
+      let sumData: any = {};
+      let payData: any = {};
+      let walletStatus: any = null;
+      try {
+        const [summary, payments, status] = await Promise.all([
+          getWalletSummary(account),
+          getWalletPayments(account, page, 10),
+          loadWalletStatus(account),
+        ]);
+        sumData = summary;
+        payData = payments;
+        walletStatus = status;
+      } catch (err: any) {
+        if (token) {
+          clearWalletToken(account);
+          token = "";
+          setPrivacyNotice("Private session expired. Unlock snapshots again when needed.");
+          try {
+            payData = await getWalletPayments(account, page, 10);
+            sumData = await getWalletSummary(account);
+          } catch (innerErr: any) {
+            setPrivacyNotice(innerErr.message || "Could not load profile payments.");
+            setPayments([]);
+            return;
+          }
+        } else {
+          setPrivacyNotice(err.message || "Could not load profile payments.");
+          setPayments([]);
+          return;
+        }
       }
-
-      if (!summaryResp.ok || !paymentsResp.ok) {
-        const payload = await paymentsResp.json().catch(() => ({}));
-        setPrivacyNotice(payload.detail || "Could not load profile payments.");
-        setPayments([]);
-        return;
-      }
-
-      const sumData = await summaryResp.json();
-      const payData = await paymentsResp.json();
       const hasPrivateAccess = payData.access === "private";
       setPrivateProfileUnlocked(hasPrivateAccess);
       if (!hasPrivateAccess && !isPublicProfile && !privacyNotice) {
@@ -489,18 +501,12 @@ export function ProfileOrdersPage() {
     try {
       const token = walletToken || await ensureWalletToken(wallet);
       if (!token) throw new Error("Wallet owner signature required.");
-      const resp = await fetch(`${API_BASE_URL}/api/v1/wallets/${wallet}/reports/${encodeURIComponent(entitlementId)}`, {
-        headers: { "X-QMA-Wallet-Token": token },
-      });
-      if (resp.status === 403) {
-        const payload = await resp.json().catch(() => ({}));
-        clearWalletToken(wallet);
-        throw new Error(payload.detail || "Private session expired. Unlock snapshots again.");
-      }
-      if (!resp.ok) throw new Error("Could not load report snapshot.");
-      const data = await resp.json();
+      const data: any = await getWalletReport(wallet, entitlementId, token);
       setLoadedDetails((prev) => ({ ...prev, [rowId]: data.entitlement || {} }));
     } catch (err: any) {
+      if (String(err?.message || "").includes("403")) {
+        clearWalletToken(wallet);
+      }
       console.warn("Could not load report snapshot", err);
       setPrivacyNotice(err?.message || "Could not load report snapshot.");
     } finally {
@@ -585,21 +591,14 @@ export function ProfileOrdersPage() {
 
   return (
     <div className="profile-body">
+      <GlobalHeader
+        activePage="profile"
+        onNavigate={(route) => { window.location.href = route === 'landing' ? '/' : `/${route}`; }}
+        walletAddress={wallet}
+        onConnect={connect}
+        onDisconnect={disconnect}
+      />
       <main className="profile-shell">
-        <nav className="profile-nav">
-          <a href="/" className="logo-item qma-logo-item" title="Back to QMA">
-            <div className="logo-icon">QM</div>
-            <div className="logo-text">QMA</div>
-          </a>
-          <div className="profile-nav-actions">
-            <a href="/app" className="profile-page-link">
-              Launch App
-            </a>
-            <button type="button" className="wallet-button" id="profile-connect-btn" onClick={connect}>
-              {isPublicProfile ? "Open My Profile" : wallet ? shortAddress(wallet) : "Connect Wallet"}
-            </button>
-          </div>
-        </nav>
 
         <section className="profile-hero">
           <p className="profile-kicker">{isPublicProfile ? "Public wallet activity" : "Wallet intelligence history"}</p>

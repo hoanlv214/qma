@@ -6,6 +6,7 @@ import "./styles/index.css";
 import "./styles/app.css";
 import "./styles/marketplace.css";
 import "./styles/user.css";
+import "./styles/global-header.css";
 
 
 

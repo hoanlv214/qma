@@ -1,4 +1,4 @@
-import { API_BASE_URL } from "./api";
+import { requestJson, API_BASE_URL } from "./api";
 import { getInjectedWallet } from "./wallet";
 
 interface WalletProfileCache {
@@ -73,21 +73,15 @@ export async function requestWalletProfileSession(account: string) {
     params: [message, active],
   });
 
-  const resp = await fetch(`${API_BASE_URL}/api/v1/wallets/${normalized}/session`, {
+  const data = await requestJson<{ wallet_token?: string; expires_in?: number }>(`/api/v1/wallets/${normalized}/session`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       nonce,
       issued_at: issuedAt,
       signature,
     }),
   });
-  if (!resp.ok) {
-    const payload = await resp.json().catch(() => ({}));
-    throw new Error(payload.detail || "Could not unlock private profile.");
-  }
 
-  const data = await resp.json();
   const token = data.wallet_token || "";
   if (!token) return "";
 
@@ -97,4 +91,17 @@ export async function requestWalletProfileSession(account: string) {
     expiresAt: Date.now() + expiresInMs,
   }));
   return token;
+}
+
+export function getWalletSummary(account: string) {
+  return requestJson<Record<string, any>>(`/api/v1/wallets/${encodeURIComponent(account)}/summary`);
+}
+
+export function getWalletPayments(account: string, page = 1, pageSize = 10) {
+  const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+  return requestJson<Record<string, any>>(`/api/v1/wallets/${encodeURIComponent(account)}/payments?${params.toString()}`);
+}
+
+export function getWalletEntitlements(wallet: string) {
+  return requestJson<Record<string, any>>(`/api/v1/entitlements/wallet/${encodeURIComponent(wallet)}`);
 }

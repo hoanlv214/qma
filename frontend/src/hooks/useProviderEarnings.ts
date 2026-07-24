@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { API_BASE_URL } from "../services/api";
+import { getProviderStats, claimCreatorEarnings } from "../services/providers";
+import { submitWithdrawal } from "../services/invoices";
 import { ensureArcTestnet, getInjectedWallet } from "../services/wallet";
 import {
   buildCreatorClaimMessage,
@@ -62,9 +63,7 @@ export function useProviderEarnings({
   const fetchProviderEarningsStats = async () => {
     const stats = await Promise.all(ownedProviders.map(async (provider) => {
       try {
-        const resp = await fetch(`${API_BASE_URL}/api/v1/providers/${encodeURIComponent(provider.provider_id)}/stats`);
-        if (!resp.ok) throw new Error(`stats ${resp.status}`);
-        const data = await resp.json();
+        const data = await getProviderStats(provider.provider_id);
         return data.stats || data;
       } catch (err) {
         console.warn(`Provider stats unavailable for ${provider.provider_id}`, err);
@@ -185,13 +184,7 @@ export function useProviderEarnings({
       });
       showToast("Sign the creator claim intent in your wallet.", "info");
       const signature = await provider.request<string>({ method: "personal_sign", params: [utf8ToHex(message), wallet] });
-      const resp = await fetch(`${API_BASE_URL}/api/v1/creators/claim`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ claimant_address: wallet, provider_ids: providerIds, amount_usdc: totalClaimable.toFixed(6), nonce, issued_at: issuedAt, signature }),
-      });
-      const data = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(data.detail || data.error || `Creator claim failed with status ${resp.status}`);
+      const data = await claimCreatorEarnings({ claimant_address: wallet, provider_ids: providerIds, amount_usdc: totalClaimable.toFixed(6), nonce, issued_at: issuedAt, signature });
       const claim = data.claim || {};
       const txHash = claim.transaction_hash || claim.tx_hash;
       if (txHash) saveLocalAction("creator_claim", Number(claim.amount_usdc || totalClaimable).toFixed(6), txHash);
@@ -269,13 +262,7 @@ export function useProviderEarnings({
       const burnIntent = buildGatewayWithdrawIntent(amount, { gatewayContractAddress, gatewayMinterAddress, arcUsdcAddress, wallet });
       showToast("Sign the Gateway withdrawal intent in your wallet.", "info");
       const signature = await provider.request<string>({ method: "eth_signTypedData_v4", params: [wallet, JSON.stringify(buildGatewayWithdrawTypedData(burnIntent))] });
-      const submitResp = await fetch(`${API_BASE_URL}/api/v1/payment/withdraw`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ burnIntent, signature }),
-      });
-      const submitResult = await submitResp.json().catch(() => ({}));
-      if (!submitResp.ok) throw new Error(submitResult.detail || submitResult.error || `Gateway withdrawal failed with status ${submitResp.status}`);
+      const submitResult = await submitWithdrawal({ burnIntent, signature });
       if (submitResult.relayed) {
         const txHash = submitResult.mintTxHash || submitResult.transaction_hash;
         if (!txHash) throw new Error("Relayer completed but did not return a mint transaction hash.");

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { API_BASE_URL } from "../services/api";
+import { quotePrice } from "../services/invoices";
 
 interface UseQuoteOptions {
   activeQuery: Record<string, any>;
@@ -17,18 +17,16 @@ export function useQuote({ activeQuery, selectedProviderId }: UseQuoteOptions) {
         const tiers = ["preview", "full"];
         const results = await Promise.all(
           tiers.map(async (tier) => {
-            const resp = await fetch(`${API_BASE_URL}/api/v1/payment/quote`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
+            try {
+              const resData = await quotePrice({
                 ...activeQuery,
                 provider_id: selectedProviderId,
                 tier,
-              }),
-            });
-            if (!resp.ok) return [tier, null];
-            const resData = await resp.json();
-            return [tier, Number(resData.amount_usdc)];
+              });
+              return [tier, Number(resData.amount_usdc)];
+            } catch {
+              return [tier, null];
+            }
           })
         );
         const nextQuotes: Record<string, number> = {};

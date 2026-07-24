@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { API_BASE_URL } from "../../services/api";
+import { getClientConfig } from "../../services/api";
 import { shortAddress } from "../../services/wallet";
 import { payX402Resource } from "../../services/x402";
 import { createInvoice } from "../../services/invoices";
@@ -8,7 +8,8 @@ import { DepositModal } from "../modals/DepositModal";
 import { ProviderEarningsModal } from "../modals/ProviderEarningsModal";
 import { AgentBuyerModal } from "../modals/AgentBuyerModal";
 import { AgentBuyerModalContent } from "../modals/AgentBuyerModalContent";
-import { AppHeader } from "./AppHeader";
+import { AutonomousAgentModal } from "../modals/AutonomousAgentModal";
+import { GlobalHeader } from "../ui/GlobalHeader";
 import { SignalSidebar } from "./SignalSidebar";
 import { ReportWorkspace } from "./ReportWorkspace";
 import { ProfileModal } from "../modals/ProfileModal";
@@ -112,9 +113,7 @@ export function AppPage({
   useEffect(() => {
     async function loadConfig() {
       try {
-        const resp = await fetch(`${API_BASE_URL}/api/v1/config`);
-        if (!resp.ok) return;
-        const data = await resp.json();
+        const data = await getClientConfig();
         setSellerAddress(data.seller_wallet || "");
         setAdminAddress(data.roles?.admin_wallet || data.admin_wallet || data.seller_wallet || "");
         setArcGatewayUrl(String(data.arc_gateway || "").replace(/\/$/, ""));
@@ -184,6 +183,12 @@ export function AppPage({
     setFundShowAdvanced,
     refreshFundingReadiness,
   } = useFundArcWallet({ wallet, arcGatewayUrl });
+
+  useEffect(() => {
+    if (showFundArcModal) {
+      refreshFundingReadiness();
+    }
+  }, [showFundArcModal, refreshFundingReadiness]);
 
   const {
     profileChainUsdc,
@@ -343,7 +348,10 @@ export function AppPage({
     void cacheRevision;
     const normalized = normalizeSignalPayload(signal);
     const cachedEntry = getCachedReport(normalized, "full", providerId) || getCachedReport(normalized, "preview", providerId);
-    const historyEntries = cachedEntry ? [] : getCachedReportsForSymbol(normalized.symbol, providerId);
+    let historyEntries = cachedEntry ? [] : getCachedReportsForSymbol(normalized.symbol, providerId);
+
+    // Filter history entries by TTL (15 minutes = 900,000 ms) so they don't block new live signal purchases forever
+    historyEntries = historyEntries.filter((entry: any) => Date.now() - (entry.saved_at || 0) < 60 * 60 * 1000);
     if (cachedEntry?.report) {
       return {
         className: "paid",
@@ -483,20 +491,15 @@ export function AppPage({
           </div>
         </div>
       ) : null}
-      <AppHeader
-        wallet={wallet}
-        viewMode={viewMode}
-        metrics={metrics}
-        walletRole={walletRole}
-        ownedProviders={ownedProviders}
+      <GlobalHeader
+        activePage="app"
         onNavigate={onNavigate}
-        onViewModeChange={setViewModeState}
+        walletAddress={wallet}
         onConnect={connect}
         onDisconnect={disconnect}
-        onCopyAddress={handleCopyAddress}
-        copySuccess={copySuccess}
-        onOpenProfile={openQuickProfileModal}
-        onOpenProviderEarnings={openProviderEarningsModal}
+        userRole={walletRole.label}
+        onOpenDeposit={() => setShowFundArcModal(true)}
+        onOpenEarnings={openProviderEarningsModal}
       />
       <div className="mobile-view-tabs" role="tablist" aria-label="Dashboard sections">
         {[
@@ -535,7 +538,25 @@ export function AppPage({
               ↻ Refresh
         */}{/* Right main panel */}
         <div className={`main-panel ${mobileActiveView === "main-panel" ? "mobile-visible" : ""}`}>
-          {/* Removed Agent Control Bar */}
+          <div className="view-mode-header">
+            <h2 className="view-mode-title">Analysis Mode</h2>
+            <div className="view-mode-toggle">
+              <button
+                type="button"
+                className={`view-mode-btn ${viewMode === "basic" ? "active" : ""}`}
+                onClick={() => setViewModeState("basic")}
+              >
+                Simple
+              </button>
+              <button
+                type="button"
+                className={`view-mode-btn ${viewMode === "advanced" ? "active" : ""}`}
+                onClick={() => setViewModeState("advanced")}
+              >
+                Pro
+              </button>
+            </div>
+          </div>
           {/* Form / Selected signal card */}
           <div className="query-card-container">
             {viewMode === "basic" ? (
@@ -716,76 +737,38 @@ export function AppPage({
           </div>
         </div>
       </div>
-        {showAgentBuyerModal && (
-        <AgentBuyerModal
+      {/* Background Autonomous Agent Modal */}
+      {showAgentBuyerModal && (
+        <AutonomousAgentModal
           open={showAgentBuyerModal}
-          startedAt={agentStartTime}
-          elapsed={agentElapsed}
-          decisionLatency={agentDecisionLatency}
-          agentRejectedReasons={agentRejectedReasons}
           onClose={() => setShowAgentBuyerModal(false)}
-        >
-
-          <AgentBuyerModalContent
-            agentSessionStage={agentSessionStage}
-            stageContainerRef={stageContainerRef}
-            progressBarStyle={progressBarStyle}
-            agentTrace={agentTrace}
-            agentSelectedPick={agentSelectedPick}
-            recommendationTier={recommendationTier}
-            agentSelectReason={agentSelectReason}
-            agentRejectedReasons={agentRejectedReasons}
-            agentProviderComparison={agentProviderComparison}
-            agentSessionInvoice={agentSessionInvoice}
-            formatUsdc={formatUsdc}
-            agentVerifyResult={agentVerifyResult}
-            agentRunning={agentRunning}
-            handleAgentRetry={handleAgentRetry}
-            handleAgentCancelSession={handleAgentCancelSession}
-            setShowAgentBuyerModal={setShowAgentBuyerModal}
-            firstDotRef={firstDotRef}
-            lastDotRef={lastDotRef}
-            wallet={wallet}
-            shortAddress={shortAddress}
-            agentChatLogRef={agentChatLogRef}
-            handleOpenUnlockedReport={handleOpenUnlockedReport}
-            handleAgentRun={handleAgentRun}
-            agentPrompt={agentPrompt}
-            setAgentPrompt={setAgentPrompt}
-            tierLabel={tierLabel}
-          />
-        </AgentBuyerModal>
-        )}
+          wallet={wallet || ""}
+        />
+      )}
 
       <ProviderEarningsModal
         open={showProviderEarningsModal}
         onClose={() => setShowProviderEarningsModal(false)}
-      >
-        <div className="profile-grid withdraw-summary-grid">
-          <div className="profile-stat"><span className="profile-label">Owner wallet</span><span className="profile-value" title={wallet}>{wallet ? shortAddress(wallet) : "n/a"}</span></div>
-          <div className="profile-stat"><span className="profile-label">Providers</span><span className="profile-value">{selectedProviderEarningsStats.length}/{providerEarningsStats.length || ownedProviders.length}</span></div>
-          <div className="profile-stat"><span className="profile-label">Claimable ledger</span><span className="profile-value">{formatUsdc(providerEarningsTotals.totalClaimable, 6)}</span></div>
-          <div className="profile-stat"><span className="profile-label">Withdrawable gateway</span><span className="profile-value">{formatUsdc(providerEarningsTotals.gatewayAvailable, 6)}</span></div>
-        </div>
-        {providerEarningsError ? <div className="action-note" style={{ color: "var(--red)" }}>{providerEarningsError}</div> : null}
-        {providerEarningsLoading && !providerEarningsStats.length ? <Loader label="Loading creator earnings..." compact size="sm" /> : (
-          <div className="creator-earnings-list">
-            {providerEarningsStats.length ? providerEarningsStats.map((item) => {
-              const selected = selectedProviderEarningsIds.includes(item.provider_id);
-              return <label className={`creator-earnings-item ${selected ? "selected" : ""}`} key={item.provider_id}>
-                <input type="checkbox" checked={selected} onChange={() => toggleProviderEarningsSelection(item.provider_id)} disabled={creatorClaimSubmitting || providerWithdrawSubmitting} />
-                <div><strong>{item.provider_name || item.provider_id}</strong><span>{item.provider_id}{item.revenue_wallet ? ` / ${shortAddress(item.revenue_wallet)}` : ""}</span></div>
-                <div className="creator-earnings-amount">{formatUsdc(item.withdrawal_mode === "direct_gateway_split" ? item.creator_earned_usdc : item.creator_claimable_usdc, 6)}</div>
-              </label>;
-            }) : <div className="agent-empty">No provider earnings for this wallet yet.</div>}
-          </div>
-        )}
-        <div className="withdraw-actions">
-          <button className="refresh-btn" type="button" onClick={refreshProviderEarningsModal} disabled={providerEarningsLoading || creatorClaimSubmitting || providerWithdrawSubmitting}>Refresh</button>
-          {providerEarningsTotals.hasDirectSplit ? <button className="submit-btn" type="button" onClick={submitProviderGatewayWithdraw} disabled={providerWithdrawSubmitting || providerGatewayWithdrawMax <= 0}>{providerWithdrawSubmitting ? "Withdrawing..." : `Withdraw ${providerWithdrawDisplayAmount.toFixed(6)} USDC`}</button> : null}
-          <button className="submit-btn" type="button" onClick={submitCreatorClaim} disabled={providerEarningsLoading || creatorClaimSubmitting || providerWithdrawSubmitting || !creatorClaimConfig?.configured || providerEarningsTotals.totalClaimable <= 0}>{creatorClaimSubmitting ? "Claiming..." : `Claim ${providerEarningsTotals.totalClaimable.toFixed(6)} USDC`}</button>
-        </div>
-      </ProviderEarningsModal>
+        wallet={wallet || ""}
+        ownedProviders={ownedProviders}
+        creatorClaimConfig={creatorClaimConfig}
+        state={{
+          providerEarningsLoading,
+          providerEarningsError,
+          providerEarningsStats,
+          selectedProviderEarningsIds,
+          creatorClaimSubmitting,
+          providerWithdrawSubmitting,
+          selectedProviderEarningsStats,
+          providerEarningsTotals,
+          providerGatewayWithdrawMax,
+          providerWithdrawDisplayAmount,
+          toggleProviderEarningsSelection,
+          refreshProviderEarningsModal,
+          submitCreatorClaim,
+          submitProviderGatewayWithdraw,
+        }}
+      />
 
       <ProfileModal
         open={showProfileModal}

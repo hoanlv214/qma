@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { API_BASE_URL } from "../../services/api";
+import { getLiveAnomalies, getAgentRecommendations } from "../../services/providers";
 import { Loader } from "../ui/Loader";
 
 interface SignalSidebarProps {
@@ -15,6 +15,7 @@ interface SignalSidebarProps {
 export function SignalSidebar({ visible, activeQuery, normalizeSignal, entitlementBadgeForSignal, recommendationTier, onSelectSignal, onSelectRecommendation }: SignalSidebarProps) {
   const [anomalies, setAnomalies] = useState<any[]>([]);
   const [recommendations, setRecommendations] = useState<any[]>([]);
+  const [recommendationsLoading, setRecommendationsLoading] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [refreshTone, setRefreshTone] = useState<"" | "refreshing" | "error">("");
@@ -25,9 +26,7 @@ export function SignalSidebar({ visible, activeQuery, normalizeSignal, entitleme
     if (!silent) setLoading(true);
     setError("");
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/live-anomalies`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Failed to load anomalies");
+      const data = await getLiveAnomalies("funding_memory");
       setAnomalies(data.anomalies || []);
       const raw = Number(data.last_updated);
       const updated = Number.isFinite(raw) ? new Date(raw > 10_000_000_000 ? raw : raw * 1000) : new Date(data.last_updated);
@@ -45,27 +44,38 @@ export function SignalSidebar({ visible, activeQuery, normalizeSignal, entitleme
     let cancelled = false;
     const loadRecommendations = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/v1/agent/recommendations`);
-        if (!response.ok || cancelled) return;
-        const data = await response.json();
+        setRecommendationsLoading(true);
+        const data: any = await getAgentRecommendations();
         if (!cancelled) setRecommendations(data.recommendations || []);
       } catch (err) {
         console.warn("Failed to load recommendations", err);
+      } finally {
+        if (!cancelled) setRecommendationsLoading(false);
       }
     };
-    loadAnomalies();
-    loadRecommendations();
-    const timer = window.setInterval(() => loadAnomalies(true), 30000);
+    const refreshAll = async (silent = false) => {
+      await loadAnomalies(silent);
+      if (!cancelled) await loadRecommendations();
+    };
+    refreshAll();
+    const timer = window.setInterval(() => refreshAll(true), 30000);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, []);
 
   const refreshLabel = lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}` : refreshTone === "refreshing" ? "Refreshing" : refreshTone === "error" ? "Refresh error" : "Auto 30s";
 
+  const handleManualRefresh = () => {
+    loadAnomalies();
+    getAgentRecommendations()
+      .then((d: any) => setRecommendations(d.recommendations || []))
+      .catch(() => null);
+  };
+
   return <aside className={`live-feed-sidebar ${visible ? "mobile-visible" : ""}`}>
-    <div className="sidebar-header"><span className="sidebar-title">Live Signals</span><button className="refresh-btn" onClick={() => loadAnomalies()}>↻ Refresh</button></div>
+    <div className="sidebar-header"><span className="sidebar-title">Live Signals</span><button className="refresh-btn" onClick={handleManualRefresh}>↻ Refresh</button></div>
     <div className="agent-picks-panel sidebar-panel">
       <div className="sidebar-header agent-picks-header"><span className="sidebar-title">Ranked Opportunities</span><span className="agent-mode-pill">Human review</span></div>
-      <div className="agent-picks-list">{recommendations.length === 0 ? <Loader label="Ranking live signals..." compact size="sm" /> : recommendations.map((item, index) => {
+      <div className="agent-picks-list">{recommendationsLoading ? <Loader label="Ranking live signals..." compact size="sm" /> : recommendations.length === 0 ? <div className="agent-empty">No opportunities ranked yet.</div> : recommendations.map((item, index) => {
         const providerId = item.provider_id || "funding_memory";
         const signal = normalizeSignal(item.query || { symbol: item.symbol });
         const entitlement = entitlementBadgeForSignal(signal, providerId);

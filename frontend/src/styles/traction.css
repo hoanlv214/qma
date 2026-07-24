@@ -8,13 +8,12 @@
 
 .traction-page {
   min-height: 100vh;
-  padding: 0 max(20px, 5vw) 64px;
   color: var(--t1, #e8ebf2);
   background: var(--bg, #04060b);
   font-family: var(--sans, Inter, sans-serif);
 }
 
-.traction-page > .platform-stats-section {
+.traction-page>.platform-stats-section {
   width: min(1180px, 100%);
   margin: 18px auto 0;
 }
@@ -146,7 +145,7 @@
 
 .traction-metric-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 

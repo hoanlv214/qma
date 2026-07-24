@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import type { QmaRoute } from "../../app/routes";
 import { fetchTraction, type TractionSnapshot } from "../../services/traction";
 import { PlatformAnalyticsPanel } from "./PlatformAnalyticsPanel";
+import { GlobalHeader } from "../ui/GlobalHeader";
+import { useWalletStore } from "../../state/walletStore";
 import "../../styles/traction.css";
 
 interface TractionPageProps {
@@ -23,6 +25,7 @@ export function TractionPage({ onNavigate }: TractionPageProps) {
   const [snapshot, setSnapshot] = useState<TractionSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const { address: walletAddress, disconnect } = useWalletStore();
 
   useEffect(() => {
     let disposed = false;
@@ -64,17 +67,13 @@ export function TractionPage({ onNavigate }: TractionPageProps) {
 
   return (
     <main className="traction-page">
-      <nav className="traction-nav">
-        <button type="button" className="traction-brand" onClick={() => onNavigate("landing")}>
-          <span className="logo-icon">QM</span>
-          <span>QMA</span>
-        </button>
-        <div className="traction-nav-links">
-          <button type="button" onClick={() => onNavigate("app")}>Launch App</button>
-          <button type="button" onClick={() => onNavigate("marketplace")}>Marketplace</button>
-          <a href="/docs" target="_blank" rel="noopener noreferrer">API Docs</a>
-        </div>
-      </nav>
+      <GlobalHeader
+        activePage="traction"
+        onNavigate={onNavigate}
+        walletAddress={walletAddress}
+        onConnect={() => onNavigate("app")}
+        onDisconnect={disconnect}
+      />
 
       <section className="traction-hero">
         <div>

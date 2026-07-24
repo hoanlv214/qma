@@ -2,7 +2,8 @@ import { useState, type Dispatch, type FormEvent, type SetStateAction } from "re
 import { API_BASE_URL } from "../services/api";
 import { getInjectedWallet, shortAddress } from "../services/wallet";
 import { payX402Resource, prepareX402Payment, submitX402Payment, X402PaymentError, type PreparedX402Payment } from "../services/x402";
-import { createInvoice } from "../services/invoices";
+import { createInvoice, verifyPayment } from "../services/invoices";
+import { getProviderReport } from "../services/reports";
 import { extractGatewayBalanceUsdc } from "../services/gatewayCrypto";
 import type { PaymentStepKey, PaymentStepState } from "../types/qma";
 import { normalizeTierForCache } from "../utils/format";
@@ -223,12 +224,17 @@ export function usePayment({
     const provider = getInjectedWallet();
     if (!provider) return;
     for (let i = 0; i < 45; i++) {
-      const rec = await provider.request<any>({ method: "eth_getTransactionReceipt", params: [hash] });
-      if (rec) {
-        if (rec.status !== "0x1") throw new Error("Transaction reverted.");
-        return rec;
+      try {
+        const rec = await provider.request<any>({ method: "eth_getTransactionReceipt", params: [hash] });
+        if (rec) {
+          if (rec.status !== "0x1") throw new Error("Transaction reverted.");
+          return rec;
+        }
+      } catch (err: any) {
+        // Ignore network errors or RPC rate limits (429) during polling, just wait and retry.
+        console.warn("RPC error while waiting for receipt, retrying...", err);
       }
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await new Promise((resolve) => setTimeout(resolve, 2000));
     }
     throw new Error("Receipt timeout");
   };
@@ -447,27 +453,18 @@ export function usePayment({
       setPaymentStep("report");
       setPaymentStepStatus((prev) => ({ ...prev, settlement: { status: "completed", label: "Settled" }, report: { status: "active", label: "Verifying" } }));
       setPayStatusText("Settlement accepted. Verifying tokens...");
-      const verifyResp = await fetch(`${API_BASE_URL}/api/v1/payment/verify?invoice_id=${encodeURIComponent(currentInvoice.invoice_id)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          invoice_secret: currentInvoice.invoice_secret,
-          payer_address: wallet,
-          ...(settlementId ? { settlement_id: settlementId, amount_usdc: paidAmountUsdc } : {}),
-          ...(splitSettlements.length ? { split_settlements: splitSettlements } : {}),
-        }),
+      const verifyData: any = await verifyPayment(currentInvoice.invoice_id, {
+        invoice_secret: currentInvoice.invoice_secret,
+        payer_address: wallet,
+        ...(settlementId ? { settlement_id: settlementId, amount_usdc: paidAmountUsdc } : {}),
+        ...(splitSettlements.length ? { split_settlements: splitSettlements } : {}),
       });
-      const verifyData = await verifyResp.json();
-      if (!verifyResp.ok) {
-        const detail = typeof verifyData.detail === "object" ? JSON.stringify(verifyData.detail) : verifyData.detail;
-        throw new Error(detail || "Verification failed");
-      }
-      if (!verifyData.access_token) throw new Error("QMA verification did not return an access token.");
+      if (!verifyData?.access_token) throw new Error("QMA verification did not return an access token.");
 
       setPaymentStepStatus((prev) => ({ ...prev, report: { status: "completed", label: "Unlocked" } }));
       setPaymentDetails((prev) => ({
         ...prev,
-        settlementId: verifyData.settlement_id || settlementId || splitSettlements.map((item) => item.settlement_id).join(", "),
+        settlementId: verifyData.settlement_id || settlementId || splitSettlements.map((item: any) => item.settlement_id).join(", "),
         sellerAvailable: verifyData.seller_gateway_available_usdc != null ? `${Number(verifyData.seller_gateway_available_usdc).toFixed(6)} USDC` : prev.sellerAvailable,
         sellerPending: verifyData.seller_gateway_pending_batch_usdc != null ? `${Number(verifyData.seller_gateway_pending_batch_usdc).toFixed(6)} USDC` : prev.sellerPending,
         txHash: verifyData.transaction_hash || prev.txHash,
@@ -497,16 +494,13 @@ export function usePayment({
       const invoiceForReport = invoiceOverride || currentInvoice;
       const reportQuery = queryOverride || activeQuery;
       const providerForReport = invoiceForReport?.provider_id || providerOverride || selectedProviderId;
-      const endpoint = invoiceForReport?.tier === "preview"
-        ? `/api/v1/providers/${encodeURIComponent(providerForReport)}/preview`
-        : `/api/v1/providers/${encodeURIComponent(providerForReport)}/full-report`;
-      const resp = await fetch(`${API_BASE_URL}${endpoint}?invoice_id=${encodeURIComponent(invoiceId)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-QMA-Access-Token": accessToken },
-        body: JSON.stringify(reportQuery),
+      const reportData = await getProviderReport({
+        providerId: providerForReport,
+        tier: invoiceForReport?.tier === "preview" ? "preview" : "full",
+        invoiceId,
+        accessToken,
+        query: reportQuery as any,
       });
-      const reportData = await resp.json();
-      if (!resp.ok) throw new Error(reportData.detail || "Could not read report data");
 
       const normalizedReportQuery = normalizeSignalPayload(reportQuery);
       const reportTier = normalizeTierForCache(invoiceForReport.tier);

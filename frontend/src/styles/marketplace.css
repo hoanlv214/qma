@@ -23,7 +23,7 @@
     --marketplace-gap: var(--space-5);
     width: min(1180px, calc(100% - 32px));
     margin: 0 auto;
-    padding-top: var(--space-10);
+    padding-top: 100px; /* offset for 60px fixed global header */
     padding-bottom: var(--space-16);
 }
 
