@@ -1,13 +1,14 @@
-export type QmaRoute = "landing" | "app" | "profile" | "marketplace" | "traction" | "docs";
+export type QmaRoute = "landing" | "app" | "profile" | "marketplace" | "traction" | "docs" | "not_found";
 
 export function routeFromPath(pathname: string): QmaRoute {
   const clean = pathname.replace(/\/$/, "");
   if (clean === "" || clean === "/index.html") return "landing";
-  if (clean.startsWith("/profile") || clean.startsWith("/user")) return "profile";
-  if (clean.startsWith("/marketplace")) return "marketplace";
-  if (clean.startsWith("/traction") || clean.startsWith("/ledger")) return "traction";
-  if (clean.startsWith("/docs")) return "docs";
-  return "app";
+  if (clean === "/app") return "app";
+  if (clean === "/profile" || clean.startsWith("/profile/") || clean.startsWith("/user")) return "profile";
+  if (clean === "/marketplace" || clean.startsWith("/marketplace/")) return "marketplace";
+  if (clean === "/traction" || clean.startsWith("/traction/") || clean === "/ledger" || clean.startsWith("/ledger/")) return "traction";
+  if (clean === "/docs" || clean.startsWith("/docs/")) return "docs";
+  return "not_found";
 }
 
 export function pathForRoute(route: QmaRoute): string {
@@ -16,6 +17,7 @@ export function pathForRoute(route: QmaRoute): string {
   if (route === "traction") return "/traction";
   if (route === "docs") return "/docs";
   if (route === "app") return "/app";
-  return "/";
+  if (route === "landing") return "/";
+  return "/404";
 }
 

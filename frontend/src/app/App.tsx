@@ -4,6 +4,7 @@ import { AppPage } from "../components/reports/AppPage";
 import { MarketplaceReview } from "../components/marketplace/MarketplaceReview";
 import { ProfileOrdersPage } from "../components/profile/ProfileOrdersPage";
 import { TractionPage } from "../components/traction/TractionPage";
+import { NotFoundPage } from "../components/ui/NotFoundPage";
 import { pathForRoute, routeFromPath, type QmaRoute } from "./routes";
 import { WalletProvider } from "../state/walletStore";
 
@@ -27,7 +28,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    document.body.classList.remove("landing-body", "body", "marketplace-body", "profile-body", "traction-body");
+    document.body.classList.remove("landing-body", "body", "marketplace-body", "profile-body", "traction-body", "notfound-body");
 
     if (route === "landing") {
       document.body.classList.add("landing-body");
@@ -39,6 +40,8 @@ export function App() {
       document.body.classList.add("profile-body");
     } else if (route === "traction") {
       document.body.classList.add("traction-body");
+    } else if (route === "not_found") {
+      document.body.classList.add("notfound-body");
     }
   }, [route]);
 
@@ -49,6 +52,7 @@ export function App() {
       {route === "marketplace" && <MarketplaceReview onNavigate={navigate} />}
       {route === "profile" && <ProfileOrdersPage />}
       {route === "traction" && <TractionPage onNavigate={navigate} />}
+      {route === "not_found" && <NotFoundPage onNavigate={navigate} />}
       {route === "docs" && (
         <Suspense fallback={null}>
           <ApiDocsPage />
