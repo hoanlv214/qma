@@ -76,11 +76,24 @@ const CIRCLE_CONSOLE_API_KEY = process.env.CIRCLE_CONSOLE_API_KEY;
 const CIRCLE_ENTITY_SECRET = process.env.CIRCLE_ENTITY_SECRET;
 
 let circleClient: ReturnType<typeof circle.initiateDeveloperControlledWalletsClient> | null = null;
+let walletSetId: string | null = null;
+
 if (CIRCLE_CONSOLE_API_KEY && CIRCLE_ENTITY_SECRET) {
   circleClient = circle.initiateDeveloperControlledWalletsClient({
     apiKey: CIRCLE_CONSOLE_API_KEY,
     entitySecret: CIRCLE_ENTITY_SECRET,
   });
+  
+  if (TREASURY_WALLET_ID) {
+    circleClient.getWallet({ id: TREASURY_WALLET_ID })
+      .then((resp: any) => {
+        walletSetId = resp.data?.wallet?.walletSetId ?? null;
+        console.log(`[Circle] Discovered Wallet Set ID: ${walletSetId}`);
+      })
+      .catch((err: any) => {
+        console.error(`[Circle] Failed to fetch wallet set ID: ${err.message}`);
+      });
+  }
 }
 
 const INTERNAL_SECRET = process.env.QMA_ARC_GATEWAY_INTERNAL_SECRET ?? "";
@@ -912,6 +925,191 @@ app.get("/api/decode-batch/:hash", async (req, res) => {
     });
   } catch (err) {
     res.status(400).json({ error: String((err as Error).message ?? err) });
+  }
+});
+
+app.post("/api/wallet/create", async (req, res) => {
+  try {
+    requireInternalSecret(req);
+    if (!circleClient) {
+      throw new RelayHttpError("circle client is not configured", 503);
+    }
+    if (!walletSetId) {
+      throw new RelayHttpError("wallet set is not resolved yet, please try again in a moment", 503);
+    }
+    const isMainnet = process.env.QMA_NETWORK_MODE === "mainnet";
+    const blockchain = isMainnet ? "ARC" : "ARC-TESTNET";
+    
+    console.log(`[Circle] Creating a new session wallet on ${blockchain}...`);
+    const walletsResponse = await circleClient.createWallets({
+      accountType: "EOA",
+      blockchains: [blockchain],
+      count: 1,
+      walletSetId,
+    });
+    
+    const wallets = walletsResponse.data?.wallets ?? [];
+    if (wallets.length === 0) {
+      throw new RelayHttpError("Failed to create wallet", 500);
+    }
+    const wallet = wallets[0];
+    res.json({
+      status: "success",
+      walletId: wallet.id,
+      address: wallet.address,
+      blockchain: wallet.blockchain,
+      accountType: wallet.accountType,
+    });
+  } catch (err) {
+    const status = err instanceof RelayHttpError ? err.status : 502;
+    res.status(status).json({ error: String((err as Error).message ?? err) });
+  }
+});
+
+app.post("/api/wallet/sign-typed-data", async (req, res) => {
+  try {
+    requireInternalSecret(req);
+    if (!circleClient) {
+      throw new RelayHttpError("circle client is not configured", 503);
+    }
+    const walletId = String(req.body?.walletId ?? "");
+    const data = req.body?.data;
+    
+    if (!walletId || !data) {
+      throw new RelayHttpError("walletId and data are required", 400);
+    }
+    
+    console.log(`[Sign] Requesting EIP-712 signature from wallet ${walletId}`);
+    const signResponse = await circleClient.signTypedData({
+      walletId,
+      data: JSON.stringify(data),
+    });
+    
+    res.json({
+      status: "success",
+      signature: signResponse.data?.signature,
+    });
+  } catch (err) {
+    const status = err instanceof RelayHttpError ? err.status : 502;
+    res.status(status).json({ error: String((err as Error).message ?? err) });
+  }
+});
+
+app.post("/api/wallet/deposit", async (req, res) => {
+  try {
+    requireInternalSecret(req);
+    if (!circleClient) {
+      throw new RelayHttpError("circle client is not configured", 503);
+    }
+    const walletId = String(req.body?.walletId ?? "");
+    const amountUsdc = String(req.body?.amountUsdc ?? "");
+    
+    if (!walletId || !amountUsdc) {
+      throw new RelayHttpError("walletId and amountUsdc are required", 400);
+    }
+    
+    const rawAmount = parseUnits(amountUsdc, 6).toString();
+    const rawApproveAmount = parseUnits("1000", 6).toString(); // Approve a large amount to prevent repeating
+    
+    console.log(`[Deposit] Depositing ${amountUsdc} USDC from wallet ${walletId} into Gateway`);
+    
+    // 1. Approve Gateway to spend USDC from the wallet
+    const approveTx = await circleClient.createContractExecutionTransaction({
+      walletId,
+      contractAddress: ARC_TESTNET_USDC,
+      abiFunctionSignature: "approve(address,uint256)",
+      abiParameters: [GATEWAY_WALLET, rawApproveAmount],
+      fee: {
+        type: "level",
+        config: { feeLevel: "MEDIUM" }
+      }
+    });
+    
+    // Wait a brief moment for the approval transaction to be processed
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    
+    // 2. Deposit into Gateway
+    const depositTx = await circleClient.createContractExecutionTransaction({
+      walletId,
+      contractAddress: GATEWAY_WALLET,
+      abiFunctionSignature: "deposit(address,uint256)",
+      abiParameters: [ARC_TESTNET_USDC, rawAmount],
+      fee: {
+        type: "level",
+        config: { feeLevel: "MEDIUM" }
+      }
+    });
+    
+    res.json({
+      status: "success",
+      approveTxId: approveTx.data?.id,
+      depositTxId: depositTx.data?.id,
+    });
+  } catch (err) {
+    const status = err instanceof RelayHttpError ? err.status : 502;
+    res.status(status).json({ error: String((err as Error).message ?? err) });
+  }
+});
+
+app.post("/api/wallet/withdraw", async (req, res) => {
+  try {
+    requireInternalSecret(req);
+    if (!circleClient) {
+      throw new RelayHttpError("circle client is not configured", 503);
+    }
+    const sourceWalletId = String(req.body?.walletId ?? "");
+    const destinationAddress = String(req.body?.destinationAddress ?? "");
+    const amountUsdc = String(req.body?.amountUsdc ?? req.body?.amount_usdc ?? "");
+    
+    if (!sourceWalletId || !destinationAddress || !amountUsdc) {
+      throw new RelayHttpError("walletId, destinationAddress, and amountUsdc are required", 400);
+    }
+    
+    const isMainnet = process.env.QMA_NETWORK_MODE === "mainnet";
+    const tokenId = isMainnet
+      ? "usdc-token-id-on-arc-mainnet" // Thay thế bằng Token ID thực tế khi lên mainnet
+      : "ef87c8c3-85de-598a-af50-c5135eecfa74"; // ARC-TESTNET USDC Token ID
+      
+    console.log(`[Withdraw] Transferring ${amountUsdc} USDC from ${sourceWalletId} to ${destinationAddress}`);
+    
+    const response = await circleClient.createTransaction({
+      idempotencyKey: crypto.randomUUID(),
+      walletId: sourceWalletId,
+      destinationAddress,
+      amount: [amountUsdc],
+      tokenId,
+      fee: { 
+        type: "level",
+        config: { feeLevel: "MEDIUM" }
+      }
+    });
+    
+    res.json({
+      status: "success",
+      transactionId: response.data?.id,
+      amountUsdc,
+      recipient: destinationAddress,
+    });
+  } catch (err) {
+    const status = err instanceof RelayHttpError ? err.status : 502;
+    res.status(status).json({ error: String((err as Error).message ?? err) });
+  }
+});
+
+app.get("/api/wallet/:id/balance", async (req, res) => {
+  try {
+    if (!circleClient) {
+      throw new RelayHttpError("circle client is not configured", 503);
+    }
+    const walletId = req.params.id;
+    console.log(`[Balance] Checking token balance for wallet ${walletId}`);
+    const response = await circleClient.getWalletTokenBalance({
+      id: walletId,
+    });
+    res.json(response.data);
+  } catch (err) {
+    const status = err instanceof RelayHttpError ? err.status : 502;
+    res.status(status).json({ error: String((err as Error).message ?? err) });
   }
 });
 
