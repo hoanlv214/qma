@@ -518,22 +518,7 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
         }
       }
 
-      try {
-        await provider.request({
-          method: "wallet_watchAsset",
-          params: {
-            type: "ERC20",
-            options: {
-              address: "0x3600000000000000000000000000000000000000",
-              symbol: "USDC",
-              decimals: 6,
-              image: "https://cryptologos.cc/logos/usd-coin-usdc-logo.png",
-            },
-          },
-        });
-      } catch (watchErr) {
-        console.warn("watchAsset failed or ignored", watchErr);
-      }
+
 
       setMessages(prev => [...prev, {
         id: `sys-funding-tx-${Date.now()}`,
