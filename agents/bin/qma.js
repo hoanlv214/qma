@@ -5,9 +5,38 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { privateKeyToAccount } from "viem/accounts";
+import { createPublicClient, http, getContract, formatUnits } from "viem";
+import { arcTestnet } from "viem/chains";
 import { normalizeSessionPolicy, parseDurationSeconds, runAutonomousSession } from "../dist/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+async function getUsdcBalance(address) {
+  const publicClient = createPublicClient({
+    chain: arcTestnet,
+    transport: http("https://rpc.testnet.arc.network"),
+  });
+  
+  const usdcAddress = "0x3600000000000000000000000000000000000000";
+  const erc20Abi = [
+    {
+      name: "balanceOf",
+      type: "function",
+      stateMutability: "view",
+      inputs: [{ name: "account", type: "address" }],
+      outputs: [{ name: "", type: "uint256" }]
+    }
+  ];
+  
+  const contract = getContract({
+    address: usdcAddress,
+    abi: erc20Abi,
+    client: publicClient,
+  });
+  
+  const balanceRaw = await contract.read.balanceOf([address]);
+  return parseFloat(formatUnits(balanceRaw, 6));
+}
 const argValue = (name, fallback = null) => {
   const prefix = `--${name}=`;
   const equal = process.argv.find((value) => value.startsWith(prefix));
@@ -37,6 +66,7 @@ OPTIONS
   --wallet <address>    Provide the wallet address (if using circle-agent-wallet).
   --verbose             Show full execution logs and report data JSON.
   --report-file <path>  Save the purchased JSON report to a file (e.g. report.json).
+  --no-auto-deposit     Disable automatic on-chain deposits into Gateway.
 
 ENVIRONMENT VARIABLES
   AGENT_PRIVATE_KEY     Your EVM private key for 'local-private-key' live mode.
@@ -144,7 +174,7 @@ const policy = normalizeSessionPolicy({
   symbolCooldownSeconds: numberArg("cooldown", "600"),
   failedCandidateCooldownSeconds: numberArg("failure-cooldown", "300"),
   maxFailedAttemptsPerCandidate: numberArg("max-failures", "2"),
-  autoDepositGateway: hasFlag("auto-deposit"),
+  autoDepositGateway: !hasFlag("no-auto-deposit"),
   upgradePolicy: { enabled: llmPolicy.upgrade_enabled ?? true },
 });
 
@@ -235,6 +265,37 @@ process.once("SIGINT", () => { emit("Stopping after the current safe step..."); 
 const events = [];
 const eventLog = argValue("event-log");
 const reportFile = argValue("report-file");
+
+if (policy.executionMode === "live" && wallet) {
+  emit(`Checking on-chain balance for wallet ${wallet}...`);
+  try {
+    let balance = await getUsdcBalance(wallet);
+    emit(`Current Balance: $${balance.toFixed(2)} USDC`);
+    
+    if (balance < policy.sessionBudgetUsdc) {
+      console.log(`\n⚠️  INSUFFICIENT FUNDS!`);
+      console.log(`Your current balance is $${balance.toFixed(2)} USDC, but this session requires a budget of $${policy.sessionBudgetUsdc.toFixed(2)} USDC.`);
+      console.log(`Please transfer at least $${(policy.sessionBudgetUsdc - balance).toFixed(2)} USDC to the Agent Wallet: \x1b[36m${wallet}\x1b[0m`);
+      console.log(`Waiting for funds (polling every 10 seconds, Ctrl+C to abort)...`);
+      
+      while (balance < policy.sessionBudgetUsdc) {
+        await new Promise(r => setTimeout(r, 10000));
+        try {
+          balance = await getUsdcBalance(wallet);
+          if (balance >= policy.sessionBudgetUsdc) {
+            emit(`\n✅ Funds received! New balance: $${balance.toFixed(2)} USDC. Resuming execution...`);
+            break;
+          } else {
+            if (!hasFlag("json")) process.stdout.write(`.`);
+          }
+        } catch (e) { /* ignore network error during polling */ }
+      }
+    }
+  } catch (err) {
+    emit(`[Warning] Could not verify on-chain balance: ${err.message || err}. Proceeding anyway...`);
+  }
+}
+
 const report = await runAutonomousSession(policy, {
   observe: async () => {
     const decision = await getDecision();

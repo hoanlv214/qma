@@ -20,11 +20,9 @@ Run an autonomous agent locally using the Circle Agent Wallet.
    ```bash
    circle wallet create
    ```
-4. **Deposit into Gateway:**
-   Deposit USDC into the Circle Gateway to enable x402 nanopayments:
-   ```bash
-   circle gateway deposit --chain ARC-TESTNET --amount 50
-   ```
+4. **Fund your Agent Wallet:**
+   Transfer USDC to your Agent Wallet address on the Arc Testnet. 
+   *(Note: The CLI and SDK will automatically detect your on-chain USDC balance and handle the deposit into the Circle Gateway for you when starting a session, so manual Gateway deposit is optional).*
 5. **Install the SDK:**
    *Note: This package is ESM-only and requires Node.js >= 20.*
    ```bash
