@@ -12,6 +12,9 @@ interface GlobalHeaderProps {
   onOpenDeposit?: () => void;
   onOpenEarnings?: () => void;
   rightControls?: React.ReactNode;
+  agentWalletAddress?: string;
+  agentWalletBalance?: number;
+  onOpenWithdrawAgent?: () => void;
 }
 
 export function GlobalHeader({
@@ -23,11 +26,15 @@ export function GlobalHeader({
   userRole,
   onOpenDeposit,
   onOpenEarnings,
-  rightControls
+  rightControls,
+  agentWalletAddress,
+  agentWalletBalance = 0,
+  onOpenWithdrawAgent
 }: GlobalHeaderProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [agentCopySuccess, setAgentCopySuccess] = useState(false);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -45,6 +52,15 @@ export function GlobalHeader({
       navigator.clipboard.writeText(walletAddress);
       setCopySuccess(true);
       setTimeout(() => setCopySuccess(false), 2000);
+    }
+  };
+
+  const handleAgentCopy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (agentWalletAddress) {
+      navigator.clipboard.writeText(agentWalletAddress);
+      setAgentCopySuccess(true);
+      setTimeout(() => setAgentCopySuccess(false), 2000);
     }
   };
 
@@ -122,6 +138,11 @@ export function GlobalHeader({
               </div>
               <div className="wallet-address-info">
                 <span className="wallet-short-address">{shortAddress(walletAddress)}</span>
+                {agentWalletAddress && (
+                  <span style={{ fontSize: '10px', color: 'var(--accent)', opacity: 0.8, display: 'block', textAlign: 'left', marginTop: '2px' }}>
+                    Agent: ${agentWalletBalance.toFixed(2)}
+                  </span>
+                )}
               </div>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`chevron ${dropdownOpen ? "up" : "down"}`} width="14" height="14">
                 <polyline points="6 9 12 15 18 9"></polyline>
@@ -131,18 +152,38 @@ export function GlobalHeader({
             {dropdownOpen && (
               <div className="wallet-dropdown-menu">
                 <div className="dropdown-header">
-                  <div className="dropdown-address-row">
-                    <span className="mono-address">{shortAddress(walletAddress)}</span>
-                    <button className="copy-btn" onClick={handleCopy} title="Copy address">
-                      {copySuccess ? (
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                      ) : (
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                      )}
-                    </button>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
+                    <span style={{ fontSize: '9px', color: 'var(--t3)', textTransform: 'uppercase' }}>Main Account</span>
+                    <div className="dropdown-address-row" style={{ width: '100%' }}>
+                      <span className="mono-address">{shortAddress(walletAddress)}</span>
+                      <button className="copy-btn" onClick={handleCopy} title="Copy address">
+                        {copySuccess ? (
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        ) : (
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        )}
+                      </button>
+                    </div>
                   </div>
+
+                  {agentWalletAddress && (
+                    <div className="dropdown-address-row-agent" style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.06)", display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
+                      <span style={{ fontSize: '9px', color: 'var(--t3)', textTransform: 'uppercase' }}>Agent Wallet (Fund USDC here)</span>
+                      <div className="dropdown-address-row" style={{ width: '100%' }}>
+                        <span className="mono-address" style={{ color: 'var(--accent)' }}>{shortAddress(agentWalletAddress)}</span>
+                        <button className="copy-btn" onClick={handleAgentCopy} title="Copy Agent Address">
+                          {agentCopySuccess ? (
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                          ) : (
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {userRole && userRole !== "none" && (
-                    <div style={{ marginTop: 6 }}>
+                    <div style={{ marginTop: 8 }}>
                       <span className={`wallet-role-badge role-${userRole}`}>Role: {userRole}</span>
                     </div>
                   )}
@@ -159,6 +200,16 @@ export function GlobalHeader({
                     <button className="dropdown-action-btn" onClick={() => { onOpenDeposit(); setDropdownOpen(false); }}>
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                       Deposit Funds
+                    </button>
+                  )}
+
+                  {agentWalletAddress && onOpenWithdrawAgent && (
+                    <button className="dropdown-action-btn" onClick={() => { onOpenWithdrawAgent(); setDropdownOpen(false); }}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
+                        <line x1="12" y1="19" x2="12" y2="5"></line>
+                        <polyline points="5 12 12 5 19 12"></polyline>
+                      </svg>
+                      Withdraw Agent Funds
                     </button>
                   )}
 

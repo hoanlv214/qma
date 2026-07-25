@@ -43,44 +43,42 @@
 
 .global-nav-link {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   background: transparent;
   border: none;
-  padding: 0 4px;
-  min-width: 80px;
-  max-width: 120px;
-  flex: 1;
+  padding: 0 16px;
+  min-width: 0;
+  max-width: none;
+  flex: none;
   height: 60px;
   /* Match header height for border */
   border-bottom: 3px solid transparent;
   cursor: pointer;
   border-radius: 0;
   transition: all 0.2s ease;
-  position: relative;
-  text-decoration: none;
-  box-sizing: border-box;
 }
 
 .nav-icon-wrapper {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  color: var(--t1, #ffffff);
+  width: 24px;
+  height: 24px;
+  color: var(--t2);
   transition: all 0.2s ease;
 }
 
 .nav-label {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  color: var(--t1);
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  margin-top: 2px;
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--t2);
+  text-transform: none;
+  letter-spacing: 0;
+  margin-top: 0;
   position: relative;
 }
 

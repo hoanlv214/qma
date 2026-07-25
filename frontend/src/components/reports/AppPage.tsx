@@ -168,6 +168,78 @@ export function AppPage({
     showToast,
   });
 
+  // Cấu hình state quản lý Ví Agent
+  const [agentWalletAddress, setAgentWalletAddress] = useState<string>("");
+  const [agentWalletBalance, setAgentWalletBalance] = useState<number>(0);
+  const [showWithdrawAgentModal, setShowWithdrawAgentModal] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState<string>("");
+  const [withdrawLoading, setWithdrawLoading] = useState(false);
+
+  const fetchAgentWallet = async () => {
+    if (!wallet) return;
+    try {
+      const res = await fetch(`/api/v1/sessions/owner/${wallet}/wallet`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.wallet) {
+          setAgentWalletAddress(data.wallet.address);
+          setAgentWalletBalance(data.wallet.balance_usdc);
+        } else {
+          setAgentWalletAddress("");
+          setAgentWalletBalance(0);
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to fetch agent wallet details", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchAgentWallet();
+    const interval = setInterval(fetchAgentWallet, 15000);
+    return () => clearInterval(interval);
+  }, [wallet]);
+
+  const handleWithdrawAgent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!wallet || !agentWalletAddress) return;
+    const amount = parseFloat(withdrawAmount);
+    if (isNaN(amount) || amount <= 0) {
+      showToast("Please enter a valid amount.", "error");
+      return;
+    }
+    if (amount > agentWalletBalance) {
+      showToast(`Insufficient balance. Available: $${agentWalletBalance.toFixed(2)} USDC`, "error");
+      return;
+    }
+
+    try {
+      setWithdrawLoading(true);
+      const res = await fetch("/api/v1/sessions/withdraw", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          owner_wallet: wallet,
+          amount_usdc: amount
+        })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.detail || "Withdrawal execution failed.");
+      }
+
+      showToast(`Successfully withdrew ${amount.toFixed(2)} USDC from Agent Wallet!`, "success");
+      setShowWithdrawAgentModal(false);
+      setWithdrawAmount("");
+      fetchAgentWallet();
+    } catch (err: any) {
+      showToast(err.message || "Withdrawal failed.", "error");
+    } finally {
+      setWithdrawLoading(false);
+    }
+  };
+
   const {
     fundReadinessStatus,
     fundReadinessTone,
@@ -500,6 +572,9 @@ export function AppPage({
         userRole={walletRole.label}
         onOpenDeposit={() => setShowFundArcModal(true)}
         onOpenEarnings={openProviderEarningsModal}
+        agentWalletAddress={agentWalletAddress}
+        agentWalletBalance={agentWalletBalance}
+        onOpenWithdrawAgent={() => setShowWithdrawAgentModal(true)}
       />
       <div className="mobile-view-tabs" role="tablist" aria-label="Dashboard sections">
         {[
@@ -816,6 +891,108 @@ export function AppPage({
           refreshFundingReadiness={refreshFundingReadiness}
         />
       </FundArcWalletModal>
+
+      {showWithdrawAgentModal && (
+        <div className="modal-backdrop open">
+          <div className="modal-content" style={{ maxWidth: '420px', padding: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ margin: 0, fontSize: '18px', color: '#fff', fontWeight: 600 }}>Withdraw Agent Funds</h3>
+              <button 
+                type="button" 
+                className="icon-button" 
+                onClick={() => {
+                  setShowWithdrawAgentModal(false);
+                  setWithdrawAmount("");
+                }}
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--t3)' }}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+            
+            <p style={{ fontSize: '13px', color: 'var(--t2)', marginBottom: '20px', lineHeight: 1.5 }}>
+              This will withdraw USDC from your persistent Agent Wallet and send it directly back to your connected MetaMask address (<strong style={{ color: 'var(--accent)' }}>{wallet ? `${wallet.slice(0, 6)}...${wallet.slice(-4)}` : ""}</strong>).
+            </p>
+
+            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px', padding: '12px', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--t3)', marginBottom: '4px' }}>
+                <span>Agent Wallet Balance</span>
+                <strong style={{ color: '#fff' }}>${agentWalletBalance.toFixed(2)} USDC</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--t3)' }}>
+                <span>Dest Address</span>
+                <span className="mono" style={{ fontSize: '11px', color: 'var(--t2)' }}>{wallet}</span>
+              </div>
+            </div>
+
+            <form onSubmit={handleWithdrawAgent}>
+              <div className="form-group" style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', fontSize: '11px', color: 'var(--t3)', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 600 }}>Amount to Withdraw (USDC)</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input 
+                    type="number"
+                    step="0.000001"
+                    min="0.000001"
+                    max={agentWalletBalance}
+                    placeholder="0.00"
+                    value={withdrawAmount}
+                    onChange={(e) => setWithdrawAmount(e.target.value)}
+                    required
+                    style={{
+                      flex: 1,
+                      background: 'rgba(0,0,0,0.2)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      borderRadius: '6px',
+                      padding: '8px 12px',
+                      color: '#fff',
+                      fontSize: '14px',
+                      outline: 'none'
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setWithdrawAmount(agentWalletBalance.toString())}
+                    style={{
+                      background: 'rgba(255,255,255,0.05)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      borderRadius: '6px',
+                      padding: '0 12px',
+                      color: 'var(--accent)',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    MAX
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowWithdrawAgentModal(false);
+                    setWithdrawAmount("");
+                  }}
+                  className="btn-secondary"
+                  style={{ flex: 1, padding: '10px', fontSize: '13px' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  disabled={withdrawLoading || !withdrawAmount || parseFloat(withdrawAmount) <= 0}
+                  style={{ flex: 1, padding: '10px', fontSize: '13px' }}
+                >
+                  {withdrawLoading ? "Withdrawing..." : "Confirm Withdraw"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div >
   );
 }

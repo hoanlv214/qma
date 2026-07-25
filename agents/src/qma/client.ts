@@ -185,4 +185,8 @@ export class QmaClient {
   async createAgentInvoice(payload: Record<string, unknown>): Promise<any> {
     return this.postJson(`/api/v1/payment/invoice`, payload);
   }
+
+  async verifyAgentPayment(invoiceId: string, payload: Record<string, unknown>): Promise<any> {
+    return this.postJson(`/api/v1/payment/verify?invoice_id=${encodeURIComponent(invoiceId)}`, payload);
+  }
 }

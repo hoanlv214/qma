@@ -5060,8 +5060,18 @@ body.basic-view .platform-stats-section {
     align-items: flex-start;
     justify-content: space-between;
     gap: 18px;
-    padding: 22px 24px 18px;
+    padding: 22px 24px 8px; /* reduced bottom padding */
     border-bottom: 1px solid rgba(255, 255, 255, 0.075);
+}
+
+.agent-buyer-header .close-btn {
+    opacity: 0.35;
+    transition: all 0.2s ease;
+}
+
+.agent-buyer-header .close-btn:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.1);
 }
 
 .agent-buyer-eyebrow {
@@ -5162,19 +5172,19 @@ body.basic-view .platform-stats-section {
     height: 8px;
     border-radius: 50%;
     background: #fff;
-    box-shadow: 0 0 12px 4px #22d3a0, 0 0 20px 8px #7c6fff, 0 0 30px 12px #fff;
+    box-shadow: 0 0 8px 2px rgba(34, 211, 160, 0.4), 0 0 16px 4px rgba(124, 111, 255, 0.4), 0 0 24px 8px rgba(255, 255, 255, 0.4);
     animation: sparkPulse 0.4s ease-in-out infinite alternate;
 }
 
 @keyframes sparkPulse {
     0% {
-        transform: translate(50%, -50%) scale(0.8);
-        opacity: 0.8;
+        transform: translate(50%, -50%) scale(0.6);
+        opacity: 0.6;
     }
 
     100% {
-        transform: translate(50%, -50%) scale(1.3);
-        opacity: 1;
+        transform: translate(50%, -50%) scale(1.0);
+        opacity: 0.8;
     }
 }
 
@@ -6695,6 +6705,8 @@ body.basic-view .platform-stats-section {
    a fixed 6-column grid built for the payment-unlock flow). */
 .agent-session-stage.stage-count-4 {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0;
+    padding-inline: 0;
 }
 
 /* Direct "failed" modifier for the progress fill itself, since

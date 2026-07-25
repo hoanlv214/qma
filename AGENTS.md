@@ -4,22 +4,10 @@
 
 Repo có 2 branch đang mô tả 2 thực tại khác nhau:
 
-- **`main`** — đang **live**, deploy thật cho hackathon. Backend chạy trên
-  Render, trỏ vào `main.py` root. Frontend live là `app.html`, `index.html`,
-  `user.html`, `marketplace.html`, `docs.html` + `public/*.css,*.js`.
-  Đây là bản **legacy, sắp bị thay thế**.
-- **`frontend/vite-react-rebuild`** — branch đang code, **nguồn sự thật hiện
-  tại** cho công việc mới. Frontend là `frontend/src/` (Vite + React + TS,
-  build ra `frontend/dist/`, dự định thay thế hoàn toàn root `*.html` +
-  `public/` khi cutover). Backend là `backend/app/` (module layout đầy đủ:
-  api/v1/endpoints, core, repositories, schemas, services).
+- **`main`** — đang **live** và là **nhánh triển khai trực tiếp hiện tại** cho tính năng Ví Tự trị (Agent Wallet) của người dùng. Backend chạy trên Render trỏ vào `main.py` root.
+- **`frontend/vite-react-rebuild`** — branch đang code song song (rebuild).
 
-Trước khi sửa file, xác định đang ở branch nào (`git branch --show-current`
-nếu không chắc) và áp dụng đúng phần tương ứng.
-
-Không sửa cả legacy (`main`) và rebuild cùng lúc trừ khi được yêu cầu rõ.
-Mọi tính năng mới đi vào branch rebuild, không đi vào `main`, trừ hotfix
-khẩn cấp cho bản đang live.
+Trước khi sửa file, xác định đang ở branch nào (`git branch --show-current` nếu không chắc) và áp dụng đúng phần tương ứng. Theo yêu cầu của user, các tính năng mới cho ví Agent (User-funded) và rút tiền (Withdraw) đang được triển khai trực tiếp trên nhánh `main`.
 
 `arc_gateway/` là service Node/TS độc lập, đã deploy ổn định riêng trên
 Render — ngoài phạm vi agent này, không đụng vào trừ khi được yêu cầu rõ.

@@ -107,6 +107,15 @@ export class QmaAgent extends EventEmitter {
             };
           }
           const execution = await executor.execute({ invoice });
+          try {
+            await this.client.verifyAgentPayment(invoice.invoice_id, {
+              invoice_secret: invoice.invoice_secret,
+              payer_address: execution.settlements.find((s) => s.payer_address)?.payer_address || this.signer?.walletAddress,
+              split_settlements: execution.settlements,
+            });
+          } catch (verifyError) {
+            console.error(`[QmaAgent] Invoice ${invoice.invoice_id} verification call failed:`, verifyError);
+          }
           return {
             status: "completed",
             provider_id: candidate.provider_id,

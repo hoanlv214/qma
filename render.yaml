@@ -65,3 +65,20 @@ services:
         sync: false
       - key: QMA_ARC_SELLER_ADDRESS
         sync: false
+
+  - type: worker
+    name: qma-agent-worker
+    env: node
+    plan: free
+    region: singapore
+    branch: main
+    rootDir: agents
+    buildCommand: npm install && npm run build
+    startCommand: npm run start:worker
+    envVars:
+      - key: API_BASE_URL
+        value: https://qma-api.onrender.com
+      - key: AGENT_PRIVATE_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false

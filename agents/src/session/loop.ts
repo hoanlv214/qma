@@ -125,7 +125,7 @@ export async function runAutonomousSession(policy: SessionPolicy, deps: SessionD
       } else {
         const action = decision.candidate.upgrade ? "upgrade" : "purchase";
         recordAction(state, { 
-          action, 
+          action: "attempt_" + action, 
           candidate_id: decision.candidate.candidate_id, 
           symbol: decision.candidate.symbol, 
           tier: decision.candidate.tier,
@@ -136,6 +136,15 @@ export async function runAutonomousSession(policy: SessionPolicy, deps: SessionD
         const result = await deps.purchase(decision.candidate, state, policy);
         if (result.status === "completed") {
           recordPurchase(state, policy, decision.candidate, result);
+          recordAction(state, { 
+            action, 
+            candidate_id: decision.candidate.candidate_id, 
+            symbol: decision.candidate.symbol, 
+            tier: decision.candidate.tier,
+            provider: decision.candidate.provider_id,
+            amount_usdc: result.amount_usdc ?? decision.candidate.price_usdc,
+            reason: decision.reason 
+          });
           deps.onEvent?.({ event: "purchase_completed", session_id: state.sessionId, ...result });
         } else {
           const error = result.error || "purchase_failed";
