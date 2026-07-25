@@ -2,12 +2,18 @@ import time
 import uuid
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel, Field
 from backend.app.schemas.sessions import (
     AgentSessionCreate,
     AgentSessionUpdate,
     AgentSessionResponse
 )
 from storage import SupabaseStorage
+from backend.app.core.config import ARC_GATEWAY_BASE_URL, ARC_GATEWAY_INTERNAL_SECRET
+
+class WalletWithdrawRequest(BaseModel):
+    owner_wallet: str
+    amount_usdc: float = Field(..., gt=0)
 
 router = APIRouter(tags=["Agent sessions"])
 
@@ -33,9 +39,57 @@ def create_sessions_router(deps) -> APIRouter:
         # Provide a dummy user_id for now if no auth is enforced, or extract from token later
         user_id = "00000000-0000-0000-0000-000000000000" 
         
-        runtime_state = None
+        runtime_state = {}
         if req.owner_wallet:
-            runtime_state = {"owner_wallet": req.owner_wallet.lower()}
+            owner_wallet_lower = req.owner_wallet.lower()
+            runtime_state["owner_wallet"] = owner_wallet_lower
+            
+            # Kiểm tra xem User này đã từng có ví Agent được tạo chưa
+            params = {
+                "runtime_state->>owner_wallet": f"eq.{owner_wallet_lower}",
+                "limit": "50"
+            }
+            try:
+                existing_sessions = storage._request("GET", "agent_sessions", params=params)
+            except Exception:
+                existing_sessions = []
+                
+            agent_wallet_address = None
+            agent_wallet_id = None
+            
+            if existing_sessions:
+                for s in existing_sessions:
+                    rstate = s.get("runtime_state") or {}
+                    if rstate.get("agent_wallet_address") and rstate.get("agent_wallet_id"):
+                        agent_wallet_address = rstate.get("agent_wallet_address")
+                        agent_wallet_id = rstate.get("agent_wallet_id")
+                        break
+            
+            # Nếu chưa có ví, gọi sang Gateway tạo mới
+            if not agent_wallet_address:
+                import requests
+                headers = {}
+                if ARC_GATEWAY_INTERNAL_SECRET:
+                    headers["x-qma-internal-secret"] = ARC_GATEWAY_INTERNAL_SECRET
+                
+                try:
+                    resp = requests.post(
+                        f"{ARC_GATEWAY_BASE_URL.rstrip('/')}/api/wallet/create",
+                        headers=headers,
+                        timeout=15
+                    )
+                    if not resp.ok:
+                        raise HTTPException(status_code=502, detail=f"Failed to create agent wallet on Gateway: {resp.text[:300]}")
+                    wdata = resp.json()
+                    agent_wallet_address = wdata.get("address")
+                    agent_wallet_id = wdata.get("walletId")
+                except Exception as e:
+                    if isinstance(e, HTTPException):
+                        raise e
+                    raise HTTPException(status_code=500, detail=f"Error contacting wallet relayer: {e}")
+            
+            runtime_state["agent_wallet_address"] = agent_wallet_address
+            runtime_state["agent_wallet_id"] = agent_wallet_id
             
         row = {
             "id": session_id,
@@ -44,7 +98,7 @@ def create_sessions_router(deps) -> APIRouter:
             "task": req.task,
             "budget_usdc": req.budget_usdc,
             "status": "draft",
-            "runtime_state": runtime_state,
+            "runtime_state": runtime_state if runtime_state else None,
         }
         
         # Save to Supabase using _upsert wrapper
@@ -217,5 +271,185 @@ def create_sessions_router(deps) -> APIRouter:
         if not result:
             raise HTTPException(status_code=500, detail="Failed to retrieve created event")
         return result[0]
+
+    @migrated.post(
+        "/api/v1/sessions/withdraw",
+        tags=["Agent sessions"],
+    )
+    def withdraw_funds(req: WalletWithdrawRequest):
+        storage = get_storage(deps)
+        owner_wallet_lower = req.owner_wallet.lower()
+        
+        # 1. Lấy toàn bộ các session của User để kiểm tra trạng thái hoạt động (Race condition lock)
+        params = {
+            "runtime_state->>owner_wallet": f"eq.{owner_wallet_lower}",
+            "limit": "100"
+        }
+        try:
+            sessions = storage._request("GET", "agent_sessions", params=params)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to query database: {e}")
+            
+        # Tìm bất kỳ session nào đang active (queued hoặc running)
+        active_sessions = [s for s in sessions if s.get("status") in ("queued", "running")]
+        if active_sessions:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot withdraw funds while a session is active. Please stop the session first."
+            )
+            
+        # 2. Tìm ví agent_wallet_id tương ứng của user
+        agent_wallet_id = None
+        if sessions:
+            for s in sessions:
+                rstate = s.get("runtime_state") or {}
+                if rstate.get("agent_wallet_id"):
+                    agent_wallet_id = rstate.get("agent_wallet_id")
+                    break
+                    
+        if not agent_wallet_id:
+            raise HTTPException(
+                status_code=404,
+                detail="No Agent Wallet found for this owner wallet."
+            )
+            
+        # 3. Gọi sang Gateway để thực hiện lệnh chuyển khoản rút tiền
+        import requests
+        headers = {}
+        if ARC_GATEWAY_INTERNAL_SECRET:
+            headers["x-qma-internal-secret"] = ARC_GATEWAY_INTERNAL_SECRET
+            
+        try:
+            resp = requests.post(
+                f"{ARC_GATEWAY_BASE_URL.rstrip('/')}/api/wallet/withdraw",
+                headers=headers,
+                json={
+                    "walletId": agent_wallet_id,
+                    "destinationAddress": owner_wallet_lower,
+                    "amountUsdc": f"{req.amount_usdc:.6f}",
+                },
+                timeout=30
+            )
+            if not resp.ok:
+                raise HTTPException(
+                    status_code=resp.status_code,
+                    detail=f"Failed to execute withdraw on relayer: {resp.text[:300]}"
+                )
+            return resp.json()
+        except Exception as e:
+            if isinstance(e, HTTPException):
+                raise e
+            raise HTTPException(status_code=500, detail=f"Error contacting withdraw relayer: {e}")
+
+    @migrated.get(
+        "/api/v1/sessions/owner/{owner_wallet}/wallet",
+        tags=["Agent sessions"],
+    )
+    def get_owner_agent_wallet(owner_wallet: str):
+        storage = get_storage(deps)
+        owner_wallet_lower = owner_wallet.lower()
+        
+        # 1. Tìm session cũ để lấy thông tin ví Agent
+        params = {
+            "runtime_state->>owner_wallet": f"eq.{owner_wallet_lower}",
+            "limit": "50"
+        }
+        try:
+            sessions = storage._request("GET", "agent_sessions", params=params)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to query database: {e}")
+            
+        agent_wallet_address = None
+        agent_wallet_id = None
+        
+        if sessions:
+            for s in sessions:
+                rstate = s.get("runtime_state") or {}
+                if rstate.get("agent_wallet_address") and rstate.get("agent_wallet_id"):
+                    agent_wallet_address = rstate.get("agent_wallet_address")
+                    agent_wallet_id = rstate.get("agent_wallet_id")
+                    break
+                    
+        if not agent_wallet_address:
+            return {"wallet": None}
+            
+        # 2. Gọi sang Gateway để lấy số dư ví EOA
+        import requests
+        headers = {}
+        if ARC_GATEWAY_INTERNAL_SECRET:
+            headers["x-qma-internal-secret"] = ARC_GATEWAY_INTERNAL_SECRET
+            
+        balance = 0.0
+        try:
+            resp = requests.get(
+                f"{ARC_GATEWAY_BASE_URL.rstrip('/')}/api/wallet/{agent_wallet_id}/balance",
+                headers=headers,
+                timeout=10
+            )
+            if resp.ok:
+                bdata = resp.json()
+                token_balances = bdata.get("tokenBalances") or []
+                for tb in token_balances:
+                    if (tb.get("token") or {}).get("symbol") == "USDC":
+                        balance = float(tb.get("amount") or 0.0)
+                        break
+        except Exception as e:
+            pass
+            
+        gateway_balance = 0.0
+        try:
+            resp_gw = requests.get(
+                f"{ARC_GATEWAY_BASE_URL.rstrip('/')}/api/balance/{agent_wallet_address}",
+                headers=headers,
+                timeout=10
+            )
+            if resp_gw.ok:
+                gw_data = resp_gw.json()
+                candidates = [
+                    gw_data.get("balance"),
+                    gw_data.get("available"),
+                    gw_data.get("amount"),
+                    gw_data.get("total"),
+                ]
+                if isinstance(gw_data.get("balances"), list) and len(gw_data["balances"]) > 0:
+                    candidates.append(gw_data["balances"][0].get("amount"))
+                    candidates.append(gw_data["balances"][0].get("balance"))
+                if isinstance(gw_data.get("sources"), list) and len(gw_data["sources"]) > 0:
+                    candidates.append(gw_data["sources"][0].get("amount"))
+                    candidates.append(gw_data["sources"][0].get("balance"))
+                if isinstance(gw_data.get("data"), dict):
+                    gwd = gw_data["data"]
+                    candidates.extend([
+                        gwd.get("balance"),
+                        gwd.get("available"),
+                        gwd.get("amount"),
+                        gwd.get("total")
+                    ])
+                    if isinstance(gwd.get("balances"), list) and len(gwd["balances"]) > 0:
+                        candidates.append(gwd["balances"][0].get("amount"))
+                        candidates.append(gwd["balances"][0].get("balance"))
+
+                for cand in candidates:
+                    if cand is not None:
+                        try:
+                            raw = float(cand)
+                            if raw > 1000:
+                                gateway_balance = raw / 1000000.0
+                            else:
+                                gateway_balance = raw
+                            break
+                        except ValueError:
+                            continue
+        except Exception:
+            pass
+
+        return {
+            "wallet": {
+                "address": agent_wallet_address,
+                "wallet_id": agent_wallet_id,
+                "balance_usdc": balance,
+                "gateway_balance_usdc": gateway_balance
+            }
+        }
 
     return migrated
