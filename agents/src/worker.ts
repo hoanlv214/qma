@@ -3,6 +3,16 @@ import { createCircleAgentWalletSigner } from "./wallets/circleSigner.js";
 import { privateKeyToAccount } from "viem/accounts";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as http from "node:http";
+
+// Start a dummy HTTP server for Render free web service health checks
+const PORT = process.env.PORT || 10000;
+http.createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end("QMA Worker is alive\n");
+}).listen(PORT, () => {
+  console.log(`[Worker] Dummy HTTP server listening on port ${PORT} for Render health checks.`);
+});
 
 function loadEnv() {
   try {

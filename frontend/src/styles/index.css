@@ -118,7 +118,7 @@
     display: flex;
     flex-direction: column;
     gap: 22px;
-    padding: 112px 0 78px;
+    padding: 40px 0 50px;
     max-width: 760px;
 }
 
@@ -137,9 +137,11 @@
 .delay-100 {
     transition-delay: 100ms;
 }
+
 .delay-200 {
     transition-delay: 200ms;
 }
+
 .delay-300 {
     transition-delay: 300ms;
 }
@@ -1205,14 +1207,25 @@
     border-bottom: 1px solid rgba(255, 255, 255, 0.055);
     gap: 8px;
 }
+
 .mac-dot {
     width: 12px;
     height: 12px;
     border-radius: 50%;
 }
-.mac-red { background: #ff5f56; }
-.mac-yellow { background: #ffbd2e; }
-.mac-green { background: #27c93f; }
+
+.mac-red {
+    background: #ff5f56;
+}
+
+.mac-yellow {
+    background: #ffbd2e;
+}
+
+.mac-green {
+    background: #27c93f;
+}
+
 .mac-title {
     margin-left: 12px;
     font-family: var(--mono);

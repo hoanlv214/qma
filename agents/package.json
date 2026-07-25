@@ -24,7 +24,7 @@
     "README.md",
     "LICENSE"
   ],
-  "description": "QMA structured agent planner and payment execution boundary.",
+  "description": "Autonomous buyer-agent CLI for the QMA marketplace on Arc.",
   "engines": {
     "node": ">=20"
   },
