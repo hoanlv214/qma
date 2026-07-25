@@ -5,13 +5,20 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as http from "node:http";
 
-// Start a dummy HTTP server for Render free web service health checks
+// Start a dummy HTTP server for Render free web service health checks & external keep-alive cron pings
 const PORT = process.env.PORT || 10000;
 http.createServer((req, res) => {
-  res.writeHead(200, { "Content-Type": "text/plain" });
-  res.end("QMA Worker is alive\n");
+  const url = req.url || "/";
+  if (url === "/health") {
+    console.log(`[Worker] Keep-alive health check ping received from ${req.socket.remoteAddress}`);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: "ok", service: "qma-agent-worker", uptime: process.uptime() }));
+  } else {
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.end("QMA Worker is active\n");
+  }
 }).listen(PORT, () => {
-  console.log(`[Worker] Dummy HTTP server listening on port ${PORT} for Render health checks.`);
+  console.log(`[Worker] Dummy HTTP server listening on port ${PORT} for Render health checks and /health pings.`);
 });
 
 function loadEnv() {
