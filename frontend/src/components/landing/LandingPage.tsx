@@ -52,6 +52,27 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
     loadLandingTraction();
   }, []);
 
+  // Setup Scroll-Triggered animations
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("is-visible");
+          }
+        });
+      },
+      { threshold: 0.05, rootMargin: "0px 0px -40px 0px" }
+    );
+
+    const elements = document.querySelectorAll(".animate-on-scroll");
+    elements.forEach((el) => observer.observe(el));
+
+    return () => {
+      elements.forEach((el) => observer.unobserve(el));
+    };
+  }, []);
+
   function compactNumber(value: number) {
     return new Intl.NumberFormat("en-US", {
       notation: value >= 10000 ? "compact" : "standard",
@@ -73,7 +94,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
     <main className="landing-shell">
       <LandingHeader onNavigate={onNavigate} />
 
-      <section className="landing-hero">
+      <section className="landing-hero animate-on-scroll">
         <div className="landing-kicker">Evidence-Based Market Research</div>
         <h1 className="landing-hero-title">
           See what happened <br />
@@ -111,7 +132,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
         </div>
       </section>
 
-      <section className="landing-traction-section" aria-label="Live QMA traction">
+      <section className="landing-traction-section animate-on-scroll" aria-label="Live QMA traction">
         <div className="section-eyebrow landing-traction-label">
           <span className="indicator-dot"></span>
           <span>Platform Activity</span>
@@ -139,7 +160,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
       </section>
 
       <div className="landing-grid">
-        <article>
+        <article className="animate-on-scroll delay-100">
           <div className="feature-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" />
@@ -150,7 +171,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
           <p className="landing-feature-desc">Instantly compare today's live signals against years of historical data to locate precise past
             situations that match the current setup.</p>
         </article>
-        <article>
+        <article className="animate-on-scroll delay-200">
           <div className="feature-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <rect x="2" y="5" width="20" height="14" rx="2" />
@@ -161,7 +182,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
           <p className="landing-feature-desc">Get detailed distribution outcomes, win rates, and similar event histories. Evaluate facts and
             statistical probabilities, not predictions.</p>
         </article>
-        <article>
+        <article className="animate-on-scroll delay-300">
           <div className="feature-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
@@ -176,7 +197,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
       </div>
 
       <section className="landing-proof">
-        <div>
+        <div className="animate-on-scroll">
           <div className="section-eyebrow landing-section-label">Open intelligence marketplace</div>
           <h2>A Marketplace for Market Intelligence</h2>
           <p className="landing-proof-desc">
@@ -185,7 +206,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
             metrics and social indicators - as paid APIs that users and autonomous agents can query instantly.
           </p>
         </div>
-        <div className="landing-proof-card">
+        <div className="landing-proof-card animate-on-scroll delay-200">
           <div className="landing-proof-item"><span className="landing-proof-label">Active Providers</span><strong className="landing-proof-value">Funding Memory, OI Memory</strong></div>
           <div className="landing-proof-item"><span className="landing-proof-label">Coming Soon</span><strong className="landing-proof-value">Whale Memory, Social Memory</strong></div>
           <div className="landing-proof-item"><span className="landing-proof-label">Approach</span><strong className="landing-proof-value">Compare today's market with past setups</strong></div>
@@ -197,19 +218,19 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
       </section>
 
       <section className="landing-flow">
-        <div className="section-eyebrow landing-section-label">How it works</div>
+        <div className="section-eyebrow landing-section-label animate-on-scroll">How it works</div>
         <div className="landing-flow-steps">
-          <div className="flow-step">
+          <div className="flow-step animate-on-scroll delay-100">
             <div className="flow-step-num">Step 1</div>
             <span className="flow-step-title">Pick a Signal</span>
             <p className="flow-step-desc">Select a live market anomaly or input custom parameters representing a current market situation.</p>
           </div>
-          <div className="flow-step">
+          <div className="flow-step animate-on-scroll delay-200">
             <div className="flow-step-num">Step 2</div>
             <span className="flow-step-title">Pay for This Report</span>
             <p className="flow-step-desc">Pay a small USDC amount for exactly the report you want - no subscription, settled instantly on Arc.</p>
           </div>
-          <div className="flow-step">
+          <div className="flow-step animate-on-scroll delay-300">
             <div className="flow-step-num">Step 3</div>
             <span className="flow-step-title">Read the Historical Comparison</span>
             <p className="flow-step-desc">View the historical analog report showing past outcomes and statistical context, linked permanently to your wallet.</p>
@@ -218,17 +239,17 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
       </section>
 
       <section className="landing-audience">
-        <div className="section-eyebrow landing-section-label">Who it's for</div>
+        <div className="section-eyebrow landing-section-label animate-on-scroll">Who it's for</div>
         <div className="landing-audience-grid">
-          <article className="landing-audience-card--traders">
+          <article className="landing-audience-card--traders animate-on-scroll delay-100">
             <strong className="landing-audience-title">Traders</strong>
             <p className="landing-audience-desc">Want historical context before making decisions - not price predictions.</p>
           </article>
-          <article className="landing-audience-card--researchers">
+          <article className="landing-audience-card--researchers animate-on-scroll delay-200">
             <strong className="landing-audience-title">Researchers</strong>
             <p className="landing-audience-desc">Need evidence and statistical distributions, not speculation.</p>
           </article>
-          <article className="landing-audience-card--agents">
+          <article className="landing-audience-card--agents animate-on-scroll delay-300">
             <strong className="landing-audience-title">AI Agents</strong>
             <p className="landing-audience-desc">Query via API, pay per call in USDC. <span>{compactNumber(metrics.current_buyer_type_counts.agent)}</span> autonomous agent purchases logged on Arc testnet.</p>
           </article>
@@ -236,7 +257,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
       </section>
 
       <section className="landing-agent-api">
-        <div>
+        <div className="animate-on-scroll">
           <div className="section-eyebrow landing-section-label">Agent-native API</div>
           <h2>External agents can buy reports without using the dashboard</h2>
           <p>
@@ -248,7 +269,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
             <a className="landing-secondary" href="https://github.com/hoanlv214/qma/blob/main/examples/README.md" target="_blank" rel="noopener noreferrer">View Agent Example</a>
           </div>
         </div>
-        <div className="agent-terminal" aria-label="Agent buyer flow example">
+        <div className="agent-terminal animate-on-scroll delay-200" aria-label="Agent buyer flow example">
           <div className="mac-window-header">
             <span className="mac-dot mac-red"></span>
             <span className="mac-dot mac-yellow"></span>

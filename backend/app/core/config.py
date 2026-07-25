@@ -55,6 +55,7 @@ class Settings:
             "http://127.0.0.1:3000",
             "https://qma-api.onrender.com",
             "https://qma-arc-gateway.onrender.com",
+            "*",
         ]
 
 
