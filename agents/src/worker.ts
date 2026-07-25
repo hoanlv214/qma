@@ -267,7 +267,7 @@ async function runWorkerLoop() {
         //   address: process.env.AGENT_WALLET_ADDRESS || "0x4859d0d0babdcc8c4d8d2d116258fd0e5f7ff67d",
         //     chain: "ARC-TESTNET"
         //   });
-        const agent = new QmaAgent({ signer });
+        const agent = new QmaAgent({ signer, apiUrl: API_BASE_URL });
 
         async function ensureAgentGatewayBalance(requiredBudget: number) {
           if (!agentWalletAddress || !agentWalletId) return;
@@ -456,8 +456,8 @@ async function runWorkerLoop() {
           }
 
           console.log(`[Worker] Session ${session.id} finished.`);
-          // Mark as completed or stopped
-          const finalStatus = ac.signal.aborted ? "stopped" : "completed";
+          // Mark as completed, failed or stopped
+          const finalStatus = ac.signal.aborted ? "stopped" : (agent.getState()?.status || "completed");
           await updateSessionState(session.id, agent.getState(), finalStatus);
         } catch (err) {
           console.error(`[Worker] Session ${session.id} failed:`, err);

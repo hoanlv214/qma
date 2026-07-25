@@ -266,27 +266,27 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
 
   const renderFundingWidget = (messageText: string, targetAddress: string, requiredAmount: number) => {
     const defaultAmount = Math.max(0.01, Number((requiredAmount - (globalBalance + gatewayBalance)).toFixed(2))).toString();
-    
+
     return (
-      <div className="agent-funding-widget" style={{ 
-        background: 'rgba(255,255,255,0.02)', 
-        border: '1px solid rgba(255,255,255,0.05)', 
-        borderRadius: '8px', 
+      <div className="agent-funding-widget" style={{
+        background: 'rgba(255,255,255,0.02)',
+        border: '1px solid rgba(255,255,255,0.05)',
+        borderRadius: '8px',
         padding: '12px',
         marginTop: '8px'
       }}>
         <p style={{ margin: '0 0 12px 0', fontSize: '13px', lineHeight: 1.5 }}>
           {messageText}
         </p>
-        
+
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <div style={{ position: 'relative', width: '90px' }}>
-              <input 
+              <input
                 id={`fund-input-${targetAddress}`}
-                type="number" 
-                step="0.01" 
-                min="0.01" 
+                type="number"
+                step="0.01"
+                min="0.01"
                 defaultValue={defaultAmount}
                 style={{
                   width: '100%',
@@ -301,10 +301,10 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
               />
               <span style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '9px', color: 'var(--t3)' }}>USDC</span>
             </div>
-            
-            <button 
+
+            <button
               type="button"
-              className="connect-btn-primary" 
+              className="connect-btn-primary"
               onClick={() => {
                 const inputEl = document.getElementById(`fund-input-${targetAddress}`) as HTMLInputElement;
                 const amt = inputEl ? parseFloat(inputEl.value) : parseFloat(defaultAmount);
@@ -314,17 +314,17 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
                 }
                 handleMetaMaskTransfer(targetAddress, amt);
               }}
-              style={{ 
+              style={{
                 flex: 1,
-                padding: '8px 12px', 
-                fontSize: '11px', 
-                fontWeight: 600, 
-                display: 'flex', 
-                alignItems: 'center', 
+                padding: '8px 12px',
+                fontSize: '11px',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
                 justifyContent: 'center',
-                gap: '6px', 
-                border: 'none', 
-                borderRadius: '4px', 
+                gap: '6px',
+                border: 'none',
+                borderRadius: '4px',
                 cursor: 'pointer',
                 background: 'var(--accent)',
                 color: '#000'
@@ -336,33 +336,33 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
           </div>
 
           <div style={{ display: 'flex', gap: '8px' }}>
-            <button 
+            <button
               type="button"
               onClick={handleManualRefreshBalance}
               disabled={refreshCooldown || isRefreshingBal}
-              style={{ 
+              style={{
                 flex: 1,
-                padding: '8px 12px', 
-                fontSize: '11px', 
-                fontWeight: 600, 
-                display: 'flex', 
-                alignItems: 'center', 
+                padding: '8px 12px',
+                fontSize: '11px',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
                 justifyContent: 'center',
-                gap: '6px', 
-                border: '1px solid rgba(255,255,255,0.1)', 
-                borderRadius: '4px', 
+                gap: '6px',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '4px',
                 cursor: (refreshCooldown || isRefreshingBal) ? 'not-allowed' : 'pointer',
                 background: 'rgba(255,255,255,0.05)',
                 color: '#fff',
                 opacity: (refreshCooldown || isRefreshingBal) ? 0.6 : 1
               }}
             >
-              <svg 
-                viewBox="0 0 24 24" 
-                fill="none" 
-                stroke="currentColor" 
-                strokeWidth="2.5" 
-                width="12" 
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                width="12"
                 height="12"
                 style={{ animation: isRefreshingBal ? "qma-spin 1s linear infinite" : "none" }}
               >
@@ -399,12 +399,12 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
             </button>
           </div>
 
-          <div 
+          <div
             id={`qr-container-${targetAddress}`}
-            style={{ 
-              display: 'none', 
-              flexDirection: 'column', 
-              alignItems: 'center', 
+            style={{
+              display: 'none',
+              flexDirection: 'column',
+              alignItems: 'center',
               justifyContent: 'center',
               padding: '16px',
               background: 'rgba(0,0,0,0.2)',
@@ -413,9 +413,9 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
               border: '1px dashed rgba(255,255,255,0.1)'
             }}
           >
-            <img 
-              src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${targetAddress}`} 
-              alt="QR Code" 
+            <img
+              src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${targetAddress}`}
+              alt="QR Code"
               style={{ width: '120px', height: '120px', borderRadius: '4px', background: '#fff', padding: '6px', marginBottom: '10px' }}
             />
             <span style={{ fontSize: '11px', color: '#fff', fontWeight: 600, marginBottom: '2px' }}>Arc Testnet (Chain: 5042002)</span>
@@ -437,10 +437,10 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
 
   const handleManualRefreshBalance = async () => {
     if (refreshCooldown || !wallet) return;
-    
+
     setRefreshCooldown(true);
     setTimeout(() => setRefreshCooldown(false), 5000); // 5s cooldown
-    
+
     try {
       setIsRefreshingBal(true);
       const resp = await fetch(`${API_BASE_URL}/api/v1/sessions/owner/${wallet}/wallet`);
@@ -450,7 +450,7 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
         const newGwBal = wdata.wallet?.gateway_balance_usdc || 0;
         setGlobalBalance(newBal);
         setGatewayBalance(newGwBal);
-        
+
         const totalAvail = newBal + newGwBal;
         if (totalAvail >= budget) {
           if (sessionId) {
@@ -495,7 +495,7 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
         role: "agent",
         content: `⏳ Switching your wallet to Arc Testnet (Chain ID: 5042002)...`
       }]);
-      
+
       try {
         await provider.request({
           method: "wallet_switchEthereumChain",
@@ -641,7 +641,7 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
         setStatus("error");
         return;
       }
-      
+
       setMessages(prev => [...prev, {
         id: `sys-started-${Date.now()}`,
         role: "agent",
@@ -682,23 +682,23 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
           content: (
             <div>
               <p style={{ margin: '0 0 10px 0' }}>
-                ℹ️ Agent Wallet created at <span className="mono" style={{ color: 'var(--accent)', fontSize: '11px', fontWeight: 'bold' }}>{createdWalletAddress || "..."}</span>. 
+                ℹ️ Agent Wallet created at <span className="mono" style={{ color: 'var(--accent)', fontSize: '11px', fontWeight: 'bold' }}>{createdWalletAddress || "..."}</span>.
                 Please fund at least <strong>${parsedBudget.toFixed(2)} USDC</strong> to this address to start.
               </p>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <button 
+                <button
                   type="button"
-                  className="connect-btn-primary" 
+                  className="connect-btn-primary"
                   onClick={() => handleMetaMaskTransfer(createdWalletAddress, parsedBudget)}
-                  style={{ 
-                    padding: '8px 12px', 
-                    fontSize: '11px', 
-                    fontWeight: 600, 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '6px', 
-                    border: 'none', 
-                    borderRadius: '4px', 
+                  style={{
+                    padding: '8px 12px',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    border: 'none',
+                    borderRadius: '4px',
                     cursor: 'pointer',
                     background: 'var(--accent)',
                     color: '#000'
@@ -707,31 +707,31 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                   Fund ${parsedBudget.toFixed(2)} USDC via MetaMask
                 </button>
-                <button 
+                <button
                   type="button"
                   onClick={handleManualRefreshBalance}
                   disabled={refreshCooldown || isRefreshingBal}
-                  style={{ 
-                    padding: '8px 12px', 
-                    fontSize: '11px', 
-                    fontWeight: 600, 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '6px', 
-                    border: '1px solid rgba(255,255,255,0.1)', 
-                    borderRadius: '4px', 
+                  style={{
+                    padding: '8px 12px',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '4px',
                     cursor: (refreshCooldown || isRefreshingBal) ? 'not-allowed' : 'pointer',
                     background: 'rgba(255,255,255,0.05)',
                     color: '#fff',
                     opacity: (refreshCooldown || isRefreshingBal) ? 0.6 : 1
                   }}
                 >
-                  <svg 
-                    viewBox="0 0 24 24" 
-                    fill="none" 
-                    stroke="currentColor" 
-                    strokeWidth="2.5" 
-                    width="12" 
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    width="12"
                     height="12"
                     style={{ animation: isRefreshingBal ? "qma-spin 1s linear infinite" : "none" }}
                   >
