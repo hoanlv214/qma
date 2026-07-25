@@ -14,6 +14,7 @@ type AgentAction = {
   tier?: string;
   at: string;
   amount_usdc?: number;
+  reason?: string;
 };
 
 type ChatMessage = {
@@ -48,23 +49,36 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Real Platform Gateway Balance (fetched from API)
+  // Real Agent Wallet Address & Balance (fetched from API)
+  const [agentWalletAddress, setAgentWalletAddress] = useState<string>("");
   const [globalBalance, setGlobalBalance] = useState<number>(0);
+  const [gatewayBalance, setGatewayBalance] = useState<number>(0);
   const autoFetchedRef = useRef(false);
+  const [isRefreshingBal, setIsRefreshingBal] = useState(false);
+  const [refreshCooldown, setRefreshCooldown] = useState(false);
 
-  // Fetch gateway balance on mount
-  useEffect(() => {
+  const fetchAgentWallet = () => {
     if (wallet && open) {
-      fetch(`/api/balance/${wallet}`)
+      fetch(`/api/v1/sessions/owner/${wallet}/wallet`)
         .then(r => r.json())
         .then(d => {
-          if (d.balances && Array.isArray(d.balances)) {
-            const sum = d.balances.reduce((acc: number, b: any) => acc + Number(b.balance || 0), 0);
-            setGlobalBalance(sum);
+          if (d.wallet) {
+            setAgentWalletAddress(d.wallet.address);
+            setGlobalBalance(d.wallet.balance_usdc || 0);
+            setGatewayBalance(d.wallet.gateway_balance_usdc || 0);
+          } else {
+            setAgentWalletAddress("");
+            setGlobalBalance(0);
+            setGatewayBalance(0);
           }
         })
-        .catch(err => console.error("Failed to fetch balance", err));
+        .catch(err => console.error("Failed to fetch agent wallet details", err));
     }
+  };
+
+  // Fetch agent wallet balance on mount
+  useEffect(() => {
+    fetchAgentWallet();
   }, [wallet, open]);
 
   // Auto-scroll messages
@@ -133,7 +147,8 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
               if (data.status === "running") addIfUnique(`status-running-${data.id}`, "Worker started. I am analyzing your request...");
 
               actions.forEach((a, index) => {
-                if (a.action === "purchase" || a.action === "upgrade") {
+                const isAttempt = a.action === "attempt_purchase" || a.action === "attempt_upgrade";
+                if (a.action === "purchase" || a.action === "upgrade" || isAttempt) {
                   let tier = a.tier;
                   let provider = a.provider;
 
@@ -156,10 +171,29 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
 
                   const timeStr = new Date(a.at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
+                  if (isAttempt) {
+                    addIfUnique(
+                      `action-${data.id}-${index}`,
+                      <div>
+                        ⏳ Analyzing and purchasing{tierStr} report on <span className="agent-runner-purchase-symbol">{a.symbol}</span>{provStr}{costStr}...
+                        <div className="agent-runner-purchase-time">{timeStr}</div>
+                      </div>
+                    );
+                  } else {
+                    addIfUnique(
+                      `action-${data.id}-${index}`,
+                      <div>
+                        ✅ Purchased{tierStr} report on <span className="agent-runner-purchase-symbol">{a.symbol}</span>{provStr}{costStr}
+                        <div className="agent-runner-purchase-time">{timeStr}</div>
+                      </div>
+                    );
+                  }
+                } else if (a.action === "retry_backoff") {
+                  const timeStr = new Date(a.at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
                   addIfUnique(
                     `action-${data.id}-${index}`,
                     <div>
-                      ✅ Purchased{tierStr} report on <span className="agent-runner-purchase-symbol">{a.symbol}</span>{provStr}{costStr}
+                      ❌ Purchase failed: <span style={{ color: 'var(--c-red, #ff5c5c)', fontFamily: 'monospace' }}>{String(a.reason)}</span>
                       <div className="agent-runner-purchase-time">{timeStr}</div>
                     </div>
                   );
@@ -184,13 +218,13 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
                   <div className="agent-runner-complete-card">
                     <h3>🎉 Session Completed!</h3>
                     <p style={{ color: "var(--t2)" }}>I've finished researching and executing purchases based on your prompt.</p>
-                    
+
                     <div className="agent-runner-complete-stats" style={{ gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <span style={{ fontSize: '11px', color: 'var(--t3)', textTransform: 'uppercase' }}>Target Budget</span>
                         <strong style={{ color: '#fff' }}>${Number(data.budget_usdc || 0).toFixed(4)} USDC</strong>
                       </div>
-                      
+
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <span style={{ fontSize: '11px', color: 'var(--t3)', textTransform: 'uppercase' }}>Actually Spent</span>
                         <strong style={{ color: 'var(--accent)' }}>${currentSpent.toFixed(4)} USDC</strong>
@@ -200,12 +234,12 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
                         <span style={{ fontSize: '11px', color: 'var(--t3)', textTransform: 'uppercase' }}>Purchased Reports</span>
                         <strong style={{ color: '#fff' }}>{data.runtime_state.purchaseCount || 0}</strong>
                       </div>
-                      
+
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <span style={{ fontSize: '11px', color: 'var(--t3)', textTransform: 'uppercase' }}>Duration</span>
                         <strong style={{ color: '#fff' }}>{durationStr}</strong>
                       </div>
-                      
+
                       {data.runtime_state.candidatesEvaluated > 0 && (
                         <div style={{ gridColumn: 'span 2', display: 'flex', flexDirection: 'column', marginTop: '4px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                           <span style={{ fontSize: '11px', color: 'var(--t3)', textTransform: 'uppercase' }}>Evaluated Candidates</span>
@@ -230,7 +264,310 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
     return () => clearInterval(interval);
   }, [sessionId, status]);
 
-  if (!open) return null;
+  const renderFundingWidget = (messageText: string, targetAddress: string, requiredAmount: number) => {
+    const defaultAmount = Math.max(0.01, Number((requiredAmount - (globalBalance + gatewayBalance)).toFixed(2))).toString();
+    
+    return (
+      <div className="agent-funding-widget" style={{ 
+        background: 'rgba(255,255,255,0.02)', 
+        border: '1px solid rgba(255,255,255,0.05)', 
+        borderRadius: '8px', 
+        padding: '12px',
+        marginTop: '8px'
+      }}>
+        <p style={{ margin: '0 0 12px 0', fontSize: '13px', lineHeight: 1.5 }}>
+          {messageText}
+        </p>
+        
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <div style={{ position: 'relative', width: '90px' }}>
+              <input 
+                id={`fund-input-${targetAddress}`}
+                type="number" 
+                step="0.01" 
+                min="0.01" 
+                defaultValue={defaultAmount}
+                style={{
+                  width: '100%',
+                  background: 'rgba(0,0,0,0.3)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: '4px',
+                  padding: '6px 8px',
+                  color: '#fff',
+                  fontSize: '12px',
+                  outline: 'none'
+                }}
+              />
+              <span style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '9px', color: 'var(--t3)' }}>USDC</span>
+            </div>
+            
+            <button 
+              type="button"
+              className="connect-btn-primary" 
+              onClick={() => {
+                const inputEl = document.getElementById(`fund-input-${targetAddress}`) as HTMLInputElement;
+                const amt = inputEl ? parseFloat(inputEl.value) : parseFloat(defaultAmount);
+                if (isNaN(amt) || amt <= 0) {
+                  alert("Please enter a valid amount.");
+                  return;
+                }
+                handleMetaMaskTransfer(targetAddress, amt);
+              }}
+              style={{ 
+                flex: 1,
+                padding: '8px 12px', 
+                fontSize: '11px', 
+                fontWeight: 600, 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                gap: '6px', 
+                border: 'none', 
+                borderRadius: '4px', 
+                cursor: 'pointer',
+                background: 'var(--accent)',
+                color: '#000'
+              }}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              Deposit via Wallet (Arc Testnet)
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button 
+              type="button"
+              onClick={handleManualRefreshBalance}
+              disabled={refreshCooldown || isRefreshingBal}
+              style={{ 
+                flex: 1,
+                padding: '8px 12px', 
+                fontSize: '11px', 
+                fontWeight: 600, 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                gap: '6px', 
+                border: '1px solid rgba(255,255,255,0.1)', 
+                borderRadius: '4px', 
+                cursor: (refreshCooldown || isRefreshingBal) ? 'not-allowed' : 'pointer',
+                background: 'rgba(255,255,255,0.05)',
+                color: '#fff',
+                opacity: (refreshCooldown || isRefreshingBal) ? 0.6 : 1
+              }}
+            >
+              <svg 
+                viewBox="0 0 24 24" 
+                fill="none" 
+                stroke="currentColor" 
+                strokeWidth="2.5" 
+                width="12" 
+                height="12"
+                style={{ animation: isRefreshingBal ? "qma-spin 1s linear infinite" : "none" }}
+              >
+                <path d="M23 4v6h-6"></path>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+              </svg>
+              {isRefreshingBal ? "Checking..." : refreshCooldown ? "Cooldown" : "Check Balance"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                const qrEl = document.getElementById(`qr-container-${targetAddress}`);
+                if (qrEl) {
+                  qrEl.style.display = qrEl.style.display === 'none' ? 'flex' : 'none';
+                }
+              }}
+              style={{
+                padding: '8px 12px',
+                fontSize: '11px',
+                fontWeight: 600,
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                background: 'rgba(255,255,255,0.05)',
+                color: 'var(--t2)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+              Show QR
+            </button>
+          </div>
+
+          <div 
+            id={`qr-container-${targetAddress}`}
+            style={{ 
+              display: 'none', 
+              flexDirection: 'column', 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              padding: '16px',
+              background: 'rgba(0,0,0,0.2)',
+              borderRadius: '6px',
+              marginTop: '6px',
+              border: '1px dashed rgba(255,255,255,0.1)'
+            }}
+          >
+            <img 
+              src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${targetAddress}`} 
+              alt="QR Code" 
+              style={{ width: '120px', height: '120px', borderRadius: '4px', background: '#fff', padding: '6px', marginBottom: '10px' }}
+            />
+            <span style={{ fontSize: '11px', color: '#fff', fontWeight: 600, marginBottom: '2px' }}>Arc Testnet (Chain: 5042002)</span>
+            <span style={{ fontSize: '10px', color: 'var(--t3)', marginBottom: '8px' }}>Scan with Mobile Wallet</span>
+            <span className="mono" style={{ fontSize: '10px', color: 'var(--accent)', wordBreak: 'break-all', textAlign: 'center' }}>{targetAddress}</span>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const getErc20TransferData = (recipient: string, amountDecimal: number): string => {
+    const cleanRecipient = recipient.toLowerCase().replace("0x", "");
+    const paddedRecipient = cleanRecipient.padStart(64, "0");
+    const rawAmount = BigInt(Math.round(amountDecimal * 1_000_000));
+    const hexAmount = rawAmount.toString(16).padStart(64, "0");
+    return `0xa9059cbb${paddedRecipient}${hexAmount}`;
+  };
+
+  const handleManualRefreshBalance = async () => {
+    if (refreshCooldown || !wallet) return;
+    
+    setRefreshCooldown(true);
+    setTimeout(() => setRefreshCooldown(false), 5000); // 5s cooldown
+    
+    try {
+      setIsRefreshingBal(true);
+      const resp = await fetch(`/api/v1/sessions/owner/${wallet}/wallet`);
+      if (resp.ok) {
+        const wdata = await resp.json();
+        const newBal = wdata.wallet?.balance_usdc || 0;
+        const newGwBal = wdata.wallet?.gateway_balance_usdc || 0;
+        setGlobalBalance(newBal);
+        setGatewayBalance(newGwBal);
+        
+        const totalAvail = newBal + newGwBal;
+        if (totalAvail >= budget) {
+          if (sessionId) {
+            await requestJson(`/api/v1/sessions/${sessionId}/start`, { method: "POST" });
+            setStatus("queued");
+            setMessages(prev => [...prev, {
+              id: `sys-started-funded-${Date.now()}`,
+              role: "agent",
+              content: `🎉 Funds detected! Your Agent Wallet now has $${totalAvail.toFixed(2)} USDC ($${newBal.toFixed(2)} on-chain, $${newGwBal.toFixed(2)} prepaid). Starting session...`
+            }]);
+          } else {
+            setMessages(prev => [...prev, {
+              id: `sys-funded-nobudget-${Date.now()}`,
+              role: "agent",
+              content: `✅ Funds detected! Current balance is $${totalAvail.toFixed(2)} USDC ($${newBal.toFixed(2)} on-chain, $${newGwBal.toFixed(2)} prepaid).`
+            }]);
+          }
+        } else {
+          setMessages(prev => [...prev, {
+            id: `sys-insufficient-still-${Date.now()}`,
+            role: "agent",
+            content: `ℹ️ Current balance is $${totalAvail.toFixed(2)} USDC ($${newBal.toFixed(2)} on-chain, $${newGwBal.toFixed(2)} prepaid) (required: $${budget.toFixed(2)} USDC). Please send funds first.`
+          }]);
+        }
+      }
+    } catch (err) {
+      console.error("Refresh balance error:", err);
+    } finally {
+      setIsRefreshingBal(false);
+    }
+  };
+
+  const handleMetaMaskTransfer = async (toAddress: string, amount: number) => {
+    const provider = window.ethereum || (window as any).rabby || (window as any).okxwallet;
+    if (!provider) {
+      alert("Please install MetaMask or another EVM wallet to fund your Agent Wallet.");
+      return;
+    }
+    try {
+      setMessages(prev => [...prev, {
+        id: `sys-funding-switch-${Date.now()}`,
+        role: "agent",
+        content: `⏳ Switching your wallet to Arc Testnet (Chain ID: 5042002)...`
+      }]);
+      
+      try {
+        await provider.request({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: "0x4cef52" }],
+        });
+      } catch (switchError: any) {
+        if (switchError.code === 4902) {
+          await provider.request({
+            method: "wallet_addEthereumChain",
+            params: [{
+              chainId: "0x4cef52",
+              chainName: "Arc Testnet",
+              nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
+              rpcUrls: ["https://rpc.testnet.arc.network"],
+              blockExplorerUrls: ["https://testnet.arcscan.app"]
+            }]
+          });
+        } else {
+          throw switchError;
+        }
+      }
+
+      try {
+        await provider.request({
+          method: "wallet_watchAsset",
+          params: {
+            type: "ERC20",
+            options: {
+              address: "0x3600000000000000000000000000000000000000",
+              symbol: "USDC",
+              decimals: 6,
+              image: "https://cryptologos.cc/logos/usd-coin-usdc-logo.png",
+            },
+          },
+        });
+      } catch (watchErr) {
+        console.warn("watchAsset failed or ignored", watchErr);
+      }
+
+      setMessages(prev => [...prev, {
+        id: `sys-funding-tx-${Date.now()}`,
+        role: "agent",
+        content: `⏳ Requesting transfer of ${amount.toFixed(2)} USDC in your MetaMask wallet...`
+      }]);
+
+      const txHash = (await provider.request({
+        method: "eth_sendTransaction",
+        params: [
+          {
+            from: wallet,
+            to: "0x3600000000000000000000000000000000000000",
+            data: getErc20TransferData(toAddress, amount),
+            gas: "0x186a0"
+          }
+        ]
+      })) as string;
+
+      setMessages(prev => [...prev, {
+        id: `sys-funding-submitted-${Date.now()}`,
+        role: "agent",
+        content: `🚀 Transfer transaction submitted! Hash: ${txHash.slice(0, 10)}... Please click the "Check Balance" button once the transaction succeeds to activate your session.`
+      }]);
+
+    } catch (err: any) {
+      console.error("MetaMask transfer error:", err);
+      setMessages(prev => [...prev, {
+        id: `sys-funding-failed-${Date.now()}`,
+        role: "agent",
+        content: `❌ Transfer aborted or failed: ${err.message || err}`
+      }]);
+    }
+  };
 
   const handleStart = async (e: FormEvent) => {
     e.preventDefault();
@@ -293,12 +630,17 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
     else if (usdcMatch) parsedBudget = parseFloat(usdcMatch[1]);
     else if (dollarMatch) parsedBudget = parseFloat(dollarMatch[1]);
 
-    // Ensure they have enough in gateway balance
-    if (parsedBudget > globalBalance) {
+    // Ensure they have enough in agent wallet balance if wallet already exists
+    const totalAvail = globalBalance + gatewayBalance;
+    if (agentWalletAddress && parsedBudget > totalAvail) {
       setMessages(prev => [...prev, {
         id: `err-bal-${Date.now()}`,
         role: "agent",
-        content: `❌ You only have $${globalBalance.toFixed(2)} USDC in your Platform Wallet, which is less than your requested budget of $${parsedBudget}. Please deposit more funds via Circle Gateway.`
+        content: renderFundingWidget(
+          `❌ You only have $${totalAvail.toFixed(2)} USDC ($${globalBalance.toFixed(2)} on-chain, $${gatewayBalance.toFixed(2)} prepaid) in your Agent Wallet, which is less than your requested budget of $${parsedBudget.toFixed(2)} USDC. Please fund your wallet to proceed.`,
+          agentWalletAddress,
+          parsedBudget
+        )
       }]);
       return;
     }
@@ -307,23 +649,13 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
 
     try {
       setStatus("creating");
-      
+
       // 1. Check for Web3 Wallet
       if (!(window as any).ethereum) {
-        setMessages(prev => [...prev, { id: `err-wallet-${Date.now()}`, role: "agent", content: `❌ Please install MetaMask or a Web3 wallet to authorize Gateway transfers.` }]);
+        setMessages(prev => [...prev, { id: `err-wallet-${Date.now()}`, role: "agent", content: `❌ Please install MetaMask or a Web3 wallet to authorize operations.` }]);
         setStatus("error");
         return;
       }
-      // Parse quantity
-      let parsedQty: number | null = null;
-      const qtyMatch = userText.toLowerCase().match(/(?:buy|purchase|get)\s+(\d+)/i);
-      if (qtyMatch) {
-        parsedQty = parseInt(qtyMatch[1], 10);
-      }
-
-      // We have removed the mock EIP-712 TransferWithAuthorization signing logic.
-      // In the new architecture, this step will either generate a Session Key for a Circle MSCA,
-      // or sign an EIP-2612 Permit allowance.
       
       setMessages(prev => [...prev, {
         id: `sys-started-${Date.now()}`,
@@ -342,6 +674,93 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
       });
       const newId = sessionData.id;
       setSessionId(newId);
+
+      const createdWalletAddress = sessionData.runtime_state?.agent_wallet_address;
+      if (createdWalletAddress) {
+        setAgentWalletAddress(createdWalletAddress);
+      }
+
+      // Fetch the latest wallet balance to check if it's funded now
+      const walletResp = await fetch(`/api/v1/sessions/owner/${wallet}/wallet`);
+      let currentBal = 0;
+      if (walletResp.ok) {
+        const wdata = await walletResp.json();
+        currentBal = wdata.wallet?.balance_usdc || 0;
+        setGlobalBalance(currentBal);
+      }
+
+      if (currentBal < parsedBudget) {
+        setStatus("idle");
+        setMessages(prev => [...prev, {
+          id: `sys-fund-${Date.now()}`,
+          role: "agent",
+          content: (
+            <div>
+              <p style={{ margin: '0 0 10px 0' }}>
+                ℹ️ Agent Wallet created at <span className="mono" style={{ color: 'var(--accent)', fontSize: '11px', fontWeight: 'bold' }}>{createdWalletAddress || "..."}</span>. 
+                Please fund at least <strong>${parsedBudget.toFixed(2)} USDC</strong> to this address to start.
+              </p>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button 
+                  type="button"
+                  className="connect-btn-primary" 
+                  onClick={() => handleMetaMaskTransfer(createdWalletAddress, parsedBudget)}
+                  style={{ 
+                    padding: '8px 12px', 
+                    fontSize: '11px', 
+                    fontWeight: 600, 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '6px', 
+                    border: 'none', 
+                    borderRadius: '4px', 
+                    cursor: 'pointer',
+                    background: 'var(--accent)',
+                    color: '#000'
+                  }}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  Fund ${parsedBudget.toFixed(2)} USDC via MetaMask
+                </button>
+                <button 
+                  type="button"
+                  onClick={handleManualRefreshBalance}
+                  disabled={refreshCooldown || isRefreshingBal}
+                  style={{ 
+                    padding: '8px 12px', 
+                    fontSize: '11px', 
+                    fontWeight: 600, 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '6px', 
+                    border: '1px solid rgba(255,255,255,0.1)', 
+                    borderRadius: '4px', 
+                    cursor: (refreshCooldown || isRefreshingBal) ? 'not-allowed' : 'pointer',
+                    background: 'rgba(255,255,255,0.05)',
+                    color: '#fff',
+                    opacity: (refreshCooldown || isRefreshingBal) ? 0.6 : 1
+                  }}
+                >
+                  <svg 
+                    viewBox="0 0 24 24" 
+                    fill="none" 
+                    stroke="currentColor" 
+                    strokeWidth="2.5" 
+                    width="12" 
+                    height="12"
+                    style={{ animation: isRefreshingBal ? "qma-spin 1s linear infinite" : "none" }}
+                  >
+                    <path d="M23 4v6h-6"></path>
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                  </svg>
+                  {isRefreshingBal ? "Checking..." : refreshCooldown ? "Cooldown (5s)" : "Check Balance"}
+                </button>
+              </div>
+            </div>
+          )
+        }]);
+        return;
+      }
 
       await requestJson<any>(`/api/v1/sessions/${newId}/start`, { method: "POST" });
       setStatus("queued");
@@ -375,10 +794,10 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
   const currentWalletBalance = Math.max(0, globalBalance - spent);
   const remainingBudget = Math.max(0, budget - spent);
   const shortWallet = wallet ? `${wallet.slice(0, 6)}…${wallet.slice(-4)}` : "—";
-  
+
   let statusText = "Active";
   let statusClass = "ready";
-  
+
   if (currentWalletBalance <= 0) {
     statusText = "Gateway Empty";
     statusClass = "failed";
@@ -418,28 +837,14 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
         {/* Header */}
         <div className="agent-buyer-header">
           <div>
-            <div className="agent-buyer-eyebrow">Autonomous Background Runner</div>
-            <div className="agent-buyer-title">Autonomous Agent</div>
+            <div className="agent-buyer-eyebrow">AGENT SESSION</div>
+            <div className="agent-buyer-title">Autonomous Market Research</div>
             <div className="agent-buyer-subtitle">
-              Session {sessionId ? sessionId.split("-")[0] : "None"} · give it a task and a budget, it works while you're away.
+              Researching market opportunities and executing strategies while you're away.
             </div>
           </div>
           <div className="agent-header-right">
-            <div className="agent-timing-strip">
-              <div className="agent-timing-item">
-                <span className="agent-timing-label">Gateway</span>
-                <span className="agent-timing-val">${currentWalletBalance.toFixed(2)}</span>
-              </div>
-              <div className="agent-timing-item">
-                <span className="agent-timing-label">Spent</span>
-                <span className="agent-timing-val">${spent.toFixed(4)}</span>
-              </div>
-              <div className="agent-timing-item">
-                <span className="agent-timing-label">Budget</span>
-                <span className="agent-timing-val">${budget.toFixed(2)}</span>
-              </div>
-            </div>
-            <button className="icon-button" onClick={onClose} title="Close">
+            <button className="icon-button close-btn" onClick={onClose} title="Close">
               <i className="ti ti-x" />
             </button>
           </div>
@@ -447,7 +852,7 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
 
         {/* Session stage strip */}
         <div className="agent-session-stage stage-count-4">
-          <div className="agent-stage-progress-bar" style={{ left: "12.5%", width: "75%" }}>
+          <div className="agent-stage-progress-bar" style={{ left: "12.5%", right: "12.5%" }}>
             <div
               className={`agent-stage-progress-fill${stageFailed ? " is-failed" : ""}`}
               style={{ width: `${stageProgressPct}%` }}
@@ -510,12 +915,20 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
               <div className="agent-dp-block-label">Funding</div>
               <div className="agent-funding-bar">
                 <div className="agent-funding-row">
-                  <span className="agent-funding-label">Gateway Balance</span>
-                  <span className="agent-funding-val">${currentWalletBalance.toFixed(4)}</span>
+                  <span className="agent-funding-label">On-chain Wallet</span>
+                  <span className="agent-funding-val">${globalBalance.toFixed(4)} USDC</span>
                 </div>
                 <div className="agent-funding-row">
+                  <span className="agent-funding-label">Gateway Prepaid</span>
+                  <span className="agent-funding-val">${gatewayBalance.toFixed(4)} USDC</span>
+                </div>
+                <div className="agent-funding-row" style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: "6px", marginTop: "4px" }}>
+                  <span className="agent-funding-label" style={{ fontWeight: 600 }}>Total Balance</span>
+                  <span className="agent-funding-val" style={{ fontWeight: 600, color: "var(--accent)" }}>${(globalBalance + gatewayBalance).toFixed(4)} USDC</span>
+                </div>
+                <div className="agent-funding-row" style={{ marginTop: "4px" }}>
                   <span className="agent-funding-label">Session Budget</span>
-                  <span className="agent-funding-val">${spent.toFixed(4)} / ${budget.toFixed(2)}</span>
+                  <span className="agent-funding-val">${spent.toFixed(4)} / ${budget.toFixed(2)} USDC</span>
                 </div>
                 <div className="agent-funding-row">
                   <span className="agent-funding-label">Status</span>
@@ -555,8 +968,8 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
                         Resume Agent
                       </button>
                     )}
-                    <button 
-                      className="agent-modal-cancel" 
+                    <button
+                      className="agent-modal-cancel"
                       style={{ flex: 1 }}
                       onClick={() => {
                         setSessionId(null);
