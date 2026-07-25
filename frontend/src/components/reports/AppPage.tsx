@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getClientConfig } from "../../services/api";
+import { getClientConfig, API_BASE_URL } from "../../services/api";
 import { shortAddress } from "../../services/wallet";
 import { payX402Resource } from "../../services/x402";
 import { createInvoice } from "../../services/invoices";
@@ -178,7 +178,7 @@ export function AppPage({
   const fetchAgentWallet = async () => {
     if (!wallet) return;
     try {
-      const res = await fetch(`/api/v1/sessions/owner/${wallet}/wallet`);
+      const res = await fetch(`${API_BASE_URL}/api/v1/sessions/owner/${wallet}/wallet`);
       if (res.ok) {
         const data = await res.json();
         if (data.wallet) {

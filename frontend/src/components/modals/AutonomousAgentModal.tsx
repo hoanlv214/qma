@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { requestJson } from "../../services/api";
+import { requestJson, API_BASE_URL } from "../../services/api";
 
 interface AutonomousAgentModalProps {
   open: boolean;
@@ -59,7 +59,7 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
 
   const fetchAgentWallet = () => {
     if (wallet && open) {
-      fetch(`/api/v1/sessions/owner/${wallet}/wallet`)
+      fetch(`${API_BASE_URL}/api/v1/sessions/owner/${wallet}/wallet`)
         .then(r => r.json())
         .then(d => {
           if (d.wallet) {
@@ -443,7 +443,7 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
     
     try {
       setIsRefreshingBal(true);
-      const resp = await fetch(`/api/v1/sessions/owner/${wallet}/wallet`);
+      const resp = await fetch(`${API_BASE_URL}/api/v1/sessions/owner/${wallet}/wallet`);
       if (resp.ok) {
         const wdata = await resp.json();
         const newBal = wdata.wallet?.balance_usdc || 0;
@@ -681,7 +681,7 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
       }
 
       // Fetch the latest wallet balance to check if it's funded now
-      const walletResp = await fetch(`/api/v1/sessions/owner/${wallet}/wallet`);
+      const walletResp = await fetch(`${API_BASE_URL}/api/v1/sessions/owner/${wallet}/wallet`);
       let currentBal = 0;
       if (walletResp.ok) {
         const wdata = await walletResp.json();
