@@ -270,6 +270,7 @@ header {
 }
 
 @keyframes pulse-dot {
+
     0%,
     100% {
         opacity: 1;

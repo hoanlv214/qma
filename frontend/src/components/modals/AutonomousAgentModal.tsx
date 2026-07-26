@@ -1,3 +1,12 @@
+/**
+ * AutonomousAgentModal component
+ * 
+ * Renders the modal interface for creating, managing, and monitoring
+ * autonomous research agent sessions. Displays real-time status steps,
+ * chat conversation history, wallet status, and provides options for
+ * funding the agent's wallet or manual balance refresh.
+ */
+
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { requestJson, API_BASE_URL } from "../../services/api";
 
@@ -883,7 +892,7 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
               <input
                 className="agent-bar-input"
                 type="text"
-                placeholder={status === "queued" || status === "running" || status === "creating" ? "Modify your request (e.g. 'đổi budget xuống còn 0.5$')" : "Buy 3 trending reports under $15..."}
+                placeholder={status === "queued" || status === "running" || status === "creating" ? "Modify your request (e.g. 'edit budget under x$')" : "Buy 3 trending reports under $15..."}
                 value={prompt}
                 onChange={e => setPrompt(e.target.value)}
                 disabled={status === "creating"}

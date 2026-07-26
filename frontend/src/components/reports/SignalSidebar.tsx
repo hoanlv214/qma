@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getLiveAnomalies, getAgentRecommendations } from "../../services/providers";
 import { Loader } from "../ui/Loader";
+import "../../styles/SignalSidebar.css";
 
 interface SignalSidebarProps {
   visible: boolean;

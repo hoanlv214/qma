@@ -30,10 +30,31 @@ export async function ensureArcTestnet() {
   if (!provider) throw new Error("No EVM wallet provider found.");
   const chainId = await provider.request<string>({ method: "eth_chainId" });
   if (String(chainId).toLowerCase() === ARC_TESTNET_CHAIN_ID) return;
-  await provider.request({
-    method: "wallet_switchEthereumChain",
-    params: [{ chainId: ARC_TESTNET_CHAIN_ID }],
-  });
+  try {
+    await provider.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: ARC_TESTNET_CHAIN_ID }],
+    });
+  } catch (switchError: any) {
+    if (switchError.code === 4902 || switchError.message?.includes("Unrecognized chain ID")) {
+      await provider.request({
+        method: "wallet_addEthereumChain",
+        params: [{
+          chainId: ARC_TESTNET_CHAIN_ID,
+          chainName: "Arc Testnet",
+          nativeCurrency: {
+            name: "USDC",
+            symbol: "USDC",
+            decimals: 6,
+          },
+          rpcUrls: ["https://rpc.testnet.arc.network"],
+          blockExplorerUrls: ["https://testnet.arcscan.app"],
+        }],
+      });
+    } else {
+      throw switchError;
+    }
+  }
 }
 
 export function shortAddress(value?: string) {

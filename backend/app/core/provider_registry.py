@@ -1,7 +1,7 @@
 """
 V2 Provider Registry for QMA Platform.
 
-This defines the standard protocol (Giao thức chuẩn) that all intelligence 
+This defines the standard protocol that all intelligence 
 providers must implement in Phase 2.
 
 The core philosophy:

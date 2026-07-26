@@ -10,7 +10,7 @@ export function FundArcWalletModal({ open, onClose, children }: FundArcWalletMod
   if (!open) return null;
   return (
     <div className="modal-backdrop open" style={{ display: "flex" }}>
-      <div className="wallet-profile-modal funding-modal" role="dialog" aria-modal="true" aria-labelledby="fund-arc-title" style={{ display: "block" }}>
+      <div className="wallet-profile-modal funding-modal" role="dialog" aria-modal="true" aria-labelledby="fund-arc-title">
         {children}
       </div>
     </div>

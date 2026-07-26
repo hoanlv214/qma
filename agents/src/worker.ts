@@ -1,3 +1,12 @@
+/**
+ * QMA Autonomous Background Worker
+ * 
+ * This worker polls the database for queued agent sessions, automates prepaid
+ * Gateway deposits from the agent's on-chain wallet if needed, and spins up
+ * the QmaAgent lifecycle loops. It also hosts a minimal HTTP server for
+ * Render web service health checks and external keep-alive cron pings.
+ */
+
 import { QmaAgent } from "./index.js";
 import { createCircleAgentWalletSigner } from "./wallets/circleSigner.js";
 import { privateKeyToAccount } from "viem/accounts";
@@ -448,6 +457,7 @@ async function runWorkerLoop() {
               sessionBudgetUsdc: session.budget_usdc,
               maxPricePerReportUsdc: Math.min(5, session.budget_usdc), // prevent policy error
               maxPurchases: parsedMaxPurchases,
+              pollIntervalSeconds: 5, // Check/buy every 5s instead of default 60s
               executionMode: "live",
               initialState: session.runtime_state || undefined
             }, ac.signal);

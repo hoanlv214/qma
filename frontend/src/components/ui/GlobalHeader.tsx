@@ -15,6 +15,7 @@ interface GlobalHeaderProps {
   agentWalletAddress?: string;
   agentWalletBalance?: number;
   onOpenWithdrawAgent?: () => void;
+  onOpenDepositAgent?: () => void;
 }
 
 export function GlobalHeader({
@@ -29,7 +30,8 @@ export function GlobalHeader({
   rightControls,
   agentWalletAddress,
   agentWalletBalance = 0,
-  onOpenWithdrawAgent
+  onOpenWithdrawAgent,
+  onOpenDepositAgent
 }: GlobalHeaderProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -130,12 +132,6 @@ export function GlobalHeader({
               className={`wallet-dropdown-btn ${dropdownOpen ? "active" : ""}`}
               onClick={() => setDropdownOpen(!dropdownOpen)}
             >
-              <div className="wallet-avatar">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
-                  <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
-                  <circle cx="12" cy="7" r="4"></circle>
-                </svg>
-              </div>
               <div className="wallet-address-info">
                 <span className="wallet-short-address">{shortAddress(walletAddress)}</span>
                 {agentWalletAddress && (
@@ -151,76 +147,123 @@ export function GlobalHeader({
 
             {dropdownOpen && (
               <div className="wallet-dropdown-menu">
+                {/* 1. Header: Connected Wallet Info & Role */}
                 <div className="dropdown-header">
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
-                    <span style={{ fontSize: '9px', color: 'var(--t3)', textTransform: 'uppercase' }}>Main Account</span>
-                    <div className="dropdown-address-row" style={{ width: '100%' }}>
-                      <span className="mono-address">{shortAddress(walletAddress)}</span>
-                      <button className="copy-btn" onClick={handleCopy} title="Copy address">
-                        {copySuccess ? (
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+                    <div className="dropdown-identity">
+                      <div className="dropdown-avatar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="15" height="15">
+                          <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
+                          <circle cx="12" cy="7" r="4"></circle>
+                        </svg>
+                      </div>
+                      <div className="dropdown-identity-text">
+                        <span style={{ fontSize: "13px", color: "var(--t1)", fontWeight: 500, fontFamily: "'JetBrains Mono', monospace" }}>{shortAddress(walletAddress)}</span>
+                        {userRole && userRole !== "none" && (
+                          <span className={`wallet-role-badge-small role-${userRole.toLowerCase()}`}>
+                            {userRole.charAt(0).toUpperCase() + userRole.slice(1)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <button className="copy-btn" onClick={handleCopy} title="Copy address">
+                      {copySuccess ? (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="13" height="13"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                      ) : (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="13" height="13"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. Middle Block: Agent Wallet Section (State Machine) */}
+                {!agentWalletAddress ? (
+                  <div className="agent-wallet-card is-empty">
+                    <div className="agent-wallet-card-header">
+                      <div className="agent-wallet-icon-badge">
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="11" height="11">
+                          <g id="assistant">
+                            <path d="M9,12.5H8c-0.6,0-1-0.4-1-1v-1c0-0.6,0.4-1,1-1h1c0.6,0,1,0.4,1,1v1C10,12.1,9.6,12.5,9,12.5z" />
+                            <path d="M16,12.5h-1c-0.6,0-1-0.4-1-1v-1c0-0.6,0.4-1,1-1h1c0.6,0,1,0.4,1,1v1C17,12.1,16.6,12.5,16,12.5z" />
+                            <path d="M12,0c1.1,0,2,0.9,2,2s-0.9,2-2,2s-2-0.9-2-2S10.9,0,12,0z" />
+                            <path d="M12,24c-2.7,0-4.9-1.6-5-4.2c-1.1-0.3-2.3-0.8-3.5-1.4L3,18.1v-4.6c0-4.6,3.5-8.4,8-8.9V1.5h2v3.1c4.5,0.5,8,4.3,8,8.9v4.6l-0.5,0.3c-0.9,0.5-2.1,1-3.5,1.4C16.9,22.4,14.7,24,12,24z M9.1,20.2C9.5,21.5,10.6,22,12,22s2.6-0.5,2.9-1.8C13.3,20.5,11.6,20.6,9.1,20.2z M5,16.9c2.7,1.3,5.3,1.6,7,1.6c3,0,5.4-0.8,7-1.6v-1.5c-1.8,0.9-4.5,1.1-7,1.1s-5.2-0.2-7-1.1V16.9z M5.1,12.8c0.1,0.7,2.2,1.7,7,1.7c4.3,0,6.9-0.9,7-1.7c-0.3-3.5-3.3-6.3-7-6.3S5.4,9.3,5.1,12.8z" />
+                          </g>
+                        </svg>
+                      </div>
+                      <span className="agent-wallet-label">Agent wallet</span>
+                    </div>
+                    <div className="agent-wallet-address-row" style={{ marginBottom: 8 }}>
+                      <span className="agent-wallet-address">0xabc...</span>
+                      <span title="To get an Agent Wallet, create your first session and the backend will automatically provision a Circle Smart Account." style={{ display: 'inline-flex', alignItems: 'center', color: 'var(--t3)', cursor: 'help' }}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" width="12" height="12">
+                          <circle cx="12" cy="12" r="10"></circle>
+                          <line x1="12" y1="16" x2="12" y2="12"></line>
+                          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                        </svg>
+                      </span>
+                    </div>
+                    <p className="agent-wallet-empty-note">
+                      Not initialized. Create your first session to provision a Circle Smart Account.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="agent-wallet-card">
+                    <div className="agent-wallet-card-header">
+                      <div className="agent-wallet-icon-badge">
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="11" height="11">
+                          <g id="assistant">
+                            <path d="M9,12.5H8c-0.6,0-1-0.4-1-1v-1c0-0.6,0.4-1,1-1h1c0.6,0,1,0.4,1,1v1C10,12.1,9.6,12.5,9,12.5z" />
+                            <path d="M16,12.5h-1c-0.6,0-1-0.4-1-1v-1c0-0.6,0.4-1,1-1h1c0.6,0,1,0.4,1,1v1C17,12.1,16.6,12.5,16,12.5z" />
+                            <path d="M12,0c1.1,0,2,0.9,2,2s-0.9,2-2,2s-2-0.9-2-2S10.9,0,12,0z" />
+                            <path d="M12,24c-2.7,0-4.9-1.6-5-4.2c-1.1-0.3-2.3-0.8-3.5-1.4L3,18.1v-4.6c0-4.6,3.5-8.4,8-8.9V1.5h2v3.1c4.5,0.5,8,4.3,8,8.9v4.6l-0.5,0.3c-0.9,0.5-2.1,1-3.5,1.4C16.9,22.4,14.7,24,12,24z M9.1,20.2C9.5,21.5,10.6,22,12,22s2.6-0.5,2.9-1.8C13.3,20.5,11.6,20.6,9.1,20.2z M5,16.9c2.7,1.3,5.3,1.6,7,1.6c3,0,5.4-0.8,7-1.6v-1.5c-1.8,0.9-4.5,1.1-7,1.1s-5.2-0.2-7-1.1V16.9z M5.1,12.8c0.1,0.7,2.2,1.7,7,1.7c4.3,0,6.9-0.9,7-1.7c-0.3-3.5-3.3-6.3-7-6.3S5.4,9.3,5.1,12.8z" />
+                          </g>
+                        </svg>
+                      </div>
+                      <span className="agent-wallet-label">Agent wallet</span>
+                    </div>
+                    <div className="agent-wallet-balance">
+                      ${agentWalletBalance.toFixed(2)}<span className="agent-wallet-balance-unit">USDC</span>
+                    </div>
+                    <div className="agent-wallet-address-row">
+                      <span className="agent-wallet-address">{shortAddress(agentWalletAddress)}</span>
+                      <button className="copy-btn" onClick={handleAgentCopy} title="Copy Agent Address">
+                        {agentCopySuccess ? (
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="13" height="13"><polyline points="20 6 9 17 4 12"></polyline></svg>
                         ) : (
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="13" height="13"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                         )}
                       </button>
                     </div>
                   </div>
+                )}
 
-                  {agentWalletAddress && (
-                    <div className="dropdown-address-row-agent" style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.06)", display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
-                      <span style={{ fontSize: '9px', color: 'var(--t3)', textTransform: 'uppercase' }}>Agent Wallet (Fund USDC here)</span>
-                      <div className="dropdown-address-row" style={{ width: '100%' }}>
-                        <span className="mono-address" style={{ color: 'var(--accent)' }}>{shortAddress(agentWalletAddress)}</span>
-                        <button className="copy-btn" onClick={handleAgentCopy} title="Copy Agent Address">
-                          {agentCopySuccess ? (
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                          ) : (
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {userRole && userRole !== "none" && (
-                    <div style={{ marginTop: 8 }}>
-                      <span className={`wallet-role-badge role-${userRole}`}>Role: {userRole}</span>
-                    </div>
-                  )}
-                </div>
-
-
+                {/* 3. Actions Block */}
                 <div className="dropdown-actions">
                   <button className="dropdown-action-btn" onClick={() => { onNavigate("profile"); setDropdownOpen(false); }}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" width="16" height="16"><circle cx="12" cy="12" r="9"></circle><polyline points="12 7 12 12 15 15"></polyline></svg>
                     Profile & History
                   </button>
 
                   {onOpenDeposit && (
                     <button className="dropdown-action-btn" onClick={() => { onOpenDeposit(); setDropdownOpen(false); }}>
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                      Deposit Funds
+                      <svg className="action-icon-deposit" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" width="16" height="16"><circle cx="12" cy="12" r="9"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg>
+                      Deposit
                     </button>
                   )}
 
-                  {agentWalletAddress && onOpenWithdrawAgent && (
+                  {onOpenWithdrawAgent && (
                     <button className="dropdown-action-btn" onClick={() => { onOpenWithdrawAgent(); setDropdownOpen(false); }}>
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
-                        <line x1="12" y1="19" x2="12" y2="5"></line>
-                        <polyline points="5 12 12 5 19 12"></polyline>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
+                        <circle cx="12" cy="12" r="9"></circle>
+                        <polyline points="16 12 12 8 8 12"></polyline>
+                        <line x1="12" y1="16" x2="12" y2="8"></line>
                       </svg>
-                      Withdraw Agent Funds
-                    </button>
-                  )}
-
-                  {(userRole?.toLowerCase() === "creator" || userRole?.toLowerCase() === "provider") && onOpenEarnings && (
-                    <button className="dropdown-action-btn" onClick={() => { onOpenEarnings(); setDropdownOpen(false); }}>
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-                      Provider Earnings
+                      Withdraw
                     </button>
                   )}
                 </div>
 
+                {/* 4. Footer */}
                 <div className="dropdown-footer">
                   <button className="dropdown-action-btn text-danger" onClick={() => { onDisconnect(); setDropdownOpen(false); }}>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>

@@ -1,3 +1,11 @@
+"""
+Agent Sessions API Endpoints.
+
+Handles creation, retrieval, updates, and events tracking for autonomous agent
+research sessions, as well as managing agent wallet creation, deposit verification,
+and withdrawals via the Arc Gateway.
+"""
+
 import time
 import uuid
 from typing import Optional, List
@@ -44,7 +52,7 @@ def create_sessions_router(deps) -> APIRouter:
             owner_wallet_lower = req.owner_wallet.lower()
             runtime_state["owner_wallet"] = owner_wallet_lower
             
-            # Kiểm tra xem User này đã từng có ví Agent được tạo chưa
+            # Check if this user has already created an Agent Wallet in a previous session
             params = {
                 "runtime_state->>owner_wallet": f"eq.{owner_wallet_lower}",
                 "limit": "50"
@@ -65,7 +73,7 @@ def create_sessions_router(deps) -> APIRouter:
                         agent_wallet_id = rstate.get("agent_wallet_id")
                         break
             
-            # Nếu chưa có ví, gọi sang Gateway tạo mới
+            # If no wallet exists yet, call the Gateway to create a new one
             if not agent_wallet_address:
                 import requests
                 headers = {}
@@ -280,7 +288,7 @@ def create_sessions_router(deps) -> APIRouter:
         storage = get_storage(deps)
         owner_wallet_lower = req.owner_wallet.lower()
         
-        # 1. Lấy toàn bộ các session của User để kiểm tra trạng thái hoạt động (Race condition lock)
+        # 1. Retrieve all user sessions to check their active state (Race condition lock)
         params = {
             "runtime_state->>owner_wallet": f"eq.{owner_wallet_lower}",
             "limit": "100"
@@ -290,7 +298,7 @@ def create_sessions_router(deps) -> APIRouter:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to query database: {e}")
             
-        # Tìm bất kỳ session nào đang active (queued hoặc running)
+        # Check for any active sessions (queued or running)
         active_sessions = [s for s in sessions if s.get("status") in ("queued", "running")]
         if active_sessions:
             raise HTTPException(
@@ -298,7 +306,7 @@ def create_sessions_router(deps) -> APIRouter:
                 detail="Cannot withdraw funds while a session is active. Please stop the session first."
             )
             
-        # 2. Tìm ví agent_wallet_id tương ứng của user
+        # 2. Locate the corresponding agent_wallet_id for the user
         agent_wallet_id = None
         if sessions:
             for s in sessions:
@@ -313,7 +321,7 @@ def create_sessions_router(deps) -> APIRouter:
                 detail="No Agent Wallet found for this owner wallet."
             )
             
-        # 3. Gọi sang Gateway để thực hiện lệnh chuyển khoản rút tiền
+        # 3. Contact the Gateway to execute the withdraw request
         import requests
         headers = {}
         if ARC_GATEWAY_INTERNAL_SECRET:
@@ -349,7 +357,7 @@ def create_sessions_router(deps) -> APIRouter:
         storage = get_storage(deps)
         owner_wallet_lower = owner_wallet.lower()
         
-        # 1. Tìm session cũ để lấy thông tin ví Agent
+        # 1. Search existing sessions to retrieve the Agent Wallet details
         params = {
             "runtime_state->>owner_wallet": f"eq.{owner_wallet_lower}",
             "limit": "50"
@@ -373,7 +381,7 @@ def create_sessions_router(deps) -> APIRouter:
         if not agent_wallet_address:
             return {"wallet": None}
             
-        # 2. Gọi sang Gateway để lấy số dư ví EOA
+        # 2. Contact the Gateway to retrieve the EOA wallet balances
         import requests
         headers = {}
         if ARC_GATEWAY_INTERNAL_SECRET:

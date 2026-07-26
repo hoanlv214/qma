@@ -1,20 +1,15 @@
 import { useEffect, useState } from "react";
 import { getClientConfig, API_BASE_URL } from "../../services/api";
-import { shortAddress } from "../../services/wallet";
-import { payX402Resource } from "../../services/x402";
-import { createInvoice } from "../../services/invoices";
-import { Loader } from "../ui/Loader";
+import { shortAddress, getInjectedWallet } from "../../services/wallet";
+import { submitWithdrawal } from "../../services/invoices";
 import { DepositModal } from "../modals/DepositModal";
-import { ProviderEarningsModal } from "../modals/ProviderEarningsModal";
-import { AgentBuyerModal } from "../modals/AgentBuyerModal";
-import { AgentBuyerModalContent } from "../modals/AgentBuyerModalContent";
 import { AutonomousAgentModal } from "../modals/AutonomousAgentModal";
 import { GlobalHeader } from "../ui/GlobalHeader";
 import { SignalSidebar } from "./SignalSidebar";
 import { ReportWorkspace } from "./ReportWorkspace";
 import { ProfileModal } from "../modals/ProfileModal";
-import { FundArcWalletModal } from "../wallet/FundArcWalletModal";
-import { FundArcWalletModalContent } from "../wallet/FundArcWalletModalContent";
+import { UnifiedDepositModal } from "../modals/UnifiedDepositModal";
+import { UnifiedWithdrawModal } from "../modals/UnifiedWithdrawModal";
 import { PaywallPanel } from "../paywall/PaywallPanel";
 import { usePendingInvoiceCache } from "../../hooks/usePendingInvoiceCache";
 import { useWalletConnection } from "../../hooks/useWalletConnection";
@@ -26,16 +21,12 @@ import { useQuickProfile } from "../../hooks/useQuickProfile";
 import { useProviderEarnings } from "../../hooks/useProviderEarnings";
 import { usePayment } from "../../hooks/usePayment";
 import { useAgentBuyer } from "../../hooks/useAgentBuyer";
-import { getOnChainUsdcBalance } from "../../services/gatewayCrypto";
+import { buildGatewayWithdrawIntent, buildGatewayWithdrawTypedData, encodeGatewayMintCalldata } from "../../services/gatewayCrypto";
 import {
-  formatPercentage,
   formatRawPercent,
   formatCompactMoney,
-  normalizePercentPoint,
   formatCiRange,
   formatDateTime,
-  formatUsdc,
-  tierLabel,
   paidBadgeText,
   normalizeTierForCache,
 } from "../../utils/format";
@@ -171,9 +162,125 @@ export function AppPage({
   // Cấu hình state quản lý Ví Agent
   const [agentWalletAddress, setAgentWalletAddress] = useState<string>("");
   const [agentWalletBalance, setAgentWalletBalance] = useState<number>(0);
-  const [showWithdrawAgentModal, setShowWithdrawAgentModal] = useState(false);
-  const [withdrawAmount, setWithdrawAmount] = useState<string>("");
-  const [withdrawLoading, setWithdrawLoading] = useState(false);
+  const [agentOpMode, setAgentOpMode] = useState<"deposit" | "withdraw" | null>(null);
+  const [agentOpAmount, setAgentOpAmount] = useState<string>("");
+  const [agentOpLoading, setAgentOpLoading] = useState(false);
+
+  const [gatewayWithdrawAmount, setGatewayWithdrawAmount] = useState<string>("");
+  const [gatewayWithdrawLoading, setGatewayWithdrawLoading] = useState(false);
+
+  const getErc20TransferData = (recipient: string, amountDecimal: number): string => {
+    const cleanRecipient = recipient.toLowerCase().replace("0x", "");
+    const paddedRecipient = cleanRecipient.padStart(64, "0");
+    const rawAmount = BigInt(Math.round(amountDecimal * 1_000_000));
+    const hexAmount = rawAmount.toString(16).padStart(64, "0");
+    return `0xa9059cbb${paddedRecipient}${hexAmount}`;
+  };
+
+  const handleFundAgent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!wallet || !agentWalletAddress) return;
+    const amount = parseFloat(agentOpAmount);
+    if (isNaN(amount) || amount <= 0) {
+      showToast("Please enter a valid amount.", "error");
+      return;
+    }
+
+    const provider = window.ethereum || (window as any).rabby || (window as any).okxwallet;
+    if (!provider) {
+      showToast("Please install MetaMask or another EVM wallet to fund your Agent Wallet.", "error");
+      return;
+    }
+
+    try {
+      setAgentOpLoading(true);
+
+      try {
+        await provider.request({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: "0x4cef52" }],
+        });
+      } catch (switchError: any) {
+        if (switchError.code === 4902) {
+          await provider.request({
+            method: "wallet_addEthereumChain",
+            params: [{
+              chainId: "0x4cef52",
+              chainName: "Arc Testnet",
+              nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
+              rpcUrls: ["https://rpc.testnet.arc.network"],
+              blockExplorerUrls: ["https://testnet.arcscan.app"]
+            }]
+          });
+        } else {
+          throw switchError;
+        }
+      }
+
+      const txHash = (await provider.request({
+        method: "eth_sendTransaction",
+        params: [
+          {
+            from: wallet,
+            to: "0x3600000000000000000000000000000000000000",
+            data: getErc20TransferData(agentWalletAddress, amount),
+            gas: "0x186a0"
+          }
+        ]
+      })) as string;
+
+      showToast(`USDC transfer transaction submitted! Hash: ${txHash.slice(0, 10)}...`, "success");
+      setAgentOpMode(null);
+      setAgentOpAmount("");
+
+      setTimeout(fetchAgentWallet, 4000);
+    } catch (err: any) {
+      console.error("MetaMask transfer error:", err);
+      showToast(`Transfer failed: ${err.message || err}`, "error");
+    } finally {
+      setAgentOpLoading(false);
+    }
+  };
+
+  const handleWithdrawAgent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!wallet || !agentWalletAddress) return;
+    const amount = parseFloat(agentOpAmount);
+    if (isNaN(amount) || amount <= 0) {
+      showToast("Please enter a valid amount.", "error");
+      return;
+    }
+    if (amount > agentWalletBalance) {
+      showToast(`Insufficient balance. Available: $${agentWalletBalance.toFixed(2)} USDC`, "error");
+      return;
+    }
+
+    try {
+      setAgentOpLoading(true);
+      const res = await fetch("/api/v1/sessions/withdraw", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          owner_wallet: wallet,
+          amount_usdc: amount
+        })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.detail || "Withdrawal execution failed.");
+      }
+
+      showToast(`Successfully withdrew ${amount.toFixed(2)} USDC from Agent Wallet!`, "success");
+      setAgentOpMode(null);
+      setAgentOpAmount("");
+      fetchAgentWallet();
+    } catch (err: any) {
+      showToast(err.message || "Withdrawal failed.", "error");
+    } finally {
+      setAgentOpLoading(false);
+    }
+  };
 
   const fetchAgentWallet = async () => {
     if (!wallet) return;
@@ -200,43 +307,71 @@ export function AppPage({
     return () => clearInterval(interval);
   }, [wallet]);
 
-  const handleWithdrawAgent = async (e: React.FormEvent) => {
+  const handleGatewayWithdraw = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!wallet || !agentWalletAddress) return;
-    const amount = parseFloat(withdrawAmount);
+    if (!wallet) return;
+    const amount = parseFloat(gatewayWithdrawAmount);
     if (isNaN(amount) || amount <= 0) {
       showToast("Please enter a valid amount.", "error");
       return;
     }
-    if (amount > agentWalletBalance) {
-      showToast(`Insufficient balance. Available: $${agentWalletBalance.toFixed(2)} USDC`, "error");
+    const gatewayBal = parseFloat(fundGatewayBalance || "0");
+    if (amount > gatewayBal) {
+      showToast(`Insufficient balance. Available: $${gatewayBal.toFixed(2)} USDC`, "error");
+      return;
+    }
+
+    const provider = getInjectedWallet();
+    if (!provider || !provider.request) {
+      showToast("Please install MetaMask or another EVM wallet to withdraw.", "error");
       return;
     }
 
     try {
-      setWithdrawLoading(true);
-      const res = await fetch("/api/v1/sessions/withdraw", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          owner_wallet: wallet,
-          amount_usdc: amount
-        })
+      setGatewayWithdrawLoading(true);
+
+      const burnIntent = buildGatewayWithdrawIntent(amount, {
+        gatewayContractAddress,
+        gatewayMinterAddress,
+        arcUsdcAddress,
+        wallet,
       });
 
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.detail || "Withdrawal execution failed.");
+      showToast("Sign the Gateway withdrawal intent in your wallet.", "info");
+
+      const signature = await provider.request<string>({
+        method: "eth_signTypedData_v4",
+        params: [wallet, JSON.stringify(buildGatewayWithdrawTypedData(burnIntent))],
+      });
+
+      const submitResult = await submitWithdrawal({ burnIntent, signature });
+
+      if (submitResult.relayed) {
+        showToast(`Gateway withdrawal relayed successfully!`, "success");
+      } else {
+        const txHash = await provider.request<string>({
+          method: "eth_sendTransaction",
+          params: [
+            {
+              from: wallet,
+              to: gatewayMinterAddress,
+              data: encodeGatewayMintCalldata(submitResult.attestation, submitResult.signature),
+              gas: "0x493e0",
+            },
+          ],
+        });
+        showToast(`Withdraw transaction submitted! Hash: ${txHash.slice(0, 10)}...`, "success");
       }
 
-      showToast(`Successfully withdrew ${amount.toFixed(2)} USDC from Agent Wallet!`, "success");
-      setShowWithdrawAgentModal(false);
-      setWithdrawAmount("");
-      fetchAgentWallet();
+      setAgentOpMode(null);
+      setGatewayWithdrawAmount("");
+
+      setTimeout(refreshFundingReadiness, 4000);
     } catch (err: any) {
-      showToast(err.message || "Withdrawal failed.", "error");
+      console.error("Gateway withdrawal failed:", err);
+      showToast(err.message || "Gateway withdrawal failed.", "error");
     } finally {
-      setWithdrawLoading(false);
+      setGatewayWithdrawLoading(false);
     }
   };
 
@@ -574,7 +709,8 @@ export function AppPage({
         onOpenEarnings={openProviderEarningsModal}
         agentWalletAddress={agentWalletAddress}
         agentWalletBalance={agentWalletBalance}
-        onOpenWithdrawAgent={() => setShowWithdrawAgentModal(true)}
+        onOpenWithdrawAgent={() => setAgentOpMode("withdraw")}
+        onOpenDepositAgent={() => setAgentOpMode("deposit")}
       />
       <div className="mobile-view-tabs" role="tablist" aria-label="Dashboard sections">
         {[
@@ -821,30 +957,6 @@ export function AppPage({
         />
       )}
 
-      <ProviderEarningsModal
-        open={showProviderEarningsModal}
-        onClose={() => setShowProviderEarningsModal(false)}
-        wallet={wallet || ""}
-        ownedProviders={ownedProviders}
-        creatorClaimConfig={creatorClaimConfig}
-        state={{
-          providerEarningsLoading,
-          providerEarningsError,
-          providerEarningsStats,
-          selectedProviderEarningsIds,
-          creatorClaimSubmitting,
-          providerWithdrawSubmitting,
-          selectedProviderEarningsStats,
-          providerEarningsTotals,
-          providerGatewayWithdrawMax,
-          providerWithdrawDisplayAmount,
-          toggleProviderEarningsSelection,
-          refreshProviderEarningsModal,
-          submitCreatorClaim,
-          submitProviderGatewayWithdraw,
-        }}
-      />
-
       <ProfileModal
         open={showProfileModal}
         wallet={wallet}
@@ -871,128 +983,64 @@ export function AppPage({
         }}
       />
 
-      <FundArcWalletModal open={showFundArcModal} onClose={() => setShowFundArcModal(false)}>
-        <FundArcWalletModalContent
-          fundReadinessTone={fundReadinessTone}
-          fundReadinessStatus={fundReadinessStatus}
-          fundGatewayBalance={fundGatewayBalance}
-          fundRequiredAmount={fundRequiredAmount}
-          wallet={wallet}
-          fundWalletStatus={fundWalletStatus}
-          fundProviderStatus={fundProviderStatus}
-          fundChainStatus={fundChainStatus}
-          fundWalletUsdc={fundWalletUsdc}
-          fundPrimaryAction={fundPrimaryAction}
-          fundNextStep={fundNextStep}
-          fundShowAdvanced={fundShowAdvanced}
-          setFundShowAdvanced={setFundShowAdvanced}
-          setShowFundArcModal={setShowFundArcModal}
-          connect={connect}
-          refreshFundingReadiness={refreshFundingReadiness}
-        />
-      </FundArcWalletModal>
+      <UnifiedDepositModal
+        open={showFundArcModal}
+        onClose={() => setShowFundArcModal(false)}
+        agentWalletAddress={agentWalletAddress}
+        agentWalletBalance={agentWalletBalance}
+        agentOpAmount={agentOpAmount}
+        setAgentOpAmount={setAgentOpAmount}
+        agentOpLoading={agentOpLoading}
+        handleFundAgent={handleFundAgent}
+        fundReadinessTone={fundReadinessTone}
+        fundReadinessStatus={fundReadinessStatus}
+        fundGatewayBalance={fundGatewayBalance}
+        fundRequiredAmount={fundRequiredAmount}
+        wallet={wallet}
+        fundWalletStatus={fundWalletStatus}
+        fundProviderStatus={fundProviderStatus}
+        fundChainStatus={fundChainStatus}
+        fundWalletUsdc={fundWalletUsdc}
+        fundPrimaryAction={fundPrimaryAction}
+        fundNextStep={fundNextStep}
+        fundShowAdvanced={fundShowAdvanced}
+        setFundShowAdvanced={setFundShowAdvanced}
+        connect={connect}
+        refreshFundingReadiness={refreshFundingReadiness}
+      />
 
-      {showWithdrawAgentModal && (
-        <div className="modal-backdrop open">
-          <div className="modal-content" style={{ maxWidth: '420px', padding: '24px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ margin: 0, fontSize: '18px', color: '#fff', fontWeight: 600 }}>Withdraw Agent Funds</h3>
-              <button 
-                type="button" 
-                className="icon-button" 
-                onClick={() => {
-                  setShowWithdrawAgentModal(false);
-                  setWithdrawAmount("");
-                }}
-                style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--t3)' }}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-              </button>
-            </div>
-            
-            <p style={{ fontSize: '13px', color: 'var(--t2)', marginBottom: '20px', lineHeight: 1.5 }}>
-              This will withdraw USDC from your persistent Agent Wallet and send it directly back to your connected MetaMask address (<strong style={{ color: 'var(--accent)' }}>{wallet ? `${wallet.slice(0, 6)}...${wallet.slice(-4)}` : ""}</strong>).
-            </p>
-
-            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px', padding: '12px', marginBottom: '20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--t3)', marginBottom: '4px' }}>
-                <span>Agent Wallet Balance</span>
-                <strong style={{ color: '#fff' }}>${agentWalletBalance.toFixed(2)} USDC</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--t3)' }}>
-                <span>Dest Address</span>
-                <span className="mono" style={{ fontSize: '11px', color: 'var(--t2)' }}>{wallet}</span>
-              </div>
-            </div>
-
-            <form onSubmit={handleWithdrawAgent}>
-              <div className="form-group" style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', fontSize: '11px', color: 'var(--t3)', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 600 }}>Amount to Withdraw (USDC)</label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <input 
-                    type="number"
-                    step="0.000001"
-                    min="0.000001"
-                    max={agentWalletBalance}
-                    placeholder="0.00"
-                    value={withdrawAmount}
-                    onChange={(e) => setWithdrawAmount(e.target.value)}
-                    required
-                    style={{
-                      flex: 1,
-                      background: 'rgba(0,0,0,0.2)',
-                      border: '1px solid rgba(255,255,255,0.1)',
-                      borderRadius: '6px',
-                      padding: '8px 12px',
-                      color: '#fff',
-                      fontSize: '14px',
-                      outline: 'none'
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setWithdrawAmount(agentWalletBalance.toString())}
-                    style={{
-                      background: 'rgba(255,255,255,0.05)',
-                      border: '1px solid rgba(255,255,255,0.1)',
-                      borderRadius: '6px',
-                      padding: '0 12px',
-                      color: 'var(--accent)',
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      cursor: 'pointer'
-                    }}
-                  >
-                    MAX
-                  </button>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowWithdrawAgentModal(false);
-                    setWithdrawAmount("");
-                  }}
-                  className="btn-secondary"
-                  style={{ flex: 1, padding: '10px', fontSize: '13px' }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn-primary"
-                  disabled={withdrawLoading || !withdrawAmount || parseFloat(withdrawAmount) <= 0}
-                  style={{ flex: 1, padding: '10px', fontSize: '13px' }}
-                >
-                  {withdrawLoading ? "Withdrawing..." : "Confirm Withdraw"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <UnifiedWithdrawModal
+        open={agentOpMode === "withdraw"}
+        onClose={() => { setAgentOpMode(null); setAgentOpAmount(""); setGatewayWithdrawAmount(""); }}
+        agentWalletAddress={agentWalletAddress}
+        agentWalletBalance={agentWalletBalance}
+        agentOpAmount={agentOpAmount}
+        setAgentOpAmount={setAgentOpAmount}
+        agentOpLoading={agentOpLoading}
+        handleWithdrawAgent={handleWithdrawAgent}
+        wallet={wallet}
+        fundGatewayBalance={fundGatewayBalance}
+        gatewayWithdrawAmount={gatewayWithdrawAmount}
+        setGatewayWithdrawAmount={setGatewayWithdrawAmount}
+        gatewayWithdrawLoading={gatewayWithdrawLoading}
+        handleGatewayWithdraw={handleGatewayWithdraw}
+        walletRole={walletRole}
+        ownedProviders={ownedProviders}
+        openProviderEarningsModal={openProviderEarningsModal}
+        providerEarningsLoading={providerEarningsLoading}
+        providerEarningsStats={providerEarningsStats}
+        providerEarningsTotals={providerEarningsTotals}
+        providerEarningsError={providerEarningsError}
+        selectedProviderEarningsIds={selectedProviderEarningsIds}
+        toggleProviderEarningsSelection={toggleProviderEarningsSelection}
+        creatorClaimSubmitting={creatorClaimSubmitting}
+        providerWithdrawSubmitting={providerWithdrawSubmitting}
+        creatorClaimConfig={creatorClaimConfig}
+        providerGatewayWithdrawMax={providerGatewayWithdrawMax}
+        refreshProviderEarningsModal={refreshProviderEarningsModal}
+        submitProviderGatewayWithdraw={submitProviderGatewayWithdraw}
+        submitCreatorClaim={submitCreatorClaim}
+      />
     </div >
   );
 }
