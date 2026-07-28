@@ -20,7 +20,19 @@ export interface AgentInvoice {
   invoice_id?: string;
   arc_gateway_url?: string;
   amount?: string | number;
+  amount_usdc?: string | number;
   split_legs?: InvoiceSplitLeg[];
+}
+
+export interface PaymentExecutionLimits {
+  expectedAmountUsdc?: number;
+  maxAmountUsdc?: number;
+  relativeTolerance?: number;
+}
+
+export interface ValidatedInvoicePayment {
+  amountUsdc: number;
+  legAmountsUsdc: Record<string, number>;
 }
 
 export interface SettlementProof extends PaymentSettlement {
@@ -39,7 +51,11 @@ export interface PaymentExecutionResult {
 }
 
 export interface PaymentExecutor {
-  execute(input: { invoice: AgentInvoice; signer?: AgentPaymentSigner }): Promise<PaymentExecutionResult>;
+  execute(input: {
+    invoice: AgentInvoice;
+    signer?: AgentPaymentSigner;
+    limits?: PaymentExecutionLimits;
+  }): Promise<PaymentExecutionResult>;
 }
 
 
@@ -61,6 +77,90 @@ function rawAmount(value: unknown): string {
 function numberAmount(value: unknown): number {
   const amount = Number(value);
   return Number.isFinite(amount) && amount > 0 ? amount : 0;
+}
+
+function rawAmountUsdc(value: unknown): number {
+  const raw = rawAmount(value);
+  if (!/^\d+$/.test(raw)) return 0;
+  try {
+    const amount = Number(BigInt(raw)) / 1_000_000;
+    return Number.isFinite(amount) && amount > 0 ? amount : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function amountForLeg(leg: InvoiceSplitLeg): number {
+  const decimalAmount = numberAmount(leg.amount_usdc);
+  const rawUsdc = rawAmountUsdc(leg.amount_raw);
+  if (decimalAmount && rawUsdc && Math.abs(decimalAmount - rawUsdc) > 0.0000005) {
+    throw new Error(
+      `Split leg ${leg.leg_id} amount_usdc ${decimalAmount} does not match amount_raw ${rawAmount(leg.amount_raw)}.`,
+    );
+  }
+  const amount = decimalAmount || rawUsdc;
+  if (!amount) throw new Error(`Split leg ${leg.leg_id} has no positive finite USDC amount.`);
+  return amount;
+}
+
+export function validateInvoiceForPayment(
+  invoice: AgentInvoice,
+  limits: PaymentExecutionLimits = {},
+): ValidatedInvoicePayment {
+  const legs = invoiceLegs(invoice);
+  const splitInvoice = Array.isArray(invoice.split_legs) && invoice.split_legs.length > 0;
+  const invoiceAmount = numberAmount(invoice.amount ?? invoice.amount_usdc);
+  if (!invoiceAmount) throw new Error("Invoice amount must be a positive finite USDC value.");
+
+  const legAmountsUsdc: Record<string, number> = {};
+  const seenLegIds = new Set<string>();
+  let legsTotal = 0;
+  for (const leg of legs) {
+    const legId = text(leg.leg_id);
+    if (!legId) throw new Error("Invoice contains a split leg without leg_id.");
+    if (seenLegIds.has(legId)) throw new Error(`Invoice contains duplicate split leg ${legId}.`);
+    seenLegIds.add(legId);
+    resourceUrlForLeg(leg);
+    if (splitInvoice && !/^0x[a-fA-F0-9]{40}$/.test(text(leg.pay_to))) {
+      throw new Error(`Split leg ${legId} has an invalid EVM pay_to address.`);
+    }
+    const amount = amountForLeg(leg);
+    legAmountsUsdc[legId] = amount;
+    legsTotal += amount;
+  }
+
+  if (!Number.isFinite(legsTotal) || Math.abs(legsTotal - invoiceAmount) > 0.0000005) {
+    throw new Error(
+      `Invoice split total ${legsTotal.toFixed(6)} does not match invoice amount ${invoiceAmount.toFixed(6)} USDC.`,
+    );
+  }
+
+  const maxAmount = limits.maxAmountUsdc;
+  if (maxAmount !== undefined && (!Number.isFinite(maxAmount) || maxAmount <= 0)) {
+    throw new Error("Payment max amount must be a positive finite USDC value.");
+  }
+  if (maxAmount !== undefined && invoiceAmount > maxAmount + 0.0000005) {
+    throw new Error(`Invoice amount ${invoiceAmount} exceeds payment max ${maxAmount} USDC.`);
+  }
+
+  const expectedAmount = limits.expectedAmountUsdc;
+  if (expectedAmount !== undefined && (!Number.isFinite(expectedAmount) || expectedAmount <= 0)) {
+    throw new Error("Expected invoice amount must be a positive finite USDC value.");
+  }
+  if (expectedAmount !== undefined) {
+    const relativeTolerance = limits.relativeTolerance ?? 0.01;
+    if (!Number.isFinite(relativeTolerance) || relativeTolerance < 0 || relativeTolerance > 0.1) {
+      throw new Error("Invoice relative tolerance must be between 0 and 0.1.");
+    }
+    const tolerance = Math.max(0.0000005, expectedAmount * relativeTolerance);
+    if (Math.abs(invoiceAmount - expectedAmount) > tolerance) {
+      throw new Error(
+        `Invoice amount ${invoiceAmount} differs from expected ${expectedAmount} USDC beyond the allowed tolerance.`,
+      );
+    }
+  }
+
+  return { amountUsdc: invoiceAmount, legAmountsUsdc };
 }
 
 function sameAddress(left: string, right: string): boolean {
@@ -185,9 +285,10 @@ async function settleSignedLeg(leg: InvoiceSplitLeg, signer: AgentPaymentSigner)
  */
 export function createPaymentExecutor(defaultSigner?: AgentPaymentSigner): PaymentExecutor {
   return {
-    async execute({ invoice, signer }): Promise<PaymentExecutionResult> {
+    async execute({ invoice, signer, limits }): Promise<PaymentExecutionResult> {
       const activeSigner = signer || defaultSigner;
       if (!activeSigner) throw new Error("No payment authorizer is configured.");
+      const validated = validateInvoiceForPayment(invoice, limits);
       const settlements: SettlementProof[] = [];
       for (const leg of invoiceLegs(invoice)) {
         const recovered = alreadySettled(leg);
@@ -199,7 +300,7 @@ export function createPaymentExecutor(defaultSigner?: AgentPaymentSigner): Payme
           throw new Error(`Payment wallet is the ${leg.role || leg.leg_id} recipient; refusing self-payment.`);
         }
 
-        const amountUsdc = numberAmount(leg.amount_usdc);
+        const amountUsdc = validated.legAmountsUsdc[leg.leg_id];
         const rawSettlement = activeSigner.payLeg
           ? await activeSigner.payLeg({ resourceUrl: resourceUrlForLeg(leg), legId: leg.leg_id, amountUsdc })
           : await settleSignedLeg(leg, activeSigner);

@@ -19,7 +19,7 @@ export interface PaymentSettlement {
 
 export interface AgentPaymentSigner {
   walletAddress?: string;
-  signLeg(resourceUrl: string): Promise<PaymentSignature>;
+  signLeg?: (resourceUrl: string) => Promise<PaymentSignature>;
   /**
    * Optional native payment path for wallets such as Circle Agent Wallet.
    * The Circle CLI settles the x402 request and returns the receipt; it does

@@ -55,6 +55,13 @@ const ARC_GATEWAY_URL = process.env.QMA_ARC_GATEWAY_URL || process.env.ARC_GATEW
 const INTERNAL_SECRET = process.env.QMA_ARC_GATEWAY_INTERNAL_SECRET ?? "";
 const POLL_INTERVAL_MS = 5000;
 
+function sessionHeaders(includeJson = false): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (includeJson) headers["Content-Type"] = "application/json";
+  if (INTERNAL_SECRET) headers["x-qma-internal-secret"] = INTERNAL_SECRET;
+  return headers;
+}
+
 async function updateSessionState(sessionId: string, state: any, status?: string) {
   try {
     const body: any = { runtime_state: state };
@@ -62,7 +69,7 @@ async function updateSessionState(sessionId: string, state: any, status?: string
 
     const res = await fetch(`${API_BASE_URL}/api/v1/sessions/${sessionId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: sessionHeaders(true),
       body: JSON.stringify(body)
     });
 
@@ -79,7 +86,10 @@ async function runWorkerLoop() {
 
   while (true) {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/v1/sessions/pick`, { method: "POST" });
+      const res = await fetch(`${API_BASE_URL}/api/v1/sessions/pick`, {
+        method: "POST",
+        headers: sessionHeaders(),
+      });
 
       if (res.ok) {
         const session = await res.json();
@@ -399,7 +409,7 @@ async function runWorkerLoop() {
           try {
             const res = await fetch(`${API_BASE_URL}/api/v1/sessions/${sessionId}/events`, {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: sessionHeaders(true),
               body: JSON.stringify({ event_type: eventType, payload })
             });
             if (!res.ok) {
@@ -430,7 +440,9 @@ async function runWorkerLoop() {
           const ac = new AbortController();
           const statusCheckInterval = setInterval(async () => {
             try {
-              const res = await fetch(`${API_BASE_URL}/api/v1/sessions/${session.id}`);
+              const res = await fetch(`${API_BASE_URL}/api/v1/sessions/${session.id}`, {
+                headers: sessionHeaders(),
+              });
               if (res.ok) {
                 const data = await res.json();
                 if (data.status === "stopped") {

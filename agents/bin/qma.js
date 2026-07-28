@@ -5,78 +5,151 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { privateKeyToAccount } from "viem/accounts";
-import { createPublicClient, http, getContract, formatUnits } from "viem";
-import { arcTestnet } from "viem/chains";
 import { normalizeSessionPolicy, parseDurationSeconds, runAutonomousSession } from "../dist/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-async function getUsdcBalance(address) {
-  const publicClient = createPublicClient({
-    chain: arcTestnet,
-    transport: http("https://rpc.testnet.arc.network"),
-  });
-  
-  const usdcAddress = "0x3600000000000000000000000000000000000000";
-  const erc20Abi = [
-    {
-      name: "balanceOf",
-      type: "function",
-      stateMutability: "view",
-      inputs: [{ name: "account", type: "address" }],
-      outputs: [{ name: "", type: "uint256" }]
-    }
-  ];
-  
-  const contract = getContract({
-    address: usdcAddress,
-    abi: erc20Abi,
-    client: publicClient,
-  });
-  
-  const balanceRaw = await contract.read.balanceOf([address]);
-  return parseFloat(formatUnits(balanceRaw, 6));
+function fatal(error) {
+  if (error && typeof error === "object" && error.code === "EPIPE") {
+    process.exit(0);
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`QMA CLI error: ${message}`);
+  if (process.env.QMA_DEBUG === "1" && error instanceof Error && error.stack) console.error(error.stack);
+  process.exitCode = 1;
 }
-const argValue = (name, fallback = null) => {
-  const prefix = `--${name}=`;
-  const equal = process.argv.find((value) => value.startsWith(prefix));
-  if (equal) return equal.slice(prefix.length);
-  const index = process.argv.indexOf(`--${name}`);
-  return index >= 0 && process.argv[index + 1] ? process.argv[index + 1] : fallback;
-};
-const hasFlag = (name) => process.argv.includes(`--${name}`);
+process.on("uncaughtException", fatal);
+process.on("unhandledRejection", fatal);
 const args = process.argv.slice(2);
+const packageMetadata = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+const valueOptions = new Set([
+  "api", "budget", "max-price", "task", "duration", "max-purchases", "max-attempts",
+  "poll", "provider", "tier", "min-score", "cooldown", "failure-cooldown",
+  "max-failures", "executor", "wallet", "report-file", "event-log",
+  "llm-provider", "llm-model", "llm-base-url",
+]);
+const booleanOptions = new Set([
+  "help", "version", "live", "dry-run", "until-stopped", "run-once", "llm-policy",
+  "allow-owned", "json", "verbose", "auto-deposit", "no-auto-deposit",
+]);
 
-if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
-  console.log(`
-QMA CLI - Quantitative Market Analyst Autonomous Agent
+function parseCliArgs(argv) {
+  const values = new Map();
+  const flags = new Set();
+  const positionals = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    let token = argv[index];
+    if (token === "-h") token = "--help";
+    if (token === "-V") token = "--version";
+    if (!token.startsWith("--")) {
+      positionals.push(token);
+      continue;
+    }
+    const equalIndex = token.indexOf("=");
+    const name = token.slice(2, equalIndex >= 0 ? equalIndex : undefined);
+    if (!valueOptions.has(name) && !booleanOptions.has(name)) {
+      throw new Error(`Unknown option --${name}. Run 'qma --help' for supported options.`);
+    }
+    if (booleanOptions.has(name)) {
+      if (equalIndex >= 0) throw new Error(`Option --${name} does not accept a value.`);
+      flags.add(name);
+      continue;
+    }
+    const value = equalIndex >= 0 ? token.slice(equalIndex + 1) : argv[index + 1];
+    if (!value || (equalIndex < 0 && value.startsWith("-"))) {
+      throw new Error(`Option --${name} requires a value.`);
+    }
+    values.set(name, value);
+    if (equalIndex < 0) index += 1;
+  }
+  const validCommand = positionals.length === 0
+    || (positionals.length === 1 && positionals[0] === "run")
+    || (positionals.length === 2 && positionals[0] === "agent" && positionals[1] === "run");
+  if (!validCommand) {
+    throw new Error(`Unknown command '${positionals.join(" ")}'. Use 'qma agent run [options]'.`);
+  }
+  if (flags.has("live") && flags.has("dry-run")) throw new Error("--live and --dry-run cannot be used together.");
+  if (flags.has("auto-deposit") && flags.has("no-auto-deposit")) {
+    throw new Error("--auto-deposit and --no-auto-deposit cannot be used together.");
+  }
+  return { flags, values };
+}
 
-USAGE
-  $ qma agent run [options]
-  
-OPTIONS
-  --live                Run in live mode (deducts real funds). Default is dry-run.
-  --budget <amount>     Set the max USDC budget for this session (e.g. 0.05).
-  --max-price <amount>  Set the max price per report (default: 0.005).
-  --task <prompt>       Set a custom goal/prompt for the agent to achieve.
-  --max-purchases <n>   Stop after N successful purchases.
-  --until-stopped       Run endlessly until stopped (Ctrl+C).
-  --run-once            Explicitly run only one loop iteration.
-  --executor <type>     Wallet executor type: 'local-private-key' or 'circle-agent-wallet'.
-  --wallet <address>    Provide the wallet address (if using circle-agent-wallet).
-  --verbose             Show full execution logs and report data JSON.
-  --report-file <path>  Save the purchased JSON report to a file (e.g. report.json).
-  --no-auto-deposit     Disable automatic on-chain deposits into Gateway.
+let cli;
+try {
+  cli = parseCliArgs(args);
+} catch (error) {
+  console.error(`QMA CLI error: ${error.message || error}`);
+  process.exit(2);
+}
+const argValue = (name, fallback = null) => cli.values.has(name) ? cli.values.get(name) : fallback;
+const hasFlag = (name) => cli.flags.has(name);
+const hasArgument = (name) => cli.values.has(name);
 
-ENVIRONMENT VARIABLES
-  AGENT_PRIVATE_KEY     Your EVM private key for 'local-private-key' live mode.
-  CIRCLE_AGENT_WALLET_ADDRESS  Your Circle wallet address for 'circle-agent-wallet'.
-  QMA_API_URL           Custom backend API URL (default: https://qma-api.onrender.com)
-  `);
+if (hasFlag("version")) {
+  console.log(packageMetadata.version);
   process.exit(0);
 }
 
-const hasArgument = (name) => process.argv.some((value) => value === `--${name}` || value.startsWith(`--${name}=`));
+if (args.length === 0 || hasFlag("help")) {
+  console.log(`
+QMA CLI ${packageMetadata.version} - bounded autonomous report buyer
+
+USAGE
+  $ qma [options]
+  $ qma agent run [options]
+  
+CORE OPTIONS
+  --live                         Send real payments. Default: dry-run.
+  --dry-run                      Explicitly disable real payments.
+  --budget <USDC>                Maximum session spend. Default: 0.01.
+  --max-price <USDC>             Maximum price per report. Default: 0.005.
+  --task <prompt>                Agent goal.
+  --api <URL>                    QMA backend URL.
+  --provider <ids>               Comma-separated provider allowlist.
+  --tier <preview,full>          Comma-separated tier allowlist.
+  --min-score <0-100>            Minimum candidate score.
+  --allow-owned                  Allow candidates already owned.
+
+SESSION BOUNDS
+  --duration <30s|10m|2h|1d>     Stop after a duration.
+  --max-purchases <n>            Stop after n successful purchases.
+  --max-attempts <n>             Stop after n purchase attempts.
+  --until-stopped                Run until Ctrl+C.
+  --run-once                     Run one observation cycle.
+  --poll <seconds>               Poll interval. Default: 60.
+  --cooldown <seconds>           Symbol cooldown. Default: 600.
+  --failure-cooldown <seconds>   Failed-candidate cooldown. Default: 300.
+  --max-failures <n>             Failures allowed per candidate. Default: 2.
+
+PAYMENT
+  --executor <type>              local-private-key | circle-agent-wallet.
+  --wallet <address>             Wallet address for Circle Agent Wallet.
+  --auto-deposit                 Local-key mode only: top up Gateway per invoice.
+  --no-auto-deposit              Require Gateway to be pre-funded.
+
+LLM POLICY PARSING
+  --llm-policy                   Parse the task into bounded policy once.
+  --llm-provider <provider>      openai | gemini | groq | openrouter | ollama.
+  --llm-model <model>            Override the provider model.
+  --llm-base-url <URL>           Override the OpenAI-compatible endpoint.
+
+OUTPUT
+  --json                         Print only the final JSON session report.
+  --verbose                      Stream child execution logs.
+  --event-log <path>             Append JSONL session events.
+  --report-file <path>           Save purchased report JSON.
+  -h, --help                     Show help.
+  -V, --version                  Show version.
+
+ENVIRONMENT VARIABLES
+  AGENT_PRIVATE_KEY              EVM private key for local live mode.
+  CIRCLE_AGENT_WALLET_ADDRESS  Your Circle wallet address for 'circle-agent-wallet'.
+  QMA_API_URL                    Default: https://qma-api-7o9v.onrender.com
+  QMA_LLM_PROVIDER / QMA_LLM_MODEL / QMA_LLM_BASE_URL
+  OPENAI_API_KEY / GEMINI_API_KEY / GROQ_API_KEY / OPENROUTER_API_KEY
+  `);
+  process.exit(0);
+}
 const csv = (value, fallback) => String(value || fallback).split(",").map((item) => item.trim()).filter(Boolean);
 const numberArg = (name, fallback) => Number(argValue(name, fallback));
 
@@ -92,8 +165,14 @@ function loadEnv() {
 }
 loadEnv();
 
-const apiUrl = String(argValue("api", process.env.QMA_API_URL || "https://qma-api.onrender.com")).replace(/\/$/, "");
+const apiUrl = String(argValue("api", process.env.QMA_API_URL || "https://qma-api-7o9v.onrender.com")).replace(/\/$/, "");
 const executor = argValue("executor", process.env.QMA_AGENT_EXECUTOR || "local-private-key");
+if (!["local-private-key", "circle-agent-wallet"].includes(executor)) {
+  throw new Error("--executor must be 'local-private-key' or 'circle-agent-wallet'.");
+}
+if (executor === "circle-agent-wallet" && hasFlag("auto-deposit")) {
+  throw new Error("Circle Agent Wallet does not support automatic Gateway deposits. Use --no-auto-deposit and pre-fund Gateway with Circle CLI.");
+}
 const wallet = executor === "circle-agent-wallet"
   ? (process.env.CIRCLE_AGENT_WALLET_ADDRESS || process.env.QMA_CIRCLE_AGENT_WALLET_ADDRESS || argValue("wallet"))
   : (process.env.AGENT_WALLET_ADDRESS
@@ -111,11 +190,38 @@ const hasLoopBound = Boolean(durationArg || untilStopped || maxPurchasesArg || m
 const task = argValue("task", process.env.AGENT_PROMPT || "Monitor the best affordable QMA report opportunity.");
 async function parseLlmPolicyOnce() {
   if (!hasFlag("llm-policy")) return {};
-  const apiKey = String(process.env.OPENAI_API_KEY || "").trim();
-  if (!apiKey) {
-    emit("--llm-policy requested but OPENAI_API_KEY is unavailable; using deterministic policy parsing.");
+  const provider = String(argValue("llm-provider", process.env.QMA_LLM_PROVIDER || "openai")).toLowerCase().trim();
+  if (!["openai", "gemini", "groq", "openrouter", "ollama"].includes(provider)) {
+    throw new Error(`Unsupported --llm-provider '${provider}'.`);
+  }
+  const providerKeys = {
+    openai: process.env.OPENAI_API_KEY,
+    gemini: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
+    groq: process.env.GROQ_API_KEY,
+    openrouter: process.env.OPENROUTER_API_KEY,
+    ollama: "",
+  };
+  const apiKey = String(process.env.QMA_LLM_API_KEY || providerKeys[provider] || "").trim();
+  if (provider !== "ollama" && !apiKey) {
+    emit(`--llm-policy requested but no API key is configured for ${provider}; using explicit CLI policy values.`);
     return {};
   }
+  const defaultModels = {
+    openai: "gpt-4o-mini",
+    gemini: "gemini-2.5-flash",
+    groq: "llama-3.3-70b-versatile",
+    openrouter: "google/gemini-2.5-flash",
+    ollama: "qwen2.5:7b",
+  };
+  const defaultBaseUrls = {
+    openai: "https://api.openai.com/v1",
+    gemini: "https://generativelanguage.googleapis.com/v1beta/openai",
+    groq: "https://api.groq.com/openai/v1",
+    openrouter: "https://openrouter.ai/api/v1",
+    ollama: "http://localhost:11434/v1",
+  };
+  const model = String(argValue("llm-model", process.env.QMA_LLM_MODEL || defaultModels[provider]));
+  const baseUrl = String(argValue("llm-base-url", process.env.QMA_LLM_BASE_URL || defaultBaseUrls[provider])).replace(/\/$/, "");
   const schema = {
     type: "object", additionalProperties: false,
     properties: {
@@ -132,21 +238,30 @@ async function parseLlmPolicyOnce() {
     required: ["session_budget_usdc", "max_price_per_report_usdc", "duration_seconds", "max_purchases", "allowed_providers", "allowed_tiers", "minimum_score", "avoid_owned_reports", "upgrade_enabled"],
   };
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const headers = { "Content-Type": "application/json" };
+    if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+    if (provider === "openrouter") {
+      headers["HTTP-Referer"] = "https://github.com/hoanlv214/qma";
+      headers["X-Title"] = "QMA Agent";
+    }
+    const responseFormat = ["openai", "gemini", "groq"].includes(provider)
+      ? { type: "json_schema", json_schema: { name: "qma_session_policy", strict: true, schema } }
+      : { type: "json_object" };
+    const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({
-        model: process.env.QMA_LLM_MODEL || "gpt-4o-mini",
+        model,
         messages: [
           { role: "system", content: "Parse the delegated task into the exact bounded policy schema. Never increase the hard budget or max price supplied by the user. Return JSON only." },
           { role: "user", content: JSON.stringify({ task, hard_budget_usdc: hardBudget, hard_max_price_usdc: hardMaxPrice }) },
         ],
-        response_format: { type: "json_schema", json_schema: { name: "qma_session_policy", strict: true, schema } },
+        response_format: responseFormat,
       }),
       signal: AbortSignal.timeout(20_000),
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(`OpenAI returned HTTP ${response.status}`);
+    if (!response.ok) throw new Error(`${provider} returned HTTP ${response.status}`);
     return JSON.parse(data.choices?.[0]?.message?.content || "{}");
   } catch (error) {
     emit(`One-time LLM policy parse failed; using deterministic policy parsing: ${error.message || error}`);
@@ -157,6 +272,10 @@ const llmPolicy = await parseLlmPolicyOnce();
 const derivedMaxAttempts = maxAttemptsArg === null && maxPurchasesArg !== null
   ? Math.max(1, Number(maxPurchasesArg) * 3)
   : null;
+const parsedDuration = parseDurationSeconds(durationArg ?? llmPolicy.duration_seconds);
+if (durationArg !== null && parsedDuration === null) {
+  throw new Error("--duration must be a non-negative number followed by s, m, h, or d (for example 10m).");
+}
 const policy = normalizeSessionPolicy({
   task,
   executionMode: hasFlag("live") ? "live" : "dry_run",
@@ -164,7 +283,7 @@ const policy = normalizeSessionPolicy({
   maxPricePerReportUsdc: Math.min(hardMaxPrice, Number(llmPolicy.max_price_per_report_usdc ?? hardMaxPrice)),
   maxPurchases: maxPurchasesArg === null ? (llmPolicy.max_purchases ?? null) : Number(maxPurchasesArg),
   maxAttempts: maxAttemptsArg === null ? (derivedMaxAttempts ?? llmPolicy.max_attempts ?? null) : Number(maxAttemptsArg),
-  durationSeconds: untilStopped ? null : parseDurationSeconds(durationArg ?? llmPolicy.duration_seconds),
+  durationSeconds: untilStopped ? null : parsedDuration,
   runOnce: explicitRunOnce || (!hasLoopBound && llmPolicy.duration_seconds == null && llmPolicy.max_purchases == null),
   pollIntervalSeconds: numberArg("poll", "60"),
   allowedProviders: hasArgument("provider") ? csv(argValue("provider"), "funding_memory,oi_memory") : (llmPolicy.allowed_providers || ["funding_memory", "oi_memory"]),
@@ -174,7 +293,8 @@ const policy = normalizeSessionPolicy({
   symbolCooldownSeconds: numberArg("cooldown", "600"),
   failedCandidateCooldownSeconds: numberArg("failure-cooldown", "300"),
   maxFailedAttemptsPerCandidate: numberArg("max-failures", "2"),
-  autoDepositGateway: !hasFlag("no-auto-deposit"),
+  autoDepositGateway: executor === "local-private-key"
+    && (hasFlag("auto-deposit") || !hasFlag("no-auto-deposit")),
   upgradePolicy: { enabled: llmPolicy.upgrade_enabled ?? true },
 });
 
@@ -265,36 +385,6 @@ process.once("SIGINT", () => { emit("Stopping after the current safe step..."); 
 const events = [];
 const eventLog = argValue("event-log");
 const reportFile = argValue("report-file");
-
-if (policy.executionMode === "live" && wallet) {
-  emit(`Checking on-chain balance for wallet ${wallet}...`);
-  try {
-    let balance = await getUsdcBalance(wallet);
-    emit(`Current Balance: $${balance.toFixed(2)} USDC`);
-    
-    if (balance < policy.sessionBudgetUsdc) {
-      console.log(`\n⚠️  INSUFFICIENT FUNDS!`);
-      console.log(`Your current balance is $${balance.toFixed(2)} USDC, but this session requires a budget of $${policy.sessionBudgetUsdc.toFixed(2)} USDC.`);
-      console.log(`Please transfer at least $${(policy.sessionBudgetUsdc - balance).toFixed(2)} USDC to the Agent Wallet: \x1b[36m${wallet}\x1b[0m`);
-      console.log(`Waiting for funds (polling every 10 seconds, Ctrl+C to abort)...`);
-      
-      while (balance < policy.sessionBudgetUsdc) {
-        await new Promise(r => setTimeout(r, 10000));
-        try {
-          balance = await getUsdcBalance(wallet);
-          if (balance >= policy.sessionBudgetUsdc) {
-            emit(`\n✅ Funds received! New balance: $${balance.toFixed(2)} USDC. Resuming execution...`);
-            break;
-          } else {
-            if (!hasFlag("json")) process.stdout.write(`.`);
-          }
-        } catch (e) { /* ignore network error during polling */ }
-      }
-    }
-  } catch (err) {
-    emit(`[Warning] Could not verify on-chain balance: ${err.message || err}. Proceeding anyway...`);
-  }
-}
 
 const report = await runAutonomousSession(policy, {
   observe: async () => {

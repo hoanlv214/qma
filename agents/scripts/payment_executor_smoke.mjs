@@ -4,6 +4,7 @@ import { createCircleAgentWalletExecutor } from "../dist/wallets/circleSigner.js
 
 const invoice = {
   invoice_id: "inv_smoke",
+  amount: 0.001,
   split_legs: [
     {
       leg_id: "creator",
@@ -80,7 +81,10 @@ assert.equal(signedCalls[0].options.headers["payment-signature"], "proof:http://
 
 await assert.rejects(
   createPaymentExecutor().execute({
-    invoice: { split_legs: [{ ...invoice.split_legs[0], status: "paid", settlement_id: "settled" }] },
+    invoice: {
+      amount: invoice.split_legs[0].amount_usdc,
+      split_legs: [{ ...invoice.split_legs[0], status: "paid", settlement_id: "settled" }],
+    },
     signer: { signLeg: async () => ({ paymentHeader: "unused" }) },
   }),
   /missing its settlement proof/,
@@ -95,4 +99,39 @@ await assert.rejects(
   /refusing self-payment/,
 );
 
-console.log("payment executor smoke passed: Circle adapter, signed path, sequential legs, and proof guard");
+let oversizedPaymentCalls = 0;
+await assert.rejects(
+  createPaymentExecutor({
+    signLeg: async () => ({ paymentHeader: "unused" }),
+    payLeg: async () => {
+      oversizedPaymentCalls += 1;
+      throw new Error("must not be called");
+    },
+  }).execute({
+    invoice: {
+      amount: 0.005,
+      split_legs: [{
+        leg_id: "creator",
+        resource: "http://gateway.test/creator",
+        pay_to: "0x1111111111111111111111111111111111111111",
+        amount_raw: "100000000",
+        amount_usdc: 100,
+      }],
+    },
+    limits: { expectedAmountUsdc: 0.005, maxAmountUsdc: 0.005 },
+  }),
+  /split total .* does not match invoice amount/,
+);
+assert.equal(oversizedPaymentCalls, 0);
+
+await assert.rejects(
+  createPaymentExecutor({
+    signLeg: async () => ({ paymentHeader: "unused" }),
+  }).execute({
+    invoice,
+    limits: { expectedAmountUsdc: 0.0005, maxAmountUsdc: 0.001 },
+  }),
+  /differs from expected/,
+);
+
+console.log("payment executor smoke passed: amount binding, Circle adapter, signed path, sequential legs, and proof guard");

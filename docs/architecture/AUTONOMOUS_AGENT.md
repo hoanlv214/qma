@@ -108,8 +108,8 @@ npm run agent -- --api http://127.0.0.1:8000 --dry-run --run-once --budget 1 --m
 # Repeat for a bounded duration
 npm run agent -- --api http://127.0.0.1:8000 --dry-run --duration 10m --poll 60 --budget 1 --max-price 0.005
 
-# Stop after at most three live purchases
-npm run agent -- --api https://qma-api-rebuild.onrender.com --live --max-purchases 3 --budget 0.05 --max-price 0.005 --no-auto-deposit
+# Stop after at most three live purchases with a pre-funded Circle Agent Wallet
+npm run agent -- --api https://qma-api-7o9v.onrender.com --live --executor circle-agent-wallet --wallet 0xYOUR_AGENT_WALLET --max-purchases 3 --budget 0.05 --max-price 0.005 --no-auto-deposit
 ```
 
 Optional output controls are `--json`, `--report-file`, `--event-log`, and
@@ -147,7 +147,14 @@ tokens must remain outside session files.
 - Dry-run does not create an invoice or spend USDC.
 - Live mode delegates to the existing buyer executor and may request real Arc
   Testnet signatures.
-- `--auto-deposit` is an additional Gateway funding transaction.
+- `--auto-deposit` is an additional Gateway funding transaction available only
+  to the local-private-key executor. Circle Agent Wallet mode requires a
+  pre-funded Gateway balance and rejects automatic deposit.
+- Before invoking a signer, the package binds the positive finite invoice
+  amount to the six-decimal split-leg total and the session budget/max price.
+- If a submitted payment cannot be reconciled as paid with access issued, the
+  session stops with `payment_outcome_uncertain` instead of retrying and
+  risking a duplicate leg payment.
 - A connected browser wallet or `AGENT_PRIVATE_KEY` is an authorization
   boundary; neither is needed for decision-only dry-runs.
 - The backend remains authoritative for payment, settlement, entitlement, and

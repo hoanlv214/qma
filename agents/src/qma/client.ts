@@ -95,8 +95,8 @@ export class QmaClient {
     this.apiKey = options.apiKey || process.env.QMA_API_KEY;
   }
 
-  private async getJson<T>(path: string): Promise<T> {
-    const headers: Record<string, string> = {};
+  private async getJson<T>(path: string, extraHeaders: Record<string, string> = {}): Promise<T> {
+    const headers: Record<string, string> = { ...extraHeaders };
     if (this.apiKey) {
       headers["Authorization"] = `Bearer ${this.apiKey}`;
     }
@@ -188,5 +188,12 @@ export class QmaClient {
 
   async verifyAgentPayment(invoiceId: string, payload: Record<string, unknown>): Promise<any> {
     return this.postJson(`/api/v1/payment/verify?invoice_id=${encodeURIComponent(invoiceId)}`, payload);
+  }
+
+  async getAgentInvoiceStatus(invoiceId: string, invoiceSecret: string): Promise<any> {
+    return this.getJson(
+      `/api/v1/payment/invoices/${encodeURIComponent(invoiceId)}/status`,
+      { "X-QMA-Invoice-Secret": invoiceSecret },
+    );
   }
 }

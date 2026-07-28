@@ -17,7 +17,7 @@ import path from "node:path";
 import { createPublicClient, createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
-const DEFAULT_API = "https://qma-api.onrender.com";
+const DEFAULT_API = "https://qma-api-7o9v.onrender.com";
 const ARC_CHAIN_ID = 5042002;
 const ARC_TESTNET_CHAIN = {
   id: ARC_CHAIN_ID,
@@ -557,11 +557,9 @@ function invoiceSplitLegs(invoice = {}) {
       : [];
 }
 
-async function executeInvoicePayment(invoice, account) {
-  const {
-    createPaymentExecutor,
-    createCircleAgentWalletExecutor,
-  } = await import("../dist/executor/paymentExecutor.js");
+async function executeInvoicePayment(invoice, account, expectedAmountUsdc) {
+  const { createPaymentExecutor } = await import("../dist/executor/paymentExecutor.js");
+  const { createCircleAgentWalletExecutor } = await import("../dist/wallets/circleSigner.js");
 
   const executor = CONFIG.executor === "circle-agent-wallet"
     ? createCircleAgentWalletExecutor({ address: account.address, chain: CONFIG.circleChain })
@@ -569,19 +567,13 @@ async function executeInvoicePayment(invoice, account) {
       walletAddress: account.address,
       signLeg: async (resourceUrl) => signX402Payment(resourceUrl, account),
     });
-  const normalizedInvoice = invoiceSplitLegs(invoice).length
-    ? invoice
-    : {
-      ...invoice,
-      split_legs: [{
-        leg_id: "single",
-        resource: invoice.arc_gateway_url,
-        pay_to: "",
-        amount_raw: "",
-        amount_usdc: Number(invoice.amount),
-      }],
-    };
-  const result = await executor.execute({ invoice: normalizedInvoice });
+  const result = await executor.execute({
+    invoice,
+    limits: {
+      expectedAmountUsdc,
+      maxAmountUsdc: Math.min(CONFIG.budgetUsdc, CONFIG.maxPriceUsdc),
+    },
+  });
   result.settlements.forEach((settlement) => {
     console.log(`Settled ${settlement.leg_id}: ${short(settlement.settlement_id)} (${settlement.gateway_status || "received"})`);
   });
@@ -728,7 +720,7 @@ async function main() {
   console.log(`\nAgent wallet: ${account.address}`);
   await ensureGatewayBalance(invoice, account);
   const splitLegs = invoiceSplitLegs(invoice);
-  const settlements = await executeInvoicePayment(invoice, account);
+  const settlements = await executeInvoicePayment(invoice, account, Number(pick.agent_price));
   const verifyData = splitLegs.length
     ? await verifySplitPayment(invoice, settlements, account)
     : await verifyPayment(invoice, settlements[0], account);

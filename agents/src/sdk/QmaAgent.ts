@@ -1,7 +1,14 @@
 import { EventEmitter } from "node:events";
 import { QmaClient } from "../qma/client.js";
-import { createPaymentExecutor } from "../executor/paymentExecutor.js";
+import {
+  createPaymentExecutor,
+  validateInvoiceForPayment,
+  type AgentInvoice,
+  type SettlementProof,
+} from "../executor/paymentExecutor.js";
 import type { AgentPaymentSigner } from "../wallets/signer.js";
+import { planWithLlm, type LlmDecisionGenerator } from "../planner/llmPlanner.js";
+import { hasEntitlement, validateDecision } from "../policy/validateDecision.js";
 import { runAutonomousSession, SessionDeps } from "../session/loop.js";
 import { SessionPolicyInput, normalizeSessionPolicy } from "../session/policy.js";
 
@@ -9,15 +16,37 @@ export interface QmaAgentConfig {
   apiUrl?: string;
   apiKey?: string;
   signer?: AgentPaymentSigner;
+  decisionGenerator?: LlmDecisionGenerator;
 }
 
 export interface QmaAgentRunOptions extends SessionPolicyInput {
   initialState?: import("../session/state.js").SessionState;
 }
 
+function finiteNumber(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function paidInvoiceState(value: any): boolean {
+  return value?.status === "paid"
+    && typeof value?.access_token === "string"
+    && value.access_token.length > 0;
+}
+
+function settlementIds(value: any, fallback: SettlementProof[] = []): string[] {
+  const splitIds = Array.isArray(value?.split_settlement_ids)
+    ? value.split_settlement_ids.filter((item: unknown): item is string => typeof item === "string" && item.length > 0)
+    : [];
+  if (splitIds.length) return splitIds;
+  if (typeof value?.settlement_id === "string" && value.settlement_id) return [value.settlement_id];
+  return fallback.map((item) => item.settlement_id).filter(Boolean);
+}
+
 export class QmaAgent extends EventEmitter {
   private client: QmaClient;
   private signer?: AgentPaymentSigner;
+  private decisionGenerator?: LlmDecisionGenerator;
 
   private _state?: import("../session/state.js").SessionState;
 
@@ -25,6 +54,7 @@ export class QmaAgent extends EventEmitter {
     super();
     this.client = new QmaClient({ baseUrl: config.apiUrl, apiKey: config.apiKey });
     this.signer = config.signer;
+    this.decisionGenerator = config.decisionGenerator;
   }
 
   getState(): import("../session/state.js").SessionState | undefined {
@@ -37,6 +67,61 @@ export class QmaAgent extends EventEmitter {
 
     const deps: SessionDeps = {
       observe: async (state, policy) => {
+        if (this.decisionGenerator) {
+          try {
+            const context = await this.client.loadDecisionContext({
+              prompt: policy.task,
+              budgetUsdc: Math.min(policy.sessionBudgetUsdc, state.remainingBudgetUsdc),
+              maxPriceUsdc: policy.maxPricePerReportUsdc,
+              wallet: this.signer?.walletAddress,
+              limit: 25,
+            });
+            const plan = await planWithLlm(this.decisionGenerator, context);
+            const validation = validateDecision(plan, context);
+            const selected = plan.action === "purchase" && validation.valid
+              ? validation.candidate
+              : undefined;
+            const tier = selected
+              ? (plan.requestedTier === "auto" ? selected.suggestedTier : plan.requestedTier)
+              : undefined;
+            const price = Number(validation.priceUsdc || 0);
+            const candidates = selected && tier ? [{
+              candidate_id: selected.candidateId,
+              provider_id: selected.providerId,
+              symbol: selected.symbol,
+              tier,
+              score: selected.score,
+              price_usdc: price,
+              value_density: price > 0 ? selected.score / price : 0,
+              eligible: true,
+              preferred: true,
+              owned: false,
+              upgrade: tier === "full"
+                && hasEntitlement(context, selected, "preview")
+                && !hasEntitlement(context, selected, "full"),
+              canonical_query: selected.query,
+            }] : [];
+
+            return {
+              candidates,
+              candidateCount: context.candidates.length,
+              metadata: {
+                decision_source: "local_planner",
+                plan,
+                validation,
+                rejected_candidates: plan.rejectedCandidateIds.map((candidateId) => ({
+                  candidate_id: candidateId,
+                  reason_code: "LOCAL_PLANNER_REJECTED",
+                })),
+              },
+            };
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.emit("planner_error", { event: "planner_error", error: message });
+            throw new Error(`local_planner_failed: ${message}`);
+          }
+        }
+
         const decision = await this.client.getAgentDecision({
           prompt: policy.task,
           wallet: this.signer?.walletAddress,
@@ -55,9 +140,9 @@ export class QmaAgent extends EventEmitter {
             provider_id: item.provider_id,
             symbol: item.symbol,
             tier: item.tier,
-            score: Number(item.score || 0),
-            price_usdc: Number(item.price_usdc || 0),
-            value_density: Number(item.value_density || 0),
+            score: finiteNumber(item.score),
+            price_usdc: finiteNumber(item.price_usdc),
+            value_density: finiteNumber(item.value_density),
             eligible: item.eligible !== false,
             preferred: item.candidate_id === resolved?.candidate_id,
             owned: item.status === "ALREADY_OWNED",
@@ -89,8 +174,16 @@ export class QmaAgent extends EventEmitter {
             settlement_ids: ["dry_run_settlement_mock"]
           };
         }
+        if (!this.signer) {
+          return { status: "failed", error: "Live execution requires an AgentPaymentSigner." };
+        }
+
+        let invoice: AgentInvoice & { invoice_id?: string; invoice_secret?: string } | undefined;
+        let paymentStarted = false;
+        let invoiceAmount = 0;
+        let executionSettlements: SettlementProof[] = [];
         try {
-          const invoice = await this.client.createAgentInvoice({
+          const createdInvoice = await this.client.createAgentInvoice({
             candidate_id: candidate.candidate_id,
             provider_id: candidate.provider_id,
             symbol: candidate.symbol,
@@ -98,33 +191,75 @@ export class QmaAgent extends EventEmitter {
             expected_price_usdc: candidate.price_usdc,
             buyer_wallet_address: this.signer?.walletAddress || undefined,
             ...(candidate.canonical_query || {})
-          });
-          const invoiceAmount = Number(invoice.amount || 0);
-          if (invoiceAmount > candidate.price_usdc * 1.01 || invoiceAmount > policy.maxPricePerReportUsdc) {
-            return {
-              status: "failed",
-              error: `invoice_price_exceeds_policy: returned amount ${invoiceAmount} > allowed ${candidate.price_usdc}`
-            };
+          }) as AgentInvoice & { invoice_id?: string; invoice_secret?: string };
+          if (!createdInvoice.invoice_id || !createdInvoice.invoice_secret) {
+            return { status: "failed", error: "Invoice response is missing invoice_id or invoice_secret." };
           }
-          const execution = await executor.execute({ invoice });
-          try {
-            await this.client.verifyAgentPayment(invoice.invoice_id, {
-              invoice_secret: invoice.invoice_secret,
-              payer_address: execution.settlements.find((s) => s.payer_address)?.payer_address || this.signer?.walletAddress,
-              split_settlements: execution.settlements,
-            });
-          } catch (verifyError) {
-            console.error(`[QmaAgent] Invoice ${invoice.invoice_id} verification call failed:`, verifyError);
+          invoice = createdInvoice;
+          const validated = validateInvoiceForPayment(createdInvoice, {
+            expectedAmountUsdc: candidate.price_usdc,
+            maxAmountUsdc: Math.min(policy.maxPricePerReportUsdc, state.remainingBudgetUsdc),
+          });
+          invoiceAmount = validated.amountUsdc;
+          paymentStarted = true;
+          const execution = await executor.execute({
+            invoice: createdInvoice,
+            limits: {
+              expectedAmountUsdc: candidate.price_usdc,
+              maxAmountUsdc: Math.min(policy.maxPricePerReportUsdc, state.remainingBudgetUsdc),
+            },
+          });
+          executionSettlements = execution.settlements;
+          const verified = await this.client.verifyAgentPayment(createdInvoice.invoice_id, {
+            invoice_secret: createdInvoice.invoice_secret,
+            payer_address: execution.settlements.find((s) => s.payer_address)?.payer_address || this.signer?.walletAddress,
+            split_settlements: execution.settlements,
+          });
+          if (!paidInvoiceState(verified)) {
+            throw new Error(`Invoice verification returned status ${String(verified?.status || "unknown")} without paid access.`);
           }
           return {
             status: "completed",
+            invoice_id: createdInvoice.invoice_id,
             provider_id: candidate.provider_id,
             symbol: candidate.symbol,
             tier: candidate.upgrade ? "full" : candidate.tier as any,
-            amount_usdc: candidate.price_usdc,
-            settlement_ids: execution.settlements.map((s) => s.settlement_id)
+            amount_usdc: invoiceAmount,
+            settlement_ids: settlementIds(verified, execution.settlements),
+            access_token_received: true,
+            report_unlocked: false,
           };
         } catch (e) {
+          if (paymentStarted && invoice?.invoice_id && invoice.invoice_secret) {
+            try {
+              const reconciled = await this.client.getAgentInvoiceStatus(invoice.invoice_id, invoice.invoice_secret);
+              if (paidInvoiceState(reconciled)) {
+                return {
+                  status: "completed",
+                  invoice_id: invoice.invoice_id,
+                  provider_id: candidate.provider_id,
+                  symbol: candidate.symbol,
+                  tier: candidate.upgrade ? "full" : candidate.tier as any,
+                  amount_usdc: invoiceAmount,
+                  settlement_ids: settlementIds(reconciled, executionSettlements),
+                  access_token_received: true,
+                  report_unlocked: false,
+                };
+              }
+              throw new Error(
+                `payment_outcome_uncertain: invoice ${invoice.invoice_id} is ${String(reconciled?.status || "unknown")}; `
+                + "session stopped to prevent a duplicate payment. Resume this invoice after reconciliation.",
+              );
+            } catch (reconcileError) {
+              if (reconcileError instanceof Error && reconcileError.message.startsWith("payment_outcome_uncertain:")) {
+                throw reconcileError;
+              }
+              throw new Error(
+                `payment_outcome_uncertain: could not reconcile invoice ${invoice.invoice_id}; `
+                + `session stopped to prevent a duplicate payment (${reconcileError instanceof Error ? reconcileError.message : String(reconcileError)}).`,
+              );
+            }
+          }
           return {
             status: "failed",
             error: e instanceof Error ? e.message : String(e)

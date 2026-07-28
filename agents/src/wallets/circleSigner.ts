@@ -71,9 +71,6 @@ export function createCircleAgentWalletSigner(options: CircleAgentWalletExecutor
 
   return {
     walletAddress: address,
-    async signLeg(): Promise<never> {
-      throw new Error("Circle Agent Wallet payments must use the Circle CLI pay adapter.");
-    },
     async payLeg({ resourceUrl, amountUsdc }): Promise<PaymentSettlement> {
       if (!amountUsdc) throw new Error("Circle Agent Wallet payment requires a positive leg amount.");
       const result = await runCircle([

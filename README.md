@@ -279,7 +279,8 @@ auto-deposit disabled unless the extra funding transaction is intended:
 npm run agent -- --api http://127.0.0.1:8000 --live --run-once --budget 0.01 --max-price 0.005 --executor circle-agent-wallet --wallet 0xYOUR_AGENT_WALLET --no-auto-deposit
 ```
 
-See [examples/README.md](examples/README.md) for the complete CLI reference.
+See [agents/README.md](agents/README.md) for the complete npm CLI/SDK reference
+and [examples/README.md](examples/README.md) for repository-local examples.
 
 ## Current limitations
 
@@ -297,6 +298,9 @@ QMA is an active rebuild, not a claim of production completeness:
   until cutover is confirmed.
 
 ## Documentation map
+
+- [docs/api/README.md](docs/api/README.md) — complete API inventory,
+  public/private access map, and documentation update gate.
 
 - [docs/architecture/AUTONOMOUS_AGENT.md](docs/architecture/AUTONOMOUS_AGENT.md) — canonical autonomous
   policy loop and constraints.
