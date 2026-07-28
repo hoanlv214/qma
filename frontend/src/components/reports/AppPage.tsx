@@ -21,7 +21,9 @@ import { useQuickProfile } from "../../hooks/useQuickProfile";
 import { useProviderEarnings } from "../../hooks/useProviderEarnings";
 import { usePayment } from "../../hooks/usePayment";
 import { useAgentBuyer } from "../../hooks/useAgentBuyer";
+import { useAgentWalletStore } from "../../state/agentWalletStore";
 import { buildGatewayWithdrawIntent, buildGatewayWithdrawTypedData, encodeGatewayMintCalldata } from "../../services/gatewayCrypto";
+import { requireWalletProfileHeaders } from "../../services/walletProfileSession";
 import {
   formatRawPercent,
   formatCompactMoney,
@@ -160,8 +162,9 @@ export function AppPage({
   });
 
   // Cấu hình state quản lý Ví Agent
-  const [agentWalletAddress, setAgentWalletAddress] = useState<string>("");
-  const [agentWalletBalance, setAgentWalletBalance] = useState<number>(0);
+  const { agentWallet, refresh: refreshAgentWallet } = useAgentWalletStore();
+  const agentWalletAddress = agentWallet?.address || "";
+  const agentWalletBalance = agentWallet?.balanceUsdc || 0;
   const [agentOpMode, setAgentOpMode] = useState<"deposit" | "withdraw" | null>(null);
   const [agentOpAmount, setAgentOpAmount] = useState<string>("");
   const [agentOpLoading, setAgentOpLoading] = useState(false);
@@ -233,7 +236,7 @@ export function AppPage({
       setAgentOpMode(null);
       setAgentOpAmount("");
 
-      setTimeout(fetchAgentWallet, 4000);
+      window.setTimeout(() => void refreshAgentWallet(), 4000);
     } catch (err: any) {
       console.error("MetaMask transfer error:", err);
       showToast(`Transfer failed: ${err.message || err}`, "error");
@@ -257,9 +260,10 @@ export function AppPage({
 
     try {
       setAgentOpLoading(true);
-      const res = await fetch("/api/v1/sessions/withdraw", {
+      const walletHeaders = await requireWalletProfileHeaders(wallet);
+      const res = await fetch(`${API_BASE_URL}/api/v1/sessions/withdraw`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...walletHeaders },
         body: JSON.stringify({
           owner_wallet: wallet,
           amount_usdc: amount
@@ -274,38 +278,13 @@ export function AppPage({
       showToast(`Successfully withdrew ${amount.toFixed(2)} USDC from Agent Wallet!`, "success");
       setAgentOpMode(null);
       setAgentOpAmount("");
-      fetchAgentWallet();
+      await refreshAgentWallet();
     } catch (err: any) {
       showToast(err.message || "Withdrawal failed.", "error");
     } finally {
       setAgentOpLoading(false);
     }
   };
-
-  const fetchAgentWallet = async () => {
-    if (!wallet) return;
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/v1/sessions/owner/${wallet}/wallet`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.wallet) {
-          setAgentWalletAddress(data.wallet.address);
-          setAgentWalletBalance(data.wallet.balance_usdc);
-        } else {
-          setAgentWalletAddress("");
-          setAgentWalletBalance(0);
-        }
-      }
-    } catch (err) {
-      console.warn("Failed to fetch agent wallet details", err);
-    }
-  };
-
-  useEffect(() => {
-    fetchAgentWallet();
-    const interval = setInterval(fetchAgentWallet, 15000);
-    return () => clearInterval(interval);
-  }, [wallet]);
 
   const handleGatewayWithdraw = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -384,10 +363,6 @@ export function AppPage({
     fundWalletUsdc,
     fundGatewayBalance,
     fundRequiredAmount,
-    fundNextStep,
-    fundPrimaryAction,
-    fundShowAdvanced,
-    setFundShowAdvanced,
     refreshFundingReadiness,
   } = useFundArcWallet({ wallet, arcGatewayUrl });
 
@@ -443,6 +418,9 @@ export function AppPage({
     setShowDepositModal,
     depositAmountInput,
     setDepositAmountInput,
+    gatewayDepositLoading,
+    gatewayDepositStatus,
+    setGatewayDepositStatus,
     unlockedReport,
     setUnlockedReport,
     reportCollapsed,
@@ -471,6 +449,14 @@ export function AppPage({
     signalCacheKey,
     setCacheRevision,
   });
+
+  const handleManualGatewayDeposit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const deposited = await handleDepositToGateway({ standalone: true });
+    if (!deposited) return;
+    await refreshFundingReadiness();
+    setShowFundArcModal(false);
+  };
 
   const {
     agentPrompt,
@@ -705,10 +691,11 @@ export function AppPage({
         onConnect={connect}
         onDisconnect={disconnect}
         userRole={walletRole.label}
-        onOpenDeposit={() => setShowFundArcModal(true)}
+        onOpenDeposit={() => {
+          setGatewayDepositStatus("");
+          setShowFundArcModal(true);
+        }}
         onOpenEarnings={openProviderEarningsModal}
-        agentWalletAddress={agentWalletAddress}
-        agentWalletBalance={agentWalletBalance}
         onOpenWithdrawAgent={() => setAgentOpMode("withdraw")}
         onOpenDepositAgent={() => setAgentOpMode("deposit")}
       />
@@ -992,6 +979,11 @@ export function AppPage({
         setAgentOpAmount={setAgentOpAmount}
         agentOpLoading={agentOpLoading}
         handleFundAgent={handleFundAgent}
+        gatewayDepositAmount={depositAmountInput}
+        setGatewayDepositAmount={setDepositAmountInput}
+        gatewayDepositLoading={gatewayDepositLoading}
+        gatewayDepositStatus={gatewayDepositStatus}
+        handleGatewayDeposit={handleManualGatewayDeposit}
         fundReadinessTone={fundReadinessTone}
         fundReadinessStatus={fundReadinessStatus}
         fundGatewayBalance={fundGatewayBalance}
@@ -1001,12 +993,6 @@ export function AppPage({
         fundProviderStatus={fundProviderStatus}
         fundChainStatus={fundChainStatus}
         fundWalletUsdc={fundWalletUsdc}
-        fundPrimaryAction={fundPrimaryAction}
-        fundNextStep={fundNextStep}
-        fundShowAdvanced={fundShowAdvanced}
-        setFundShowAdvanced={setFundShowAdvanced}
-        connect={connect}
-        refreshFundingReadiness={refreshFundingReadiness}
       />
 
       <UnifiedWithdrawModal

@@ -1,6 +1,6 @@
 import { useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import { API_BASE_URL } from "../services/api";
-import { getInjectedWallet, shortAddress } from "../services/wallet";
+import { ensureArcTestnet, getInjectedWallet, shortAddress } from "../services/wallet";
 import { payX402Resource, prepareX402Payment, submitX402Payment, X402PaymentError, type PreparedX402Payment } from "../services/x402";
 import { createInvoice, verifyPayment } from "../services/invoices";
 import { getProviderReport } from "../services/reports";
@@ -68,6 +68,8 @@ export function usePayment({
   const [reportDetailsOpen, setReportDetailsOpen] = useState(true);
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [depositAmountInput, setDepositAmountInput] = useState("0.005");
+  const [gatewayDepositLoading, setGatewayDepositLoading] = useState(false);
+  const [gatewayDepositStatus, setGatewayDepositStatus] = useState("");
   const [unlockedReport, setUnlockedReport] = useState<any>(null);
   const [reportCollapsed, setReportCollapsed] = useState(true);
 
@@ -256,22 +258,47 @@ export function usePayment({
     }
   };
 
-  const handleDepositToGateway = async () => {
-    if (!currentInvoice || !wallet) return;
+  const handleDepositToGateway = async (
+    options: { standalone?: boolean } = {},
+  ): Promise<boolean> => {
+    if (!wallet) {
+      showToast("Please connect your wallet first.", "warning");
+      return false;
+    }
     const amount = Number(depositAmountInput);
-    if (isNaN(amount) || amount <= 0) {
+    if (!Number.isFinite(amount) || amount <= 0) {
       showToast("Invalid deposit amount.", "warning");
-      return;
+      return false;
     }
 
-    setPayStatusText("Preparing gateway deposit transaction...");
+    const invoice = options.standalone ? null : currentInvoice;
+    const setDepositProgress = (message: string) => {
+      setPayStatusText(message);
+      setGatewayDepositStatus(message);
+    };
+    setDepositProgress("Preparing gateway deposit transaction...");
+    setGatewayDepositLoading(true);
     try {
       let gwBase = arcGatewayUrl.replace(/\/$/, "");
-      if (!gwBase && currentInvoice?.arc_gateway_url) {
-        try { gwBase = new URL(currentInvoice.arc_gateway_url).origin; } catch { gwBase = ""; }
+      if (!gwBase && invoice?.arc_gateway_url) {
+        try { gwBase = new URL(invoice.arc_gateway_url).origin; } catch { gwBase = ""; }
       }
+      if (!gwBase) throw new Error("Arc Gateway URL not configured. Retry or refresh.");
+
+      await ensureArcTestnet();
+
+      let startingGatewayBalance = 0;
+      const startingBalanceResp = await fetch(`${gwBase}/api/balance/${wallet}`).catch(() => null);
+      if (startingBalanceResp?.ok) {
+        startingGatewayBalance = extractGatewayBalanceUsdc(await startingBalanceResp.json()) ?? 0;
+      }
+
       const walletStatusResp = await fetch(`${gwBase}/api/wallet-status/${wallet}`);
       const statusData = walletStatusResp.ok ? await walletStatusResp.json() : null;
+      const walletBalance = Number(statusData?.usdc?.formatted ?? statusData?.usdcBalance?.formatted);
+      if (Number.isFinite(walletBalance) && amount > walletBalance) {
+        throw new Error(`Insufficient Arc USDC. Available: ${walletBalance.toFixed(6)} USDC.`);
+      }
       const approveDefault = statusData?.defaultApproveUsdc ?? 10;
       const approveAmount = Math.max(approveDefault, amount).toFixed(6);
       const calldataUrl = `${gwBase}/api/deposit-calldata/${wallet}?amount=${amount.toFixed(6)}&approveAmount=${approveAmount}`;
@@ -283,27 +310,31 @@ export function usePayment({
       if (!provider) throw new Error("No wallet injection found.");
       const allowance = Number(statusData?.allowance?.formatted || 0);
       if (allowance < amount) {
-        setPayStatusText("Requesting USDC allowance approval in wallet...");
+        setDepositProgress("Requesting USDC allowance approval in wallet...");
         const appTxHash = await provider.request<string>({ method: "eth_sendTransaction", params: [data.approveTx] });
-        setPayStatusText("Waiting for allowance transaction receipt...");
+        setDepositProgress("Waiting for allowance transaction receipt...");
         await waitForTxReceipt(appTxHash);
         saveLocalAction("approve", approveAmount, appTxHash);
       }
 
-      setPayStatusText("Confirm Gateway deposit in your wallet...");
+      setDepositProgress("Confirm Gateway deposit in your wallet...");
       const depTxHash = await provider.request<string>({ method: "eth_sendTransaction", params: [data.depositTx] });
-      setPayStatusText("Waiting for deposit transaction confirmation...");
+      setDepositProgress("Waiting for deposit transaction confirmation...");
       await waitForTxReceipt(depTxHash);
       saveLocalAction("deposit", amount.toFixed(6), depTxHash);
 
-      setPayStatusText("Updating gateway balances...");
+      setDepositProgress("Updating gateway balances...");
+      const targetBalance = invoice
+        ? Math.max(startingGatewayBalance, Number(invoice.amount))
+        : startingGatewayBalance + amount;
       let balanceUpdated = false;
+      let updatedGatewayBalance = startingGatewayBalance;
       for (let i = 0; i < 30; i++) {
         const check = await fetch(`${gwBase}/api/balance/${wallet}`);
         if (check.ok) {
           const res = await check.json();
-          const normalBal = extractGatewayBalanceUsdc(res) ?? 0;
-          if (normalBal >= Number(currentInvoice.amount)) {
+          updatedGatewayBalance = extractGatewayBalanceUsdc(res) ?? 0;
+          if (updatedGatewayBalance + 0.000001 >= targetBalance) {
             balanceUpdated = true;
             break;
           }
@@ -311,18 +342,27 @@ export function usePayment({
         await new Promise((resolve) => setTimeout(resolve, 2000));
       }
       if (!balanceUpdated) throw new Error("Circle Gateway did not settle balance update in time.");
-      setPaymentDetails((prev) => ({ ...prev, buyerGatewayBalance: `${Number(currentInvoice.amount).toFixed(6)}+ USDC` }));
+      setPaymentDetails((prev) => ({ ...prev, buyerGatewayBalance: `${updatedGatewayBalance.toFixed(6)} USDC` }));
       setShowDepositModal(false);
-      setPaymentStepStatus((prev) => ({
-        ...prev,
-        gateway: { status: "completed", label: "Funded" },
-        settlement: { status: "active", label: "Sign Settlement" },
-      }));
-      setPaymentStep("settlement");
-      setPayStatusText("Circle deposit successful. Ready to sign settlement.");
+      if (invoice) {
+        setPaymentStepStatus((prev) => ({
+          ...prev,
+          gateway: { status: "completed", label: "Funded" },
+          settlement: { status: "active", label: "Sign Settlement" },
+        }));
+        setPaymentStep("settlement");
+        setDepositProgress("Circle deposit successful. Ready to sign settlement.");
+      } else {
+        setDepositProgress(`Deposited ${amount.toFixed(6)} USDC to Circle Gateway.`);
+        showToast(`Gateway deposit confirmed: ${amount.toFixed(6)} USDC.`, "success");
+      }
+      return true;
     } catch (err: any) {
       showToast(err.message || "Gateway deposit failed.", "error");
-      setPayStatusText("Deposit failed. Retry.");
+      setDepositProgress(err.message || "Deposit failed. Retry.");
+      return false;
+    } finally {
+      setGatewayDepositLoading(false);
     }
   };
 
@@ -553,6 +593,9 @@ export function usePayment({
     setShowDepositModal,
     depositAmountInput,
     setDepositAmountInput,
+    gatewayDepositLoading,
+    gatewayDepositStatus,
+    setGatewayDepositStatus,
     unlockedReport,
     setUnlockedReport,
     reportCollapsed,

@@ -25,6 +25,42 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
     full_count: 0,
   });
 
+  const [typedCommand, setTypedCommand] = useState("");
+  const [terminalStep, setTerminalStep] = useState(0);
+
+  useEffect(() => {
+    const commandText = "qma agent run";
+    let timer: any;
+
+    if (terminalStep === 0) {
+      let charIndex = 0;
+      setTypedCommand("");
+      const typeChar = () => {
+        if (charIndex < commandText.length) {
+          setTypedCommand(commandText.substring(0, charIndex + 1));
+          charIndex++;
+          timer = setTimeout(typeChar, 70 + Math.random() * 40);
+        } else {
+          timer = setTimeout(() => {
+            setTerminalStep(1);
+          }, 600);
+        }
+      };
+      timer = setTimeout(typeChar, 500);
+    } else if (terminalStep >= 1 && terminalStep <= 4) {
+      timer = setTimeout(() => {
+        setTerminalStep((prev) => prev + 1);
+      }, 900);
+    } else if (terminalStep === 5) {
+      timer = setTimeout(() => {
+        setTerminalStep(0);
+        setTypedCommand("");
+      }, 4000);
+    }
+
+    return () => clearTimeout(timer);
+  }, [terminalStep]);
+
   useEffect(() => {
     async function loadLandingTraction() {
       try {
@@ -280,24 +316,35 @@ export function LandingPage({ onNavigate }: { onNavigate: (route: any) => void }
             <code>
               <span className="terminal-line terminal-command" style={{ marginBottom: 12 }}>
                 <span className="t-prompt">$</span>
-                <span className="t-cmd">qma agent run</span>
+                <span className="t-cmd">
+                  {typedCommand}
+                  {terminalStep === 0 && <span className="terminal-cursor">|</span>}
+                </span>
               </span>
-              <span className="terminal-line terminal-command">
-                <span className="t-success" style={{ color: "var(--accent)" }}>✓</span>
-                <span>Found funding signal</span>
-              </span>
-              <span className="terminal-line terminal-command">
-                <span className="t-success" style={{ color: "var(--accent)" }}>✓</span>
-                <span>Purchased report <span className="t-dim">(e.g. 0.001 USDC)</span></span>
-              </span>
-              <span className="terminal-line terminal-command">
-                <span className="t-success" style={{ color: "var(--accent)" }}>✓</span>
-                <span>Gateway payment settled</span>
-              </span>
-              <span className="terminal-line terminal-command">
-                <span className="t-success" style={{ color: "var(--accent)" }}>✓</span>
-                <span>JSON report unlocked</span>
-              </span>
+              {terminalStep >= 1 && (
+                <span className="terminal-line terminal-command fade-in-line">
+                  <span className="t-success" style={{ color: "var(--accent)" }}>✓</span>
+                  <span>Found funding signal</span>
+                </span>
+              )}
+              {terminalStep >= 2 && (
+                <span className="terminal-line terminal-command fade-in-line">
+                  <span className="t-success" style={{ color: "var(--accent)" }}>✓</span>
+                  <span>Purchased report <span className="t-dim">(e.g. 0.001 USDC)</span></span>
+                </span>
+              )}
+              {terminalStep >= 3 && (
+                <span className="terminal-line terminal-command fade-in-line">
+                  <span className="t-success" style={{ color: "var(--accent)" }}>✓</span>
+                  <span>Gateway payment settled</span>
+                </span>
+              )}
+              {terminalStep >= 4 && (
+                <span className="terminal-line terminal-command fade-in-line">
+                  <span className="t-success" style={{ color: "var(--accent)" }}>✓</span>
+                  <span>JSON report unlocked</span>
+                </span>
+              )}
             </code>
           </pre>
         </div>

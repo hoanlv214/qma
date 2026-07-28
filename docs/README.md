@@ -10,6 +10,7 @@ contracts belong under `docs/`.
 | --- | --- | --- |
 | Repository/system | [`../README.md`](../README.md) | product story, branch split, high-level architecture |
 | Backend/API | [`../backend/README.md`](../backend/README.md) | FastAPI composition, route groups, service/repository flow, payment invariants |
+| API reference/access | [`api/README.md`](api/README.md) | complete endpoint inventory, public/private/auth classification, documentation update gate |
 | React frontend | [`../frontend/README.md`](../frontend/README.md) | routes, state/services, API base, browser agent flow |
 | Typed agent package | [`../agents/README.md`](../agents/README.md) | contracts, policy, session loop, bounds, signer boundary |
 | External CLI buyer | [`../examples/README.md`](../examples/README.md) | commands and live/dry-run buyer execution |

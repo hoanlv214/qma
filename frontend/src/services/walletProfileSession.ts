@@ -93,6 +93,12 @@ export async function requestWalletProfileSession(account: string) {
   return token;
 }
 
+export async function requireWalletProfileHeaders(account: string): Promise<Record<string, string>> {
+  const token = await requestWalletProfileSession(account);
+  if (!token) throw new Error("Wallet ownership verification is required.");
+  return { "X-QMA-Wallet-Token": token };
+}
+
 export function getWalletSummary(account: string) {
   return requestJson<Record<string, any>>(`/api/v1/wallets/${encodeURIComponent(account)}/summary`);
 }

@@ -10,6 +10,11 @@ import {
 import { getWalletReport } from "../../services/reports";
 import { Loader } from "../ui/Loader";
 import { GlobalHeader } from "../ui/GlobalHeader";
+import type { QmaRoute } from "../../app/routes";
+
+interface ProfileOrdersPageProps {
+  onNavigate: (route: QmaRoute) => void;
+}
 
 interface Payment {
   symbol?: string;
@@ -65,7 +70,7 @@ interface PaymentRowMeta {
   legacy?: boolean;
 }
 
-export function ProfileOrdersPage() {
+export function ProfileOrdersPage({ onNavigate }: ProfileOrdersPageProps) {
   const isPublicProfile = window.location.pathname.replace(/\/$/, "").startsWith("/user");
   const [wallet, setWallet] = useState(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -593,7 +598,7 @@ export function ProfileOrdersPage() {
     <div className="profile-body">
       <GlobalHeader
         activePage="profile"
-        onNavigate={(route) => { window.location.href = route === 'landing' ? '/' : `/${route}`; }}
+        onNavigate={onNavigate}
         walletAddress={wallet}
         onConnect={connect}
         onDisconnect={disconnect}

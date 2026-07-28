@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { shortAddress } from "../../services/wallet";
 import type { QmaRoute } from "../../app/routes";
+import { useAgentWalletStore } from "../../state/agentWalletStore";
 
 interface GlobalHeaderProps {
   activePage: QmaRoute;
@@ -12,8 +13,6 @@ interface GlobalHeaderProps {
   onOpenDeposit?: () => void;
   onOpenEarnings?: () => void;
   rightControls?: React.ReactNode;
-  agentWalletAddress?: string;
-  agentWalletBalance?: number;
   onOpenWithdrawAgent?: () => void;
   onOpenDepositAgent?: () => void;
 }
@@ -28,11 +27,12 @@ export function GlobalHeader({
   onOpenDeposit,
   onOpenEarnings,
   rightControls,
-  agentWalletAddress,
-  agentWalletBalance = 0,
   onOpenWithdrawAgent,
   onOpenDepositAgent
 }: GlobalHeaderProps) {
+  const { agentWallet, loading: agentWalletLoading, error: agentWalletError, refresh: refreshAgentWallet } = useAgentWalletStore();
+  const agentWalletAddress = agentWallet?.address || "";
+  const agentWalletBalance = agentWallet?.balanceUsdc || 0;
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [copySuccess, setCopySuccess] = useState(false);
@@ -177,7 +177,34 @@ export function GlobalHeader({
                 </div>
 
                 {/* 2. Middle Block: Agent Wallet Section (State Machine) */}
-                {!agentWalletAddress ? (
+                {agentWalletLoading && !agentWalletAddress ? (
+                  <div className="agent-wallet-card is-empty" aria-live="polite">
+                    <div className="agent-wallet-card-header">
+                      <div className="agent-wallet-icon-badge">
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="11" height="11">
+                          <circle cx="12" cy="12" r="9" opacity="0.3" />
+                          <path d="M12 7v5l3 2" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                        </svg>
+                      </div>
+                      <span className="agent-wallet-label">Agent wallet</span>
+                    </div>
+                    <p className="agent-wallet-empty-note">Loading wallet details…</p>
+                  </div>
+                ) : agentWalletError && !agentWalletAddress ? (
+                  <div className="agent-wallet-card is-empty" role="status">
+                    <div className="agent-wallet-card-header">
+                      <span className="agent-wallet-label">Agent wallet unavailable</span>
+                    </div>
+                    <p className="agent-wallet-empty-note">{agentWalletError}</p>
+                    <button
+                      type="button"
+                      className="dropdown-action-btn"
+                      onClick={() => void refreshAgentWallet()}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ) : !agentWalletAddress ? (
                   <div className="agent-wallet-card is-empty">
                     <div className="agent-wallet-card-header">
                       <div className="agent-wallet-icon-badge">

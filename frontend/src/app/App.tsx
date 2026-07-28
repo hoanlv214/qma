@@ -7,6 +7,7 @@ import { TractionPage } from "../components/traction/TractionPage";
 import { NotFoundPage } from "../components/ui/NotFoundPage";
 import { pathForRoute, routeFromPath, type QmaRoute } from "./routes";
 import { WalletProvider } from "../state/walletStore";
+import { AgentWalletProvider } from "../state/agentWalletStore";
 
 const ApiDocsPage = lazy(() => import("../components/api-docs/ApiDocsPage").then((module) => ({ default: module.ApiDocsPage })));
 
@@ -47,17 +48,19 @@ export function App() {
 
   return (
     <WalletProvider>
-      {route === "landing" && <LandingPage onNavigate={navigate} />}
-      {route === "app" && <AppPage onNavigate={navigate} />}
-      {route === "marketplace" && <MarketplaceReview onNavigate={navigate} />}
-      {route === "profile" && <ProfileOrdersPage />}
-      {route === "traction" && <TractionPage onNavigate={navigate} />}
-      {route === "not_found" && <NotFoundPage onNavigate={navigate} />}
-      {route === "docs" && (
-        <Suspense fallback={null}>
-          <ApiDocsPage />
-        </Suspense>
-      )}
+      <AgentWalletProvider enabled={["app", "marketplace", "profile", "traction"].includes(route)}>
+        {route === "landing" && <LandingPage onNavigate={navigate} />}
+        {route === "app" && <AppPage onNavigate={navigate} />}
+        {route === "marketplace" && <MarketplaceReview onNavigate={navigate} />}
+        {route === "profile" && <ProfileOrdersPage onNavigate={navigate} />}
+        {route === "traction" && <TractionPage onNavigate={navigate} />}
+        {route === "not_found" && <NotFoundPage onNavigate={navigate} />}
+        {route === "docs" && (
+          <Suspense fallback={null}>
+            <ApiDocsPage />
+          </Suspense>
+        )}
+      </AgentWalletProvider>
     </WalletProvider>
   );
 }

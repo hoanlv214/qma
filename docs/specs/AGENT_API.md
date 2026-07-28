@@ -35,7 +35,6 @@ The endpoint:
 The response includes:
 
 ```text
-status
 plan
 validation
 resolved_candidate
@@ -43,12 +42,41 @@ canonical_query
 policy_check
 rejected_candidates
 evaluated_candidates
+selection_basis
 candidate_count
 decision_source
 ```
 
 The LLM cannot supply an invoice secret, payment recipient, split leg, access
 token, settlement id, or report content.
+
+The hosted endpoint uses only the model/provider configured by the server. It
+does not accept raw `llm_model`, `llm_provider`, or API-key overrides from a
+request. SDK consumers that need BYOK planning can pass a local
+`decisionGenerator` to `QmaAgent`; the resulting plan is still validated
+against authoritative QMA candidates and policy.
+
+## Autonomous Agent Sessions
+
+Wallet-owned sessions use `X-QMA-Wallet-Token`:
+
+```text
+POST   /api/v1/sessions
+GET    /api/v1/sessions?owner_wallet=0x...
+GET    /api/v1/sessions/{session_id}
+PATCH  /api/v1/sessions/{session_id}
+POST   /api/v1/sessions/{session_id}/start
+POST   /api/v1/sessions/{session_id}/stop
+POST   /api/v1/sessions/{session_id}/resume
+DELETE /api/v1/sessions/{session_id}
+GET    /api/v1/sessions/owner/{owner_wallet}/wallet
+POST   /api/v1/sessions/withdraw
+```
+
+The trusted worker uses `x-qma-internal-secret` for queue claiming, events,
+runtime-state updates, and status checks. Browser/client code must never
+receive this secret. Owner updates cannot directly forge worker status or
+runtime state.
 
 ## Buyer sequence
 
@@ -88,5 +116,6 @@ entitlements independently.
 CLI commands, Circle wallet setup, dry-run/live behavior, and troubleshooting
 belong to [examples/README.md](../examples/README.md). The bounded polling
 policy and session accounting belong to
-[AUTONOMOUS_AGENT.md](AUTONOMOUS_AGENT.md). Payment invariants belong to
-[`../PAYMENT_FLOW.md`](../PAYMENT_FLOW.md).
+[AUTONOMOUS_AGENT.md](../architecture/AUTONOMOUS_AGENT.md). Payment invariants
+belong to [`PAYMENT_FLOW.md`](../../PAYMENT_FLOW.md). The complete endpoint and
+auth inventory is in [`docs/api/README.md`](../api/README.md).

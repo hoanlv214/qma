@@ -1,8 +1,8 @@
 # QMA React Frontend
 
-This directory contains the active Vite + React + TypeScript application on
-branch `frontend/vite-react-rebuild`. It is the rebuild frontend, separate
-from the root legacy HTML files and `public/app.js`/`public/*.css`.
+This directory contains the active Vite + React + TypeScript application.
+On the live `main` branch it is the frontend source of truth, separate from
+the root legacy HTML files and `public/app.js`/`public/*.css`.
 
 ## Application shape
 
@@ -14,10 +14,13 @@ src/app/App.tsx
         |
         +--> routeFromPath() / history + popstate
         +--> WalletProvider (shared connected-wallet state)
+        +--> AgentWalletProvider (shared Agent Wallet state)
         +--> LandingPage       /
         +--> AppPage           /app
         +--> ProfileOrdersPage /profile
         +--> MarketplaceReview /marketplace
+        +--> TractionPage      /traction
+        +--> ApiDocsPage       /docs/*
 ```
 
 ```mermaid
@@ -40,10 +43,13 @@ flowchart LR
 | `/app` | `components/reports/AppPage.tsx` | live signals, query, payment, report workspace, agent UI |
 | `/profile` | `components/profile/ProfileOrdersPage.tsx` | wallet-bound profile, purchased reports, payment history |
 | `/marketplace` | `components/marketplace/MarketplaceReview.tsx` | provider catalog and creator review/apply flows |
+| `/traction` | `components/traction/TractionPage.tsx` | public settlement and marketplace traction |
+| `/docs/*` | `components/api-docs/ApiDocsPage.tsx` | audience-filtered Scalar OpenAPI reference |
 
-`App.tsx` owns only route composition and the wallet provider. Feature state
+`App.tsx` owns route composition and the wallet providers. Feature state
 belongs in feature hooks/components; API and payment boundaries belong in
-`services/`; reusable cross-page wallet state belongs in `state/walletStore.tsx`.
+`services/`; reusable cross-page wallet state belongs in `state/walletStore.tsx`
+and `state/agentWalletStore.tsx`.
 
 ## API base URL
 
@@ -52,7 +58,7 @@ belongs in feature hooks/components; API and payment boundaries belong in
 1. `VITE_QMA_API_BASE_URL` when supplied;
 2. empty string on local hostnames, so Vite can proxy/same-origin with a local
    FastAPI server;
-3. the legacy fallback `https://qma-api.onrender.com` when no rebuild API is
+3. the production fallback `https://qma-api-7o9v.onrender.com` when no API is
    configured.
 
 For the rebuild preview deployment, set:

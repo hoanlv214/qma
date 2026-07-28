@@ -379,10 +379,64 @@ def _normalize_model_plan(value: object) -> dict:
     }
 
 
-def _llm_decision(prompt: str, budget: float, max_price: float, candidates: list, entitlements: list, objective: str) -> Optional[dict]:
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+def _llm_decision(
+    prompt: str,
+    budget: float,
+    max_price: float,
+    candidates: list,
+    entitlements: list,
+    objective: str,
+) -> Optional[dict]:
+    provider = os.getenv("QMA_LLM_PROVIDER", "openai").lower().strip()
+
+    # Resolve API Key
+    api_key = os.getenv("QMA_LLM_API_KEY", "").strip()
     if not api_key:
+        if provider == "openai":
+            api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        elif provider == "gemini":
+            api_key = os.getenv("GEMINI_API_KEY", os.getenv("GOOGLE_API_KEY", "")).strip()
+        elif provider == "groq":
+            api_key = os.getenv("GROQ_API_KEY", "").strip()
+        elif provider == "openrouter":
+            api_key = os.getenv("OPENROUTER_API_KEY", os.getenv("OPENROUTER_API", "")).strip()
+
+    if provider != "ollama" and not api_key:
+        logger.warning("No API key configured for LLM provider: %s", provider)
         return None
+
+    # Resolve Base URL
+    base_url = os.getenv("QMA_LLM_BASE_URL", "").strip()
+    if not base_url:
+        if provider == "openai":
+            base_url = "https://api.openai.com/v1"
+        elif provider == "gemini":
+            base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+        elif provider == "groq":
+            base_url = "https://api.groq.com/openai/v1"
+        elif provider == "openrouter":
+            base_url = "https://openrouter.ai/api/v1"
+        elif provider == "ollama":
+            base_url = "http://localhost:11434/v1"
+        else:
+            base_url = "https://api.openai.com/v1"
+
+    # Resolve Model
+    model = os.getenv("QMA_LLM_MODEL", "").strip()
+    if not model:
+        if provider == "openai":
+            model = "gpt-4o-mini"
+        elif provider == "gemini":
+            model = "gemini-2.5-flash"
+        elif provider == "groq":
+            model = "llama-3.3-70b-specdec"
+        elif provider == "openrouter":
+            model = "google/gemini-2.5-flash"
+        elif provider == "ollama":
+            model = "qwen2.5:7b"
+        else:
+            model = "gpt-4o-mini"
+
     context = {
         "task": prompt,
         "budget_usdc": budget,
@@ -417,20 +471,53 @@ def _llm_decision(prompt: str, budget: float, max_price: float, candidates: list
         },
         "required": sorted(PLAN_KEYS),
     }
-    try:
-        response = requests.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
-                "model": os.getenv("QMA_LLM_MODEL", "gpt-4o-mini"),
-                "messages": [
-                    {"role": "system", "content": "You are the QMA purchase planner. Return only the plan schema. Identify a candidate_id, but never return provider metadata, prices, scores, queries, entitlements, invoice data, payment data, or a candidate object. Use only eligible candidates. If objective is highest_score, choose the eligible candidate with the highest score."},
-                    {"role": "user", "content": json.dumps(context, separators=(",", ":"))},
-                ],
-                "response_format": {"type": "json_schema", "json_schema": {"name": "qma_agent_plan", "strict": True, "schema": schema}},
+
+    url = f"{base_url.rstrip('/')}/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    if provider == "openrouter":
+        headers["HTTP-Referer"] = "https://github.com/hoanlv214/qma"
+        headers["X-Title"] = "QMA Agent"
+
+    payload = {
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are the QMA purchase planner. Return only valid JSON matching this schema:\n"
+                    "{\n"
+                    '  "action": "purchase" | "skip" | "clarify",\n'
+                    '  "candidate_id": string | null,\n'
+                    '  "requested_tier": "preview" | "full" | "auto",\n'
+                    '  "budget_usdc": number,\n'
+                    '  "max_price_usdc": number,\n'
+                    '  "reason": string (max 240 chars),\n'
+                    '  "rejected_candidate_ids": [string]\n'
+                    "}\n"
+                    "Never return provider metadata, prices, scores, queries, entitlements, or invoice/payment data. "
+                    "If objective is highest_score, choose the eligible candidate with the highest score."
+                )
             },
-            timeout=20,
-        )
+            {"role": "user", "content": json.dumps(context, separators=(",", ":"))},
+        ]
+    }
+
+    if provider in ("openai", "gemini", "groq"):
+        payload["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "qma_agent_plan",
+                "strict": True,
+                "schema": schema
+            }
+        }
+    else:
+        payload["response_format"] = {"type": "json_object"}
+
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=20)
         response.raise_for_status()
         content = response.json().get("choices", [{}])[0].get("message", {}).get("content")
         return _normalize_model_plan(json.loads(content)) if content else None
@@ -439,27 +526,27 @@ def _llm_decision(prompt: str, budget: float, max_price: float, candidates: list
         return None
 
 
-def _validate_llm_plan(deps: SimpleNamespace, plan: dict, candidates: list, entitlements: list, budget: float, max_price: float, objective: str) -> Optional[dict]:
+def _validate_llm_plan(deps: SimpleNamespace, plan: dict, candidates: list, entitlements: list, budget: float, max_price: float, objective: str, source: str = "llm") -> Optional[dict]:
     if plan["action"] == "clarify":
-        return _decision_payload(deps, None, candidates, entitlements, budget, max_price, objective, "llm", plan["reason"], plan["requested_tier"], action="clarify")
+        return _decision_payload(deps, None, candidates, entitlements, budget, max_price, objective, source, plan["reason"], plan["requested_tier"], action="clarify")
 
     eligible = [item for item in candidates if not item.get("agent_rejection")]
     selected = next((item for item in candidates if item["candidate_id"] == plan["candidate_id"]), None)
-    if objective == "highest_score" and eligible:
+    if objective == "highest_score" and eligible and plan["action"] == "purchase":
         authoritative = max(eligible, key=lambda item: _number(item.get("score")))
-        if selected is not authoritative or plan["action"] != "purchase":
+        if selected is not authoritative:
             selected = authoritative
             plan = dict(plan, action="purchase", candidate_id=authoritative["candidate_id"], reason="Policy selected the highest-scoring eligible candidate.")
 
     if plan["action"] == "skip":
-        return _decision_payload(deps, None, candidates, entitlements, budget, max_price, objective, "llm", plan["reason"], plan["requested_tier"], action="skip")
+        return _decision_payload(deps, None, candidates, entitlements, budget, max_price, objective, source, plan["reason"], plan["requested_tier"], action="skip")
     if not selected or selected.get("agent_rejection"):
         return None
     if plan["requested_tier"] not in ("auto", selected.get("agent_tier")):
         return None
     if plan["budget_usdc"] > budget or plan["max_price_usdc"] > max_price:
         return None
-    return _decision_payload(deps, selected, candidates, entitlements, budget, max_price, objective, "llm", plan["reason"], plan["requested_tier"], action="purchase")
+    return _decision_payload(deps, selected, candidates, entitlements, budget, max_price, objective, source, plan["reason"], plan["requested_tier"], action="purchase")
 
 
 def _fallback_decision(deps: SimpleNamespace, candidates: list, entitlements: list, budget: float, max_price: float, objective: str, requested_tier: Optional[str]) -> dict:
@@ -469,6 +556,93 @@ def _fallback_decision(deps: SimpleNamespace, candidates: list, entitlements: li
     else:
         eligible.sort(key=lambda item: (bool(item.get("agent_upgrade_from_preview")), _number(item.get("score")) / max(_number(item.get("agent_price")), 0.000001), _number(item.get("score"))), reverse=True)
     return _decision_payload(deps, eligible[0] if eligible else None, candidates, entitlements, budget, max_price, objective, "deterministic_policy", None, requested_tier)
+
+
+def _fast_parse_decision(
+    prompt: str,
+    candidates: list,
+    budget: float,
+    max_price: float,
+    provider_filter: Optional[str],
+    tier_filter: Optional[str],
+    objective: str,
+) -> Optional[dict]:
+    lowered = prompt.lower().strip()
+
+    # Conversational Indicators (less aggressive list to allow "find/search/show/best" structured command routes)
+    conversational_indicators = [
+        "want to", "should i", "please", "can you", "why ", "how ",
+        "what is", "think about", "recommend", "suggest", "decent"
+    ]
+    if any(indicator in lowered for indicator in conversational_indicators):
+        return None
+
+    is_buy_command = bool(re.search(r"\b(?:buy|purchase|get|grab|order)\b", lowered))
+    if not is_buy_command:
+        return None
+
+    # Try matching candidate symbols from prompt
+    target_symbol = None
+    for candidate in candidates:
+        symbol = candidate.get("symbol", "").upper()
+        if symbol and re.search(rf"\b{re.escape(symbol.lower())}\b", lowered):
+            target_symbol = symbol
+            break
+
+    eligible = [c for c in candidates if not c.get("agent_rejection")]
+    if not eligible:
+        return {
+            "action": "skip",
+            "candidate_id": None,
+            "requested_tier": tier_filter or "auto",
+            "budget_usdc": budget,
+            "max_price_usdc": max_price,
+            "reason": "Fast parser: No eligible candidates found.",
+            "rejected_candidate_ids": [c["candidate_id"] for c in candidates]
+        }
+
+    if not target_symbol:
+        return {
+            "action": "skip",
+            "candidate_id": None,
+            "requested_tier": tier_filter or "auto",
+            "budget_usdc": budget,
+            "max_price_usdc": max_price,
+            "reason": "Fast parser: No candidate symbol matched the explicit purchase command.",
+            "rejected_candidate_ids": [c["candidate_id"] for c in candidates]
+        }
+
+    matched = eligible
+    matched = [c for c in matched if c.get("symbol", "").upper() == target_symbol]
+    if provider_filter:
+        matched = [c for c in matched if c.get("provider_id", "").lower() == provider_filter]
+
+    if not matched:
+        return {
+            "action": "skip",
+            "candidate_id": None,
+            "requested_tier": tier_filter or "auto",
+            "budget_usdc": budget,
+            "max_price_usdc": max_price,
+            "reason": f"Fast parser: No eligible candidates matched filter. (Symbol: {target_symbol}, Provider: {provider_filter})",
+            "rejected_candidate_ids": [c["candidate_id"] for c in candidates]
+        }
+
+    if objective == "highest_score":
+        matched.sort(key=lambda item: (bool(item.get("agent_upgrade_from_preview")), _number(item.get("score"))), reverse=True)
+    else:
+        matched.sort(key=lambda item: (bool(item.get("agent_upgrade_from_preview")), _number(item.get("score")) / max(_number(item.get("agent_price")), 0.000001), _number(item.get("score"))), reverse=True)
+
+    selected = matched[0]
+    return {
+        "action": "purchase",
+        "candidate_id": selected["candidate_id"],
+        "requested_tier": tier_filter or "auto",
+        "budget_usdc": budget,
+        "max_price_usdc": max_price,
+        "reason": f"Fast parser: Matched simple command (Symbol: {selected.get('symbol')}, Provider: {selected.get('provider_id')}).",
+        "rejected_candidate_ids": [c["candidate_id"] for c in candidates if c["candidate_id"] != selected["candidate_id"]]
+    }
 
 
 def make_agent_decision(
@@ -501,6 +675,14 @@ def make_agent_decision(
         allowed_tiers,
         minimum_score,
     )
+
+    # Try Fast Parser first
+    fast_plan = _fast_parse_decision(prompt, candidates, budget, max_price, provider_filter, tier_filter, objective)
+    if fast_plan:
+        validated = _validate_llm_plan(deps, fast_plan, candidates, entitlements, budget, max_price, objective, source="fast_parser")
+        if validated is not None:
+            return validated
+
     llm_plan = _llm_decision(prompt, budget, max_price, candidates, entitlements, objective) if use_llm else None
     if llm_plan:
         validated = _validate_llm_plan(deps, llm_plan, candidates, entitlements, budget, max_price, objective)

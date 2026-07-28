@@ -14,12 +14,32 @@ QMA does not trust the frontend for paid access. The browser can improve UX, but
 
 x402 verifies that a payment authorization/settlement exists. QMA still verifies that the payment unlocks the exact provider, tier, and query snapshot requested.
 
+## Public and private API classes
+
+| Class | Credential/proof | Main use |
+| --- | --- | --- |
+| Public | none | health, config, discovery, quotes, public traction |
+| Optional auth | wallet/admin token or none | redacted wallet data; disabled-provider/admin views |
+| Paid access | `X-QMA-Access-Token` | provider reports, legacy report aliases, paid report chat |
+| Wallet owner | `X-QMA-Wallet-Token` | private snapshots and owner Agent Session operations |
+| Invoice owner | `X-QMA-Invoice-Secret` | invoice status |
+| Signed payload | wallet/payment signature in the body | wallet session bootstrap and withdrawal/claim flows |
+| Admin | `x-qma-admin-token` | provider toggle and creator review |
+| Internal worker | `x-qma-internal-secret` | Agent Session queue/events/runtime; never browser-accessible |
+
+See [`docs/api/README.md`](../api/README.md) for the complete per-operation
+classification. Gateway-only `/api/internal/*` routes are intentionally
+excluded from OpenAPI.
+
 ## Rate limit scopes
 
 FastAPI has an in-memory middleware limiter. When a client exceeds a scope, the API returns:
 
 ```json
 {
+  "error": "rate_limited",
+  "message": "Request rate limit exceeded.",
+  "status_code": 429,
   "detail": "rate_limited",
   "scope": "payment_invoice",
   "limit": 20,
@@ -64,19 +84,17 @@ Returns provider metadata plus creator-facing stats:
 
 ```json
 {
-  "provider_id": "funding_memory",
-  "provider_name": "Funding Memory Provider",
-  "status": "approved",
-  "pricing": {
-    "preview": {"amount_usdc": 0.001},
-    "full": {"amount_usdc": 0.005}
-  },
-  "stats": {
-    "payments": 12,
-    "revenue_usdc": 0.044,
-    "creator_earned_usdc": 0.0352,
-    "platform_fee_usdc": 0.0088
-  }
+  "providers": [
+    {
+      "provider_id": "funding_memory",
+      "provider_name": "Funding Memory Provider",
+      "status": "approved",
+      "pricing": {
+        "preview": {"amount_usdc": 0.001},
+        "full": {"amount_usdc": 0.005}
+      }
+    }
+  ]
 }
 ```
 
@@ -117,7 +135,8 @@ New applications start as `pending`.
 GET /api/v1/creators/applications?wallet=0x...
 ```
 
-Returns applications submitted by that wallet.
+Returns applications submitted by that wallet. Without `wallet`, a valid
+`x-qma-admin-token` is required to list all applications.
 
 ### Admin review
 
@@ -132,7 +151,19 @@ Content-Type: application/json
 }
 ```
 
-Set `QMA_ADMIN_TOKEN` in production. If the env value is empty, local demo review is permissive.
+Set `QMA_ADMIN_TOKEN` in every environment that enables admin operations. If
+it is empty, protected admin mutations return `503`; they are not permissive.
+
+## Agent Session authorization
+
+- Create/list/lifecycle/delete/Agent Wallet lookup/withdrawal require a
+  wallet token bound to the owner address.
+- Session `GET` and `PATCH` accept owner or internal worker credentials.
+- Owners may edit task and budget, but cannot directly set worker status or
+  runtime state.
+- Queue claiming and event creation require the internal worker secret.
+- Runtime identity fields (`owner_wallet`, Agent Wallet address/id) are
+  protected from worker overwrite.
 
 ## Marketplace payment flow
 
@@ -157,14 +188,14 @@ Set `QMA_ADMIN_TOKEN` in production. If the env value is empty, local demo revie
 
 ```http
 POST /api/v1/providers/{provider_id}/preview?invoice_id=...
-Authorization: Bearer <access_token>
+X-QMA-Access-Token: <access_token>
 ```
 
 or:
 
 ```http
 POST /api/v1/providers/{provider_id}/full-report?invoice_id=...
-Authorization: Bearer <access_token>
+X-QMA-Access-Token: <access_token>
 ```
 
 6. Backend records a wallet/provider/tier/query entitlement in Supabase/JSON.

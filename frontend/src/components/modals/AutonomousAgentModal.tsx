@@ -8,7 +8,9 @@
  */
 
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { requestJson, API_BASE_URL } from "../../services/api";
+import { requestJson } from "../../services/api";
+import { requireWalletProfileHeaders } from "../../services/walletProfileSession";
+import { useAgentWalletStore } from "../../state/agentWalletStore";
 
 interface AutonomousAgentModalProps {
   open: boolean;
@@ -34,6 +36,13 @@ type ChatMessage = {
 
 const STAGE_LABELS = ["Queued", "Research", "Buying", "Finished"];
 
+async function sessionRequest<T>(wallet: string, path: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers);
+  const authHeaders = await requireWalletProfileHeaders(wallet);
+  Object.entries(authHeaders).forEach(([name, value]) => headers.set(name, value));
+  return requestJson<T>(path, { ...init, headers });
+}
+
 function stageIndex(status: string, purchases: number): number {
   switch (status) {
     case "queued": return 0;
@@ -58,37 +67,17 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Real Agent Wallet Address & Balance (fetched from API)
-  const [agentWalletAddress, setAgentWalletAddress] = useState<string>("");
-  const [globalBalance, setGlobalBalance] = useState<number>(0);
-  const [gatewayBalance, setGatewayBalance] = useState<number>(0);
+  const { agentWallet, refresh: refreshAgentWallet } = useAgentWalletStore();
+  const agentWalletAddress = agentWallet?.address || "";
+  const globalBalance = agentWallet?.balanceUsdc || 0;
+  const gatewayBalance = agentWallet?.gatewayBalanceUsdc || 0;
   const autoFetchedRef = useRef(false);
   const [isRefreshingBal, setIsRefreshingBal] = useState(false);
   const [refreshCooldown, setRefreshCooldown] = useState(false);
 
-  const fetchAgentWallet = () => {
-    if (wallet && open) {
-      fetch(`${API_BASE_URL}/api/v1/sessions/owner/${wallet}/wallet`)
-        .then(r => r.json())
-        .then(d => {
-          if (d.wallet) {
-            setAgentWalletAddress(d.wallet.address);
-            setGlobalBalance(d.wallet.balance_usdc || 0);
-            setGatewayBalance(d.wallet.gateway_balance_usdc || 0);
-          } else {
-            setAgentWalletAddress("");
-            setGlobalBalance(0);
-            setGatewayBalance(0);
-          }
-        })
-        .catch(err => console.error("Failed to fetch agent wallet details", err));
-    }
-  };
-
-  // Fetch agent wallet balance on mount
   useEffect(() => {
-    fetchAgentWallet();
-  }, [wallet, open]);
+    if (wallet && open) void refreshAgentWallet({ silent: true });
+  }, [wallet, open, refreshAgentWallet]);
 
   // Auto-scroll messages
   useEffect(() => {
@@ -100,7 +89,7 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
     // 1. On mount, try to find an active session if we don't have one
     if (!sessionId && open && !autoFetchedRef.current && wallet) {
       autoFetchedRef.current = true;
-      requestJson<any[]>(`/api/v1/sessions?owner_wallet=${wallet}`).then(sessions => {
+      sessionRequest<any[]>(wallet, `/api/v1/sessions?owner_wallet=${wallet}`).then(sessions => {
         const active = sessions.find(s => s.status === "running" || s.status === "queued" || s.status === "stopped");
         if (active) {
           setSessionId(active.id);
@@ -123,7 +112,7 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
     if (sessionId && (status === "queued" || status === "running")) {
       interval = setInterval(async () => {
         try {
-          const data = await requestJson<any>(`/api/v1/sessions/${sessionId}`);
+          const data = await sessionRequest<any>(wallet, `/api/v1/sessions/${sessionId}`);
 
           if (data.status !== status) {
             setStatus(data.status);
@@ -452,18 +441,15 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
 
     try {
       setIsRefreshingBal(true);
-      const resp = await fetch(`${API_BASE_URL}/api/v1/sessions/owner/${wallet}/wallet`);
-      if (resp.ok) {
-        const wdata = await resp.json();
-        const newBal = wdata.wallet?.balance_usdc || 0;
-        const newGwBal = wdata.wallet?.gateway_balance_usdc || 0;
-        setGlobalBalance(newBal);
-        setGatewayBalance(newGwBal);
+      const refreshedWallet = await refreshAgentWallet();
+      if (refreshedWallet) {
+        const newBal = refreshedWallet.balanceUsdc;
+        const newGwBal = refreshedWallet.gatewayBalanceUsdc;
 
         const totalAvail = newBal + newGwBal;
         if (totalAvail >= budget) {
           if (sessionId) {
-            await requestJson(`/api/v1/sessions/${sessionId}/start`, { method: "POST" });
+            await sessionRequest(wallet, `/api/v1/sessions/${sessionId}/start`, { method: "POST" });
             setStatus("queued");
             setMessages(prev => [...prev, {
               id: `sys-started-funded-${Date.now()}`,
@@ -591,7 +577,7 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
       }
 
       try {
-        await requestJson(`/api/v1/sessions/${sessionId}`, {
+        await sessionRequest(wallet, `/api/v1/sessions/${sessionId}`, {
           method: "PATCH",
           body: JSON.stringify(updatePayload)
         });
@@ -657,7 +643,7 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
         content: `✅ Submitting to backend...`
       }]);
 
-      const sessionData = await requestJson<any>(`/api/v1/sessions`, {
+      const sessionData = await sessionRequest<any>(wallet, `/api/v1/sessions`, {
         method: "POST",
         body: JSON.stringify({
           title: "Autonomous Web UI Session",
@@ -670,18 +656,10 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
       setSessionId(newId);
 
       const createdWalletAddress = sessionData.runtime_state?.agent_wallet_address;
-      if (createdWalletAddress) {
-        setAgentWalletAddress(createdWalletAddress);
-      }
 
       // Fetch the latest wallet balance to check if it's funded now
-      const walletResp = await fetch(`${API_BASE_URL}/api/v1/sessions/owner/${wallet}/wallet`);
-      let currentBal = 0;
-      if (walletResp.ok) {
-        const wdata = await walletResp.json();
-        currentBal = wdata.wallet?.balance_usdc || 0;
-        setGlobalBalance(currentBal);
-      }
+      const latestAgentWallet = await refreshAgentWallet();
+      const currentBal = latestAgentWallet?.balanceUsdc || 0;
 
       if (currentBal < parsedBudget) {
         setStatus("idle");
@@ -756,7 +734,7 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
         return;
       }
 
-      await requestJson<any>(`/api/v1/sessions/${newId}/start`, { method: "POST" });
+      await sessionRequest<any>(wallet, `/api/v1/sessions/${newId}/start`, { method: "POST" });
       setStatus("queued");
 
     } catch (err: any) {
@@ -768,7 +746,7 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
   const handleStop = async () => {
     if (!sessionId) return;
     try {
-      await requestJson<any>(`/api/v1/sessions/${sessionId}/stop`, { method: "POST" });
+      await sessionRequest<any>(wallet, `/api/v1/sessions/${sessionId}/stop`, { method: "POST" });
       setStatus("stopped");
     } catch (err: any) {
       console.error(err);
@@ -778,7 +756,7 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
   const handleResume = async () => {
     if (!sessionId) return;
     try {
-      await requestJson<any>(`/api/v1/sessions/${sessionId}/resume`, { method: "POST" });
+      await sessionRequest<any>(wallet, `/api/v1/sessions/${sessionId}/resume`, { method: "POST" });
       setStatus("queued");
     } catch (err: any) {
       console.error(err);

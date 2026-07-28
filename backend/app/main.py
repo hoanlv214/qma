@@ -235,6 +235,10 @@ OPENAPI_TAGS = [
         "description": "Turn a buyer policy into one validated, provider-bound purchase decision.",
     },
     {
+        "name": "Agent sessions",
+        "description": "Create and control wallet-owned autonomous sessions. Owner operations require a wallet token; worker operations require the internal worker secret.",
+    },
+    {
         "name": "Payments & settlement",
         "description": "Quote, create, inspect, verify, and settle QMA invoices through Circle Gateway x402.",
     },
@@ -286,14 +290,19 @@ app = FastAPI(
         "## Agent flow\n"
         "Use `POST /api/v1/agent/decision` to turn a bounded budget and provider/tier policy into a validated purchase decision. "
         "The payment executor remains responsible for signing and submitting payment; this API does not custody browser wallet keys.\n\n"
+        "## Access levels\n"
+        "- **Public:** no credential is required. Optional-auth operations return additional private data only after verification.\n"
+        "- **Protected:** requires a paid-access token, wallet-owner token, invoice secret, admin token, signed payload, or one of the documented alternatives.\n"
+        "- **Internal worker:** requires `x-qma-internal-secret`; never expose this secret to browsers or third-party clients.\n"
+        "- Gateway-only `/api/internal/*` routes are intentionally excluded from this OpenAPI document.\n\n"
+        "Use `/openapi/public.json`, `/openapi/agent.json`, `/openapi/wallet.json`, `/openapi/admin.json`, "
+        "or `/openapi/private.json` for audience-specific contracts. `/openapi.json` is the complete supported external contract.\n\n"
         "All monetary values are denominated in USDC. Report access is granted only after the invoice and required settlement legs pass server-side verification."
     ),
     version="1.0.0",
-    contact={"name": "TODO: provide QMA maintainer contact"},
-    license_info={"name": "TODO: provide project license"},
     servers=[
         {"url": "http://127.0.0.1:8000", "description": "Local development API"},
-        {"url": "https://qma-api.onrender.com", "description": "Production API"},
+        {"url": "https://qma-api-7o9v.onrender.com", "description": "Production API"},
     ],
     openapi_tags=OPENAPI_TAGS,
     docs_url=None,
@@ -382,20 +391,71 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 
 AUDIENCE_TAGS = {
-    "agent": {"Agent decisioning", "Market data", "Provider discovery", "Payments & settlement", "Reports", "System"},
-    "wallet": {"Wallet & entitlements", "Traction & analytics", "System", "Payments & settlement", "Creator operations", "Report chat", "Reports"},
+    "agent": {"Agent decisioning", "Agent sessions", "Market data", "Provider discovery", "Payments & settlement", "Reports", "System"},
+    "wallet": {"Agent sessions", "Wallet & entitlements", "Traction & analytics", "System", "Payments & settlement", "Creator operations", "Report chat", "Reports"},
     "admin": {"Admin / operations", "Provider discovery", "Traction & analytics", "System", "Internal gateway", "Payments & settlement"},
 }
+
+DOCUMENTATION_AUDIENCES = {"public", "agent", "wallet", "admin", "private"}
+SIGNED_PAYLOAD_OPERATIONS = {
+    ("post", "/api/v1/creators/claim"),
+    ("post", "/api/v1/payment/withdraw"),
+    ("post", "/api/v1/wallets/{address}/session"),
+}
+
+
+def _operation_access(path: str, method: str, operation: dict) -> str:
+    if (method, path) in SIGNED_PAYLOAD_OPERATIONS:
+        return "signed-payload"
+
+    requirements = operation.get("security") or []
+    if not requirements:
+        return "public"
+    if {} in requirements:
+        return "public-optional-auth"
+
+    schemes = {
+        scheme
+        for requirement in requirements
+        if isinstance(requirement, dict)
+        for scheme in requirement
+    }
+    if schemes == {"X-QMA-Access-Token"}:
+        return "paid-access"
+    if schemes == {"X-QMA-Wallet-Token"}:
+        return "wallet-owner"
+    if schemes == {"X-QMA-Invoice-Secret"}:
+        return "invoice-owner"
+    if schemes == {"x-qma-admin-token"}:
+        return "admin"
+    if schemes == {"x-qma-internal-secret"}:
+        return "internal-worker"
+    if schemes == {"X-QMA-Wallet-Token", "x-qma-internal-secret"}:
+        return "wallet-or-worker"
+    return "protected"
+
+
+def _operation_audiences(path: str, method: str, operation: dict, access: str) -> list[str]:
+    tags = set(operation.get("tags") or [])
+    audiences = {
+        audience
+        for audience, allowed_tags in AUDIENCE_TAGS.items()
+        if tags.intersection(allowed_tags)
+    }
+    if access == "internal-worker":
+        audiences.discard("wallet")
+    audiences.add("public" if access in {"public", "public-optional-auth"} else "private")
+    return sorted(audiences)
+
 
 @app.get("/openapi/{audience}.json", include_in_schema=False)
 async def get_audience_openapi(audience: str):
     import copy
     from fastapi import HTTPException
     
-    if audience not in AUDIENCE_TAGS:
+    if audience not in DOCUMENTATION_AUDIENCES:
         raise HTTPException(status_code=404, detail="Audience not found")
-        
-    allowed_tags = AUDIENCE_TAGS[audience]
+
     schema = copy.deepcopy(app.openapi())
     
     paths_to_keep = {}
@@ -403,8 +463,7 @@ async def get_audience_openapi(audience: str):
         new_path_item = {}
         for method, operation in path_item.items():
             if method.lower() in ["get", "post", "put", "delete", "patch", "options", "head", "trace"]:
-                op_tags = set(operation.get("tags", []))
-                if op_tags.intersection(allowed_tags):
+                if audience in operation.get("x-qma-audiences", []):
                     new_path_item[method] = operation
             else:
                 new_path_item[method] = operation
@@ -414,7 +473,16 @@ async def get_audience_openapi(audience: str):
     schema["paths"] = paths_to_keep
     
     if "tags" in schema:
-        schema["tags"] = [t for t in schema["tags"] if t["name"] in allowed_tags]
+        used_tags = {
+            tag
+            for path_item in paths_to_keep.values()
+            for operation in path_item.values()
+            if isinstance(operation, dict)
+            for tag in operation.get("tags", [])
+        }
+        schema["tags"] = [tag for tag in schema["tags"] if tag["name"] in used_tags]
+
+    schema["info"]["title"] = f"QMA {audience.title()} API"
         
     return schema
 
@@ -428,7 +496,7 @@ async def scalar_html():
 @app.get("/docs/{audience}", include_in_schema=False)
 async def scalar_audience_html(audience: str):
     from fastapi import HTTPException
-    if audience not in AUDIENCE_TAGS:
+    if audience not in DOCUMENTATION_AUDIENCES:
         raise HTTPException(status_code=404, detail="Audience not found")
     return get_scalar_api_reference(
         openapi_url=f"/openapi/{audience}.json",
@@ -473,6 +541,14 @@ def qma_openapi():
             requirements = operation["security"]
             if {} not in requirements:
                 requirements.append({})
+
+    for path, path_item in schema.get("paths", {}).items():
+        for method, operation in path_item.items():
+            if method not in {"get", "post", "put", "delete", "patch", "options", "head", "trace"}:
+                continue
+            access = _operation_access(path, method, operation)
+            operation["x-qma-access"] = access
+            operation["x-qma-audiences"] = _operation_audiences(path, method, operation, access)
 
     app.openapi_schema = schema
     return schema
@@ -1603,5 +1679,10 @@ app.include_router(create_reports_router(SimpleNamespace(
 )))
 
 app.include_router(create_sessions_router(SimpleNamespace(
+    internal_secret=ARC_GATEWAY_INTERNAL_SECRET,
+    normalize_address=paid_kit.normalize_address,
     storage_backend=storage_backend,
+    verify_wallet_profile_token=lambda address, token: verify_wallet_profile_token_service(
+        address, token, access_token_secret=ACCESS_TOKEN_SECRET,
+    ),
 )))

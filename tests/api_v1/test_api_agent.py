@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.app.api.v1.endpoints.agent import create_agent_router
+from backend.app.schemas.agent import AgentDecisionRequest
 
 
 class FakeProvider:
@@ -243,6 +244,102 @@ class AgentDecisionApiTests(unittest.TestCase):
             json={"prompt": "monitor reports", "allowed_tiers": ["intraday"]},
         )
         self.assertEqual(response.status_code, 422)
+
+    def test_non_finite_budget_fields_validate_at_http_boundary(self):
+        client = TestClient(make_app())
+
+        for field_name in ("budget_usdc", "max_price_usdc"):
+            for invalid_value in ("1e309", "NaN"):
+                with self.subTest(field_name=field_name, invalid_value=invalid_value):
+                    response = client.post(
+                        "/api/v1/agent/decision",
+                        content=f'{{"prompt":"monitor reports","{field_name}":{invalid_value}}}',
+                        headers={"content-type": "application/json"},
+                    )
+                    self.assertEqual(response.status_code, 422)
+
+    def test_fast_parser_skips_llm_for_structured_command(self):
+        recommendations = [
+            {"candidate_id": "apd", "provider_id": "funding_memory", "symbol": "APDSTOCK", "score": 85.9, "suggested_tier": "preview", "query": {"symbol": "APDSTOCK"}},
+        ]
+        response = TestClient(make_app(recommendations=recommendations)).post(
+            "/api/v1/agent/decision",
+            json={"prompt": "buy APDSTOCK report budget 0.1", "wallet": "0x1111111111111111111111111111111111111111"},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["plan"]["action"], "purchase")
+        self.assertEqual(body["decision_source"], "fast_parser")
+        self.assertEqual(body["plan"]["candidate_id"], "apd")
+        self.assertEqual(body["resolved_candidate"]["price_usdc"], 0.001)
+
+    def test_fast_parser_requires_an_explicit_whole_word_purchase_command(self):
+        recommendations = [
+            {"candidate_id": "apd", "provider_id": "funding_memory", "symbol": "APDSTOCK", "score": 85.9, "suggested_tier": "preview", "query": {"symbol": "APDSTOCK"}},
+        ]
+
+        for prompt in ("APDSTOCK outlook", "forget APDSTOCK report"):
+            with self.subTest(prompt=prompt):
+                response = TestClient(make_app(recommendations=recommendations)).post(
+                    "/api/v1/agent/decision",
+                    json={"prompt": prompt, "use_llm": False},
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()["decision_source"], "deterministic_policy")
+
+    def test_fast_parser_skips_when_explicit_symbol_is_not_a_candidate(self):
+        recommendations = [
+            {"candidate_id": "apd", "provider_id": "funding_memory", "symbol": "APDSTOCK", "score": 85.9, "suggested_tier": "preview", "query": {"symbol": "APDSTOCK"}},
+        ]
+        response = TestClient(make_app(recommendations=recommendations)).post(
+            "/api/v1/agent/decision",
+            json={"prompt": "buy best ETH report budget 0.1", "use_llm": False},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["plan"]["action"], "skip")
+        self.assertEqual(body["decision_source"], "fast_parser")
+        self.assertIsNone(body.get("resolved_candidate"))
+
+    def test_public_endpoint_does_not_expose_client_llm_configuration(self):
+        request_properties = AgentDecisionRequest.model_json_schema()["properties"]
+        self.assertNotIn("llm_provider", request_properties)
+        self.assertNotIn("llm_model", request_properties)
+
+        recommendations = [
+            {"candidate_id": "apd", "provider_id": "funding_memory", "symbol": "APDSTOCK", "score": 85.9, "suggested_tier": "preview", "query": {"symbol": "APDSTOCK"}},
+        ]
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"choices": [{"message": {"content": '{"action":"purchase","candidate_id":"apd","requested_tier":"preview","budget_usdc":0.01,"max_price_usdc":0.005,"reason":"server-configured pick","rejected_candidate_ids":[]}'}}]}
+
+        server_environment = {
+            "OPENAI_API_KEY": "test-openai",
+            "QMA_LLM_PROVIDER": "openai",
+            "QMA_LLM_MODEL": "gpt-4o-mini",
+        }
+        with patch.dict(os.environ, server_environment, clear=True):
+            with patch("backend.app.services.agent_decision.requests.post", return_value=FakeResponse()) as mock_post:
+                response = TestClient(make_app(recommendations=recommendations)).post(
+                    "/api/v1/agent/decision",
+                    json={
+                        "prompt": "I want some decent APDSTOCK research",
+                        "wallet": "0x1111111111111111111111111111111111111111",
+                        "llm_provider": "gemini",
+                        "llm_model": "gemini-2.5-flash",
+                    },
+                )
+
+        self.assertEqual(response.status_code, 200)
+        mock_post.assert_called_once()
+        called_args = mock_post.call_args.args
+        called_json = mock_post.call_args.kwargs.get("json", {})
+        self.assertEqual(called_args[0], "https://api.openai.com/v1/chat/completions")
+        self.assertEqual(called_json.get("model"), "gpt-4o-mini")
 
 
 if __name__ == "__main__":

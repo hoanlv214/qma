@@ -4,6 +4,7 @@ import { fetchTraction, type TractionSnapshot } from "../../services/traction";
 import { PlatformAnalyticsPanel } from "./PlatformAnalyticsPanel";
 import { GlobalHeader } from "../ui/GlobalHeader";
 import { useWalletStore } from "../../state/walletStore";
+import { Loader } from "../ui/Loader";
 import "../../styles/traction.css";
 
 interface TractionPageProps {
@@ -88,60 +89,68 @@ export function TractionPage({ onNavigate }: TractionPageProps) {
 
       {error ? <div className="traction-error" role="alert">{error}</div> : null}
 
-      <section className="traction-metric-grid" aria-label="Traction summary">
-        {[
-          ["Paid reports", summary ? compactNumber(summary.current_paid_reports) : "—", "preview + full"],
-          ["Settled reports", summary ? compactNumber(summary.settled_reports) : "—", "final gateway state"],
-          ["Current volume", summary ? usdc(summary.current_revenue_usdc) : "—", "recorded report value"],
-          ["Settled volume", summary ? usdc(summary.settled_volume_usdc) : "—", "final settlement evidence"],
-          ["Unique payers", summary ? compactNumber(summary.unique_payers) : "—", "current reports"],
-          ["Average report", summary ? usdc(summary.average_paid_report_usdc) : "—", "current paid average"],
-        ].map(([label, value, sub]) => (
-          <article className="traction-metric" key={label}>
-            <span>{label}</span>
-            <strong>{loading && !snapshot ? "…" : value}</strong>
-            <small>{sub}</small>
-          </article>
-        ))}
-      </section>
-
-      <section className="traction-provenance" aria-label="Purchase provenance">
-        <div>
-          <span className="traction-section-label">Settled provenance</span>
-          <p>Every settled figure below requires final gateway status or a transaction hash.</p>
+      {loading && !snapshot ? (
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "350px", width: "100%" }}>
+          <Loader label="Loading platform traction data..." variant="signal" size="lg" />
         </div>
-        {(["human", "agent"] as const).map((kind) => (
-          <div className="traction-provenance-item" key={kind}>
-            <span>{kind === "agent" ? "Autonomous agents" : "Human buyers"}</span>
-            <strong>{snapshot ? compactNumber(snapshot.provenance[kind].reports) : "—"}</strong>
-            <small>{snapshot ? usdc(snapshot.provenance[kind].volume_usdc) : "—"}</small>
-          </div>
-        ))}
-      </section>
+      ) : (
+        <>
+          <section className="traction-metric-grid" aria-label="Traction summary">
+            {[
+              ["Paid reports", summary ? compactNumber(summary.current_paid_reports) : "—", "preview + full"],
+              ["Settled reports", summary ? compactNumber(summary.settled_reports) : "—", "final gateway state"],
+              ["Current volume", summary ? usdc(summary.current_revenue_usdc) : "—", "recorded report value"],
+              ["Settled volume", summary ? usdc(summary.settled_volume_usdc) : "—", "final settlement evidence"],
+              ["Unique payers", summary ? compactNumber(summary.unique_payers) : "—", "current reports"],
+              ["Average report", summary ? usdc(summary.average_paid_report_usdc) : "—", "current paid average"],
+            ].map(([label, value, sub]) => (
+              <article className="traction-metric" key={label}>
+                <span>{label}</span>
+                <strong>{value}</strong>
+                <small>{sub}</small>
+              </article>
+            ))}
+          </section>
 
-      <section className="traction-panel">
-        <div className="traction-panel-heading">
-          <div>
-            <span className="traction-section-label">Settlement activity</span>
-            <h2>Settled · 14 days</h2>
-          </div>
-          <span className="traction-panel-meta">UTC daily aggregation</span>
-        </div>
-        <div className="traction-chart" aria-label="Settled volume for the last 14 days">
-          {(snapshot?.daily_settled || Array.from({ length: 14 }, (_, index) => ({ date: String(index), reports: 0, volume_usdc: 0 }))).map((day) => (
-            <div className="traction-bar-wrap" key={day.date} title={`${day.date}: ${usdc(day.volume_usdc)}`}>
-              <div className="traction-bar" style={{ height: `${Math.max(3, (day.volume_usdc / maxDailyVolume) * 100)}%` }} />
+          <section className="traction-provenance" aria-label="Purchase provenance">
+            <div>
+              <span className="traction-section-label">Settled provenance</span>
+              <p>Every settled figure below requires final gateway status or a transaction hash.</p>
             </div>
-          ))}
-        </div>
-        <div className="traction-chart-axis"><span>14 days ago</span><span>Today</span></div>
-      </section>
+            {(["human", "agent"] as const).map((kind) => (
+              <div className="traction-provenance-item" key={kind}>
+                <span>{kind === "agent" ? "Autonomous agents" : "Human buyers"}</span>
+                <strong>{snapshot ? compactNumber(snapshot.provenance[kind].reports) : "—"}</strong>
+                <small>{snapshot ? usdc(snapshot.provenance[kind].volume_usdc) : "—"}</small>
+              </div>
+            ))}
+          </section>
 
-      <PlatformAnalyticsPanel />
+          <section className="traction-panel">
+            <div className="traction-panel-heading">
+              <div>
+                <span className="traction-section-label">Settlement activity</span>
+                <h2>Settled · 14 days</h2>
+              </div>
+              <span className="traction-panel-meta">UTC daily aggregation</span>
+            </div>
+            <div className="traction-chart" aria-label="Settled volume for the last 14 days">
+              {(snapshot?.daily_settled || Array.from({ length: 14 }, (_, index) => ({ date: String(index), reports: 0, volume_usdc: 0 }))).map((day) => (
+                <div className="traction-bar-wrap" key={day.date} title={`${day.date}: ${usdc(day.volume_usdc)}`}>
+                  <div className="traction-bar" style={{ height: `${Math.max(3, (day.volume_usdc / maxDailyVolume) * 100)}%` }} />
+                </div>
+              ))}
+            </div>
+            <div className="traction-chart-axis"><span>14 days ago</span><span>Today</span></div>
+          </section>
 
-      <p className="traction-disclaimer">
-        Current paid totals include recorded report payments. Settled totals are intentionally stricter and only include complete final settlement evidence; Gateway settlement references are not automatically individual explorer transaction hashes.
-      </p>
+          <PlatformAnalyticsPanel />
+
+          <p className="traction-disclaimer">
+            Current paid totals include recorded report payments. Settled totals are intentionally stricter and only include complete final settlement evidence; Gateway settlement references are not automatically individual explorer transaction hashes.
+          </p>
+        </>
+      )}
     </main>
   );
 }

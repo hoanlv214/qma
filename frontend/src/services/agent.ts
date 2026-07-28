@@ -1,7 +1,7 @@
 import { requestJson } from "./api";
 
 export interface AgentDecisionResponse {
-  status: string;
+  status?: string;
   plan: {
     action: "purchase" | "skip" | "clarify";
     candidate_id: string | null;
@@ -42,12 +42,24 @@ export interface AgentDecisionResponse {
     evaluated_provider_ids: string[];
   };
   candidate_count: number;
-  decision_source: "llm" | "deterministic_policy" | "cached_policy";
+  decision_source: "llm" | "fast_parser" | "deterministic_policy";
 }
 
-export function requestAgentDecision(prompt: string, wallet?: string) {
+export interface AgentDecisionRequest {
+  prompt: string;
+  wallet?: string;
+  budget_usdc?: number;
+  max_price_usdc?: number;
+  limit?: number;
+  allowed_providers?: string[];
+  allowed_tiers?: Array<"preview" | "full">;
+  minimum_score?: number;
+  use_llm?: boolean;
+}
+
+export function requestAgentDecision(payload: AgentDecisionRequest) {
   return requestJson<AgentDecisionResponse>("/api/v1/agent/decision", {
     method: "POST",
-    body: JSON.stringify({ prompt, wallet: wallet || undefined, limit: 25 }),
+    body: JSON.stringify({ ...payload, limit: payload.limit ?? 25 }),
   });
 }

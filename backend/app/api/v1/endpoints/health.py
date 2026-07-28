@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from fastapi import APIRouter, Query
 
-from backend.app.schemas import HealthResponse, ClientConfigResponse
+from backend.app.schemas import HealthResponse, ClientConfigResponse, GatewayInfoResponse
 from backend.app.core.openapi_responses import documented_errors
 
 router = APIRouter(tags=["System"])
@@ -94,7 +94,13 @@ def create_health_router(deps: SimpleNamespace) -> APIRouter:
             "require_completed_settlement": deps.require_completed_settlement,
         }
 
-    @migrated.get("/api/v1/gateway/info")
+    @migrated.get(
+        "/api/v1/gateway/info",
+        response_model=GatewayInfoResponse,
+        response_model_exclude_unset=True,
+        summary="Read Circle Gateway capabilities",
+        responses=documented_errors(429, 500, 502, 503),
+    )
     def get_gateway_info(include_raw: bool = Query(default=False)):
         """Returns Circle Gateway capability diagnostics for QMA's current USDC-only runtime."""
         return deps.fetch_gateway_info_cached(include_raw=include_raw)

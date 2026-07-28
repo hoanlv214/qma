@@ -38,6 +38,7 @@ the aggregation module alone.
 | Health/config | `endpoints/health.py` | health, public config, gateway info, engine profile |
 | Market/agent discovery | `endpoints/market.py` | live anomalies, market cache, agent recommendations |
 | Agent decision | `endpoints/agent.py` | `POST /api/v1/agent/decision` shared by React and CLI |
+| Agent sessions | `endpoints/sessions.py` | wallet-owned session lifecycle, Agent Wallet lookup/withdrawal, trusted worker queue/events |
 | Providers/marketplace | `endpoints/providers.py` | provider catalog, applications, approval, provider stats |
 | Payments | `endpoints/payments.py` | invoice, status, verify, settlement, withdraw |
 | Reports | `endpoints/reports.py` | provider-bound preview/full report access |
@@ -45,6 +46,11 @@ the aggregation module alone.
 | Platform | `endpoints/platform.py` | platform summary, payments, payers, metrics |
 | Internal | `endpoints/internal.py` | authenticated gateway callbacks and split-leg operations |
 | Chat | `endpoints/chat.py` | chat/copilot boundary where enabled |
+
+The complete route and authentication inventory is maintained in
+[`docs/api/README.md`](../docs/api/README.md). Interactive audience views are
+served from `/docs/public`, `/docs/agent`, `/docs/wallet`, `/docs/admin`,
+`/docs/private`, and `/docs`.
 
 ## Shared agent decision flow
 

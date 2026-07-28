@@ -130,6 +130,22 @@ lint/test phù hợp, nói rõ là chưa verify được và tại sao.
 5. Sửa tối thiểu, không refactor lan man ngoài phạm vi yêu cầu.
 6. Không chạy git command phá hủy (`reset --hard`, `clean -fd`) trừ khi được yêu cầu rõ ràng.
 
+## API documentation gate
+
+Whenever an API route, method, request/response field, status code,
+authentication rule, audience, or deprecation state changes:
+
+1. Update the endpoint's OpenAPI summary/description, response models, errors,
+   `x-qma-access`, and `x-qma-audiences` as applicable.
+2. Update the complete inventory in `docs/api/README.md`.
+3. Update the related flow/security document listed by the maintenance section
+   in that file.
+4. Run `python -m pytest tests/api_v1/test_api_openapi_docs.py -q`.
+5. If `/docs` presentation changed, also run the frontend production build.
+
+Do not report an API contract change complete while this documentation gate is
+failing.
+
 ## Documentation loading policy
 
 Load additional documentation only when required.

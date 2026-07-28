@@ -6,24 +6,42 @@ research sessions, as well as managing agent wallet creation, deposit verificati
 and withdrawals via the Arc Gateway.
 """
 
+import math
+import secrets
 import time
 import uuid
 from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, HTTPException, Security
+from pydantic import BaseModel, Field, field_validator
 from backend.app.schemas.sessions import (
     AgentSessionCreate,
+    AgentSessionDeleteResponse,
     AgentSessionUpdate,
-    AgentSessionResponse
+    AgentSessionResponse,
+    AgentWalletLookupResponse,
+    AgentWalletWithdrawResponse,
+)
+from backend.app.core.openapi_responses import documented_errors
+from backend.app.core.security_schemes import (
+    qma_internal_secret_header,
+    qma_wallet_token_header,
 )
 from storage import SupabaseStorage
 from backend.app.core.config import ARC_GATEWAY_BASE_URL, ARC_GATEWAY_INTERNAL_SECRET
 
 class WalletWithdrawRequest(BaseModel):
     owner_wallet: str
-    amount_usdc: float = Field(..., gt=0)
+    amount_usdc: float = Field(..., gt=0, allow_inf_nan=False)
+
+    @field_validator("amount_usdc", mode="before")
+    @classmethod
+    def reject_non_finite_amount(cls, value: object) -> object:
+        if isinstance(value, float) and not math.isfinite(value):
+            return "non-finite"
+        return value
 
 router = APIRouter(tags=["Agent sessions"])
+ZERO_USER_ID = "00000000-0000-0000-0000-000000000000"
 
 def get_storage(deps):
     if not hasattr(deps, "storage_backend"):
@@ -35,69 +53,155 @@ def get_storage(deps):
 def create_sessions_router(deps) -> APIRouter:
     migrated = APIRouter()
 
+    def require_internal_secret(provided: Optional[str]) -> None:
+        expected = str(getattr(deps, "internal_secret", "") or "")
+        if not expected:
+            raise HTTPException(status_code=503, detail="Agent worker authentication is not configured.")
+        if not provided or not secrets.compare_digest(provided, expected):
+            raise HTTPException(status_code=403, detail="Invalid agent worker credentials.")
+
+    def require_wallet_owner(owner_wallet: str, token: Optional[str]) -> str:
+        normalized = deps.normalize_address(owner_wallet)
+        deps.verify_wallet_profile_token(normalized, token or "")
+        return normalized
+
+    def load_session(storage, session_id: str) -> dict:
+        result = storage._request("GET", "agent_sessions", params={"id": f"eq.{session_id}", "limit": "1"})
+        if not result:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return result[0]
+
+    def session_owner(session: dict) -> str:
+        runtime_state = session.get("runtime_state") if isinstance(session.get("runtime_state"), dict) else {}
+        owner_wallet = str(runtime_state.get("owner_wallet") or "")
+        if not owner_wallet:
+            raise HTTPException(status_code=403, detail="Session is not bound to a wallet owner.")
+        return owner_wallet
+
+    def authorize_session(
+        session: dict,
+        wallet_token: Optional[str],
+        internal_secret: Optional[str],
+    ) -> str:
+        if wallet_token:
+            require_wallet_owner(session_owner(session), wallet_token)
+            return "owner"
+        require_internal_secret(internal_secret)
+        return "internal"
+
+    def resolve_wallet_user_id(storage, owner_wallet: str, sessions: list[dict]) -> str:
+        user_id = next(
+            (
+                str(session.get("user_id"))
+                for session in sessions
+                if session.get("user_id") and str(session["user_id"]) != ZERO_USER_ID
+            ),
+            str(uuid.uuid5(uuid.NAMESPACE_URL, f"qma:wallet:{owner_wallet}")),
+        )
+        if any(str(session.get("user_id") or "") == ZERO_USER_ID for session in sessions):
+            storage._request(
+                "PATCH",
+                "agent_sessions",
+                params={
+                    "runtime_state->>owner_wallet": f"eq.{owner_wallet}",
+                    "user_id": f"eq.{ZERO_USER_ID}",
+                },
+                json_body={"user_id": user_id},
+            )
+            for session in sessions:
+                if str(session.get("user_id") or "") == ZERO_USER_ID:
+                    session["user_id"] = user_id
+        return user_id
+
+    def persist_session_update(storage, session_id: str, req: AgentSessionUpdate) -> dict:
+        row = {}
+        if req.status is not None:
+            row["status"] = req.status
+        if req.runtime_state is not None:
+            current = load_session(storage, session_id)
+            current_state = current.get("runtime_state") if isinstance(current.get("runtime_state"), dict) else {}
+            merged_state = {**current_state, **req.runtime_state}
+            for protected_key in ("owner_wallet", "agent_wallet_address", "agent_wallet_id"):
+                if protected_key in current_state:
+                    merged_state[protected_key] = current_state[protected_key]
+            row["runtime_state"] = merged_state
+        if req.task is not None:
+            row["task"] = req.task
+        if req.budget_usdc is not None:
+            row["budget_usdc"] = req.budget_usdc
+
+        if row:
+            storage._request("PATCH", "agent_sessions", params={"id": f"eq.{session_id}"}, json_body=row)
+        return load_session(storage, session_id)
+
     @migrated.post(
         "/api/v1/sessions",
         tags=["Agent sessions"],
         response_model=AgentSessionResponse,
         response_model_exclude_unset=True,
+        summary="Create an autonomous Agent Session",
+        responses=documented_errors(403, 429, 500, 502, 503),
     )
-    def create_session(req: AgentSessionCreate):
+    def create_session(
+        req: AgentSessionCreate,
+        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
+    ):
+        """Creates a wallet-owned session and provisions or reuses its Circle Agent Wallet."""
         storage = get_storage(deps)
         session_id = str(uuid.uuid4())
-        # Provide a dummy user_id for now if no auth is enforced, or extract from token later
-        user_id = "00000000-0000-0000-0000-000000000000" 
-        
-        runtime_state = {}
-        if req.owner_wallet:
-            owner_wallet_lower = req.owner_wallet.lower()
-            runtime_state["owner_wallet"] = owner_wallet_lower
-            
-            # Check if this user has already created an Agent Wallet in a previous session
-            params = {
-                "runtime_state->>owner_wallet": f"eq.{owner_wallet_lower}",
-                "limit": "50"
-            }
+        if not req.owner_wallet:
+            raise HTTPException(status_code=422, detail="owner_wallet is required for autonomous sessions.")
+        owner_wallet = require_wallet_owner(req.owner_wallet, qma_wallet_token)
+
+        runtime_state = {"owner_wallet": owner_wallet}
+
+        # Reuse the owner's existing Agent Wallet when one has already been provisioned.
+        params = {
+            "runtime_state->>owner_wallet": f"eq.{owner_wallet}",
+            "limit": "50"
+        }
+        try:
+            existing_sessions = storage._request("GET", "agent_sessions", params=params)
+        except Exception:
+            existing_sessions = []
+
+        user_id = resolve_wallet_user_id(storage, owner_wallet, existing_sessions)
+        agent_wallet_address = None
+        agent_wallet_id = None
+
+        if existing_sessions:
+            for s in existing_sessions:
+                rstate = s.get("runtime_state") or {}
+                if rstate.get("agent_wallet_address") and rstate.get("agent_wallet_id"):
+                    agent_wallet_address = rstate.get("agent_wallet_address")
+                    agent_wallet_id = rstate.get("agent_wallet_id")
+                    break
+
+        # If no wallet exists yet, call the Gateway to create a new one.
+        if not agent_wallet_address:
+            import requests
+            headers = {}
+            if ARC_GATEWAY_INTERNAL_SECRET:
+                headers["x-qma-internal-secret"] = ARC_GATEWAY_INTERNAL_SECRET
+
             try:
-                existing_sessions = storage._request("GET", "agent_sessions", params=params)
-            except Exception:
-                existing_sessions = []
-                
-            agent_wallet_address = None
-            agent_wallet_id = None
-            
-            if existing_sessions:
-                for s in existing_sessions:
-                    rstate = s.get("runtime_state") or {}
-                    if rstate.get("agent_wallet_address") and rstate.get("agent_wallet_id"):
-                        agent_wallet_address = rstate.get("agent_wallet_address")
-                        agent_wallet_id = rstate.get("agent_wallet_id")
-                        break
-            
-            # If no wallet exists yet, call the Gateway to create a new one
-            if not agent_wallet_address:
-                import requests
-                headers = {}
-                if ARC_GATEWAY_INTERNAL_SECRET:
-                    headers["x-qma-internal-secret"] = ARC_GATEWAY_INTERNAL_SECRET
-                
-                try:
-                    resp = requests.post(
-                        f"{ARC_GATEWAY_BASE_URL.rstrip('/')}/api/wallet/create",
-                        headers=headers,
-                        timeout=15
-                    )
-                    if not resp.ok:
-                        raise HTTPException(status_code=502, detail=f"Failed to create agent wallet on Gateway: {resp.text[:300]}")
-                    wdata = resp.json()
-                    agent_wallet_address = wdata.get("address")
-                    agent_wallet_id = wdata.get("walletId")
-                except Exception as e:
-                    if isinstance(e, HTTPException):
-                        raise e
-                    raise HTTPException(status_code=500, detail=f"Error contacting wallet relayer: {e}")
-            
-            runtime_state["agent_wallet_address"] = agent_wallet_address
-            runtime_state["agent_wallet_id"] = agent_wallet_id
+                resp = requests.post(
+                    f"{ARC_GATEWAY_BASE_URL.rstrip('/')}/api/wallet/create",
+                    headers=headers,
+                    timeout=15
+                )
+                if not resp.ok:
+                    raise HTTPException(status_code=502, detail=f"Failed to create agent wallet on Gateway: {resp.text[:300]}")
+                wdata = resp.json()
+                agent_wallet_address = wdata.get("address")
+                agent_wallet_id = wdata.get("walletId")
+            except Exception as e:
+                if isinstance(e, HTTPException):
+                    raise e
+                raise HTTPException(status_code=500, detail=f"Error contacting wallet relayer: {e}")
+
+        runtime_state["agent_wallet_address"] = agent_wallet_address
+        runtime_state["agent_wallet_id"] = agent_wallet_id
             
         row = {
             "id": session_id,
@@ -128,34 +232,56 @@ def create_sessions_router(deps) -> APIRouter:
         "/api/v1/sessions",
         tags=["Agent sessions"],
         response_model=List[AgentSessionResponse],
+        summary="List sessions owned by a wallet",
+        responses=documented_errors(403, 429, 500),
     )
-    def list_sessions(owner_wallet: Optional[str] = None):
+    def list_sessions(
+        owner_wallet: str,
+        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
+    ):
+        """Lists only sessions bound to the wallet proven by `X-QMA-Wallet-Token`."""
         storage = get_storage(deps)
+        normalized_owner = require_wallet_owner(owner_wallet, qma_wallet_token)
         params = {"order": "created_at.desc.nullslast", "limit": "100"}
-        if owner_wallet:
-            params["runtime_state->>owner_wallet"] = f"eq.{owner_wallet.lower()}"
-            
+        params["runtime_state->>owner_wallet"] = f"eq.{normalized_owner}"
+
         result = storage._request("GET", "agent_sessions", params=params)
+        resolve_wallet_user_id(storage, normalized_owner, result or [])
         return result or []
 
     @migrated.get(
         "/api/v1/sessions/{session_id}",
         tags=["Agent sessions"],
         response_model=AgentSessionResponse,
+        summary="Read an Agent Session",
+        responses=documented_errors(403, 404, 429, 500, 503),
     )
-    def get_session(session_id: str):
+    def get_session(
+        session_id: str,
+        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
+        internal_secret: Optional[str] = Security(qma_internal_secret_header),
+    ):
+        """Reads a session as either its wallet owner or the authenticated internal worker."""
         storage = get_storage(deps)
-        result = storage._request("GET", "agent_sessions", params={"id": f"eq.{session_id}", "limit": "1"})
-        if not result:
-            raise HTTPException(status_code=404, detail="Session not found")
-        return result[0]
+        session = load_session(storage, session_id)
+        authorize_session(session, qma_wallet_token, internal_secret)
+        return session
 
     @migrated.delete(
         "/api/v1/sessions/{session_id}",
         tags=["Agent sessions"],
+        response_model=AgentSessionDeleteResponse,
+        summary="Delete a wallet-owned Agent Session",
+        responses=documented_errors(403, 404, 429, 500),
     )
-    def delete_session(session_id: str):
+    def delete_session(
+        session_id: str,
+        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
+    ):
+        """Deletes a session after verifying the wallet bound to that session."""
         storage = get_storage(deps)
+        session = load_session(storage, session_id)
+        require_wallet_owner(session_owner(session), qma_wallet_token)
         try:
             # PostgREST DELETE
             headers = dict(storage.headers)
@@ -178,8 +304,14 @@ def create_sessions_router(deps) -> APIRouter:
         "/api/v1/sessions/pick",
         tags=["Agent sessions"],
         response_model=AgentSessionResponse,
+        summary="Claim the next queued Agent Session",
+        responses=documented_errors(403, 404, 429, 500, 503),
     )
-    def pick_session():
+    def pick_session(
+        internal_secret: Optional[str] = Security(qma_internal_secret_header),
+    ):
+        """Atomically claims one queued session for the trusted background worker."""
+        require_internal_secret(internal_secret)
         storage = get_storage(deps)
         try:
             result = storage._request("POST", "rpc/pick_queued_session")
@@ -196,55 +328,81 @@ def create_sessions_router(deps) -> APIRouter:
         "/api/v1/sessions/{session_id}",
         tags=["Agent sessions"],
         response_model=AgentSessionResponse,
+        summary="Update an Agent Session",
+        responses=documented_errors(403, 404, 429, 500, 503),
     )
-    def update_session(session_id: str, req: AgentSessionUpdate):
+    def update_session(
+        session_id: str,
+        req: AgentSessionUpdate,
+        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
+        internal_secret: Optional[str] = Security(qma_internal_secret_header),
+    ):
+        """Lets owners edit task/budget and lets the trusted worker update runtime state/status."""
         storage = get_storage(deps)
-        row = {"id": session_id}
-        if req.status is not None:
-            row["status"] = req.status
-        if req.runtime_state is not None:
-            row["runtime_state"] = req.runtime_state
-        if req.task is not None:
-            row["task"] = req.task
-        if req.budget_usdc is not None:
-            row["budget_usdc"] = req.budget_usdc
-            
+        session = load_session(storage, session_id)
+        actor = authorize_session(session, qma_wallet_token, internal_secret)
+        if actor == "owner" and (req.status is not None or req.runtime_state is not None):
+            raise HTTPException(status_code=403, detail="Wallet owners must use the session lifecycle endpoints.")
+
         try:
-            # We must use PATCH because upsert (POST) requires all NOT NULL columns.
-            storage._request("PATCH", "agent_sessions", params={"id": f"eq.{session_id}"}, json_body=row)
+            return persist_session_update(storage, session_id, req)
         except Exception as e:
+            if isinstance(e, HTTPException):
+                raise
             if "returned 40" in str(e):
                 raise HTTPException(status_code=400, detail=str(e))
             raise HTTPException(status_code=500, detail=str(e))
-            
-        result = storage._request("GET", "agent_sessions", params={"id": f"eq.{session_id}", "limit": "1"})
-        if not result:
-            raise HTTPException(status_code=404, detail="Session not found")
-        return result[0]
 
     @migrated.post(
         "/api/v1/sessions/{session_id}/start",
         tags=["Agent sessions"],
         response_model=AgentSessionResponse,
+        summary="Queue an Agent Session",
+        responses=documented_errors(403, 404, 429, 500),
     )
-    def start_session(session_id: str):
-        return update_session(session_id, AgentSessionUpdate(status="queued"))
+    def start_session(
+        session_id: str,
+        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
+    ):
+        """Queues a wallet-owned draft or stopped session for worker execution."""
+        storage = get_storage(deps)
+        session = load_session(storage, session_id)
+        require_wallet_owner(session_owner(session), qma_wallet_token)
+        return persist_session_update(storage, session_id, AgentSessionUpdate(status="queued"))
 
     @migrated.post(
         "/api/v1/sessions/{session_id}/stop",
         tags=["Agent sessions"],
         response_model=AgentSessionResponse,
+        summary="Stop an Agent Session",
+        responses=documented_errors(403, 404, 429, 500),
     )
-    def stop_session(session_id: str):
-        return update_session(session_id, AgentSessionUpdate(status="stopped"))
+    def stop_session(
+        session_id: str,
+        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
+    ):
+        """Stops a wallet-owned session; the worker observes the state on its next check."""
+        storage = get_storage(deps)
+        session = load_session(storage, session_id)
+        require_wallet_owner(session_owner(session), qma_wallet_token)
+        return persist_session_update(storage, session_id, AgentSessionUpdate(status="stopped"))
 
     @migrated.post(
         "/api/v1/sessions/{session_id}/resume",
         tags=["Agent sessions"],
         response_model=AgentSessionResponse,
+        summary="Resume an Agent Session",
+        responses=documented_errors(403, 404, 429, 500),
     )
-    def resume_session(session_id: str):
-        return update_session(session_id, AgentSessionUpdate(status="queued"))
+    def resume_session(
+        session_id: str,
+        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
+    ):
+        """Moves a stopped wallet-owned session back to the worker queue."""
+        storage = get_storage(deps)
+        session = load_session(storage, session_id)
+        require_wallet_owner(session_owner(session), qma_wallet_token)
+        return persist_session_update(storage, session_id, AgentSessionUpdate(status="queued"))
 
     from backend.app.schemas.sessions import AgentSessionEventCreate, AgentSessionEventResponse
 
@@ -252,9 +410,18 @@ def create_sessions_router(deps) -> APIRouter:
         "/api/v1/sessions/{session_id}/events",
         tags=["Agent sessions"],
         response_model=AgentSessionEventResponse,
+        summary="Append an Agent Session event",
+        responses=documented_errors(403, 404, 429, 500, 503),
     )
-    def create_event(session_id: str, req: AgentSessionEventCreate):
+    def create_event(
+        session_id: str,
+        req: AgentSessionEventCreate,
+        internal_secret: Optional[str] = Security(qma_internal_secret_header),
+    ):
+        """Appends a worker-authenticated progress or lifecycle event to a session."""
+        require_internal_secret(internal_secret)
         storage = get_storage(deps)
+        load_session(storage, session_id)
         row = {
             "session_id": session_id,
             "event_type": req.event_type,
@@ -283,10 +450,19 @@ def create_sessions_router(deps) -> APIRouter:
     @migrated.post(
         "/api/v1/sessions/withdraw",
         tags=["Agent sessions"],
+        summary="Withdraw from an Agent Wallet",
+        responses={
+            200: {"model": AgentWalletWithdrawResponse, "description": "Circle Agent Wallet withdrawal submitted."},
+            **documented_errors(400, 403, 404, 429, 500, 502, 503),
+        },
     )
-    def withdraw_funds(req: WalletWithdrawRequest):
+    def withdraw_funds(
+        req: WalletWithdrawRequest,
+        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
+    ):
+        """Withdraws USDC to the verified owner wallet when none of its sessions are active."""
         storage = get_storage(deps)
-        owner_wallet_lower = req.owner_wallet.lower()
+        owner_wallet_lower = require_wallet_owner(req.owner_wallet, qma_wallet_token)
         
         # 1. Retrieve all user sessions to check their active state (Race condition lock)
         params = {
@@ -352,10 +528,17 @@ def create_sessions_router(deps) -> APIRouter:
     @migrated.get(
         "/api/v1/sessions/owner/{owner_wallet}/wallet",
         tags=["Agent sessions"],
+        response_model=AgentWalletLookupResponse,
+        summary="Read an owner's Agent Wallet",
+        responses=documented_errors(403, 429, 500, 502, 503),
     )
-    def get_owner_agent_wallet(owner_wallet: str):
+    def get_owner_agent_wallet(
+        owner_wallet: str,
+        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
+    ):
+        """Returns the Circle Agent Wallet address and its on-chain and Gateway USDC balances."""
         storage = get_storage(deps)
-        owner_wallet_lower = owner_wallet.lower()
+        owner_wallet_lower = require_wallet_owner(owner_wallet, qma_wallet_token)
         
         # 1. Search existing sessions to retrieve the Agent Wallet details
         params = {

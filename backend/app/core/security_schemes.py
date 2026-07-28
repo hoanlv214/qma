@@ -14,9 +14,9 @@ qma_access_token_header = APIKeyHeader(
     auto_error=False,
     description="""Short-lived JWT granted after a successful invoice settlement. Used to unlock paid report endpoints.
 
-**Retrieval:** The token is returned by the `/api/v1/payment/invoices/{invoice_id}/status` endpoint once the onchain payment reaches `confirmed` status.
+**Retrieval:** A token can be returned by payment verification/status after the invoice reaches the server-accepted paid state.
 **Fallback:** Can be passed via the `access_token` query parameter instead of the header (useful for GET-based downloads or iframe embeds).
-**Enforcement:** Required on all 4 paid report endpoints (`/api/v1/providers/{provider_id}/preview`, `/api/v1/providers/{provider_id}/full-report`, `/api/v1/preview`, `/api/v1/analyze`). Missing, invalid, or expired tokens will trigger a `403 Forbidden` response.""",
+**Enforcement:** Required on the four paid report endpoints and `POST /api/v1/chat`. Missing, invalid, expired, or invoice-mismatched tokens trigger `403 Forbidden`.""",
 )
 
 qma_wallet_token_header = APIKeyHeader(
@@ -27,9 +27,10 @@ qma_wallet_token_header = APIKeyHeader(
 
 **Retrieval:** Returned by the `/api/v1/wallets/{address}/session` endpoint.
 **Optional vs Required:**
-- **Required:** `/api/v1/wallets/{address}/reports/{entitlement_id}` strictly requires this token to view private report contents, throwing `403` if missing/invalid.
-- **Optional:** `/api/v1/wallets/{address}/payments`, `/api/v1/metrics/wallet/{address}`, and `/api/v1/entitlements/wallet/{address}` accept this token. If present and valid, they return full private data. If absent or invalid, they gracefully fall back to returning redacted public data without throwing an error.
-- **Not Used:** Wallet summary and alias routes do not use this token at all.""",
+- **Required:** private report retrieval and wallet-owner Agent Session operations.
+- **Owner or worker:** `GET/PATCH /api/v1/sessions/{session_id}` accepts either this owner token or the internal worker secret.
+- **Optional:** wallet payments, legacy wallet metrics, and wallet entitlements return redacted public data when the token is absent. A supplied but invalid token is rejected.
+- **Not used:** wallet summary and its deprecated alias are public.""",
 )
 
 qma_admin_token_header = APIKeyHeader(
@@ -39,14 +40,19 @@ qma_admin_token_header = APIKeyHeader(
     description="""Static administrative token for platform operations.
 
 **Enforcement:**
-- **Strictly Required:** Must be provided for mutation routes like Provider Toggle (`PATCH /api/v1/providers/{provider_id}/status`) and Creator Review (`POST /api/v1/providers/applications/{application_id}/review`). Throws `401 Unauthorized` if invalid.
-- **Conditionally Required:** On listing routes (`GET /api/v1/providers`, `GET /api/v1/providers/{provider_id}`, `GET /api/v1/providers/{provider_id}/stats`), the token is only required if `include_disabled=true` is requested. If the token is missing/invalid while requesting disabled providers, it throws `401 Unauthorized`. If `include_disabled=false` (the default), the token is ignored and only public, enabled providers are returned.""",
+- **Required:** `POST /api/v1/providers/{provider_id}/toggle` and `POST /api/v1/creators/applications/{application_id}/review`.
+- **Required for an unfiltered application list:** `GET /api/v1/creators/applications` accepts an admin token to list all applications; without it, callers must provide a wallet filter.
+- **Conditional:** provider discovery/stats require the token only when `include_disabled=true`.
+Invalid or missing credentials on a protected admin operation return `403 Forbidden`.""",
 )
 
 qma_internal_secret_header = APIKeyHeader(
     name="x-qma-internal-secret",
     scheme_name="x-qma-internal-secret",
     auto_error=False,
+    description="""Server-to-server secret for trusted QMA workers and the Arc Gateway.
+
+It authenticates Agent Session queue/event/runtime operations. It must never be embedded in frontend code, browser storage, examples, logs, or public client configuration. Gateway-only `/api/internal/*` routes are excluded from public OpenAPI entirely.""",
 )
 
 qma_invoice_secret_header = APIKeyHeader(
@@ -55,5 +61,6 @@ qma_invoice_secret_header = APIKeyHeader(
     auto_error=False,
     description="""Invoice secret used to prove ownership/buyer binding for an invoice status check.
 
-**Fallback:** Can be passed via the `invoice_secret` query parameter for backward compatibility.""",
+**Fallback:** Can be passed via the `invoice_secret` query parameter for backward compatibility.
+The secret is scoped to one invoice and is not a wallet, admin, paid-report, or worker credential.""",
 )

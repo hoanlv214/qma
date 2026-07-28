@@ -324,25 +324,27 @@ export function UnifiedWithdrawModal({
                 {/* Section 3: Amount to Withdraw */}
                 <div className="funding-main-section">
                   <span className="funding-section-header">3. Amount to Withdraw (USDC)</span>
-                  <div className="funding-amount-input-box">
-                    <input
-                      type="number"
-                      step="0.000001"
-                      min="0.000001"
-                      max={agentWalletBalance}
-                      placeholder="0.00"
-                      value={agentOpAmount}
-                      onChange={(e) => setAgentOpAmount(e.target.value)}
-                      required
-                    />
-                    <button type="button" onClick={handleMaxAgent} className="funding-input-max-btn">MAX</button>
-                    <div className="funding-amount-input-badge-wrapper">
-                      <img src="/usdc-logo.svg" style={{ width: '16px', height: '16px' }} alt="USDC" />
-                      <select className="funding-token-select" defaultValue="USDC">
-                        <option value="USDC">USDC</option>
-                        <option value="EURC" disabled>EURC (Soon)</option>
-                      </select>
+                  <div className="funding-amount-field-group">
+                    <div className="funding-amount-input-box">
+                      <input
+                        type="number"
+                        step="0.000001"
+                        min="0.000001"
+                        max={agentWalletBalance}
+                        placeholder="0.00"
+                        value={agentOpAmount}
+                        onChange={(e) => setAgentOpAmount(e.target.value)}
+                        required
+                      />
+                      <div className="funding-amount-input-badge-wrapper">
+                        <img src="/usdc-logo.svg" style={{ width: '16px', height: '16px' }} alt="USDC" />
+                        <select className="funding-token-select" defaultValue="USDC">
+                          <option value="USDC">USDC</option>
+                          <option value="EURC" disabled>EURC (Soon)</option>
+                        </select>
+                      </div>
                     </div>
+                    <button type="button" onClick={handleMaxAgent} className="funding-input-max-btn">MAX</button>
                   </div>
                 </div>
 

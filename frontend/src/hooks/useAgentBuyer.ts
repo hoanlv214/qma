@@ -437,7 +437,15 @@ export function useAgentBuyer({
       const decisionStart = Date.now();
       let backendDecision: AgentDecisionResponse | null = null;
       try {
-        backendDecision = await requestAgentDecision(agentPrompt, wallet);
+        backendDecision = await requestAgentDecision({
+          prompt: agentPrompt,
+          wallet: wallet || undefined,
+          budget_usdc: budgetVal,
+          max_price_usdc: Math.min(budgetVal, 0.005),
+          allowed_providers: providerFilter ? [providerFilter] : undefined,
+          allowed_tiers: tierFilter ? [tierFilter as "preview" | "full"] : undefined,
+          limit: 25,
+        });
         setAgentProviderComparison((backendDecision.evaluated_candidates || []) as AgentProviderComparison[]);
         setAgentTrace((prev) => [...prev, { text: `Decision service: ${backendDecision?.decision_source || "server"} policy accepted.`, tone: "t-dim" }]);
       } catch (err) {

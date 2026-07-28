@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { FundArcWalletModal } from "../wallet/FundArcWalletModal";
-import { FundArcWalletModalContent } from "../wallet/FundArcWalletModalContent";
 
 interface UnifiedDepositModalProps {
   open: boolean;
@@ -11,8 +10,12 @@ interface UnifiedDepositModalProps {
   setAgentOpAmount: (val: string) => void;
   agentOpLoading: boolean;
   handleFundAgent: (e: React.FormEvent) => void;
+  gatewayDepositAmount: string;
+  setGatewayDepositAmount: (val: string) => void;
+  gatewayDepositLoading: boolean;
+  gatewayDepositStatus: string;
+  handleGatewayDeposit: (e: React.FormEvent) => void;
 
-  // FundArcWalletModalContent props
   fundReadinessTone: string;
   fundReadinessStatus: string;
   fundGatewayBalance: string;
@@ -22,12 +25,6 @@ interface UnifiedDepositModalProps {
   fundProviderStatus: string;
   fundChainStatus: string;
   fundWalletUsdc: string;
-  fundPrimaryAction: { action: string; label?: string };
-  fundNextStep: string;
-  fundShowAdvanced: boolean;
-  setFundShowAdvanced: (value: boolean | ((current: boolean) => boolean)) => void;
-  connect: () => void | Promise<void>;
-  refreshFundingReadiness: () => void | Promise<void>;
 }
 
 export function UnifiedDepositModal({
@@ -39,6 +36,11 @@ export function UnifiedDepositModal({
   setAgentOpAmount,
   agentOpLoading,
   handleFundAgent,
+  gatewayDepositAmount,
+  setGatewayDepositAmount,
+  gatewayDepositLoading,
+  gatewayDepositStatus,
+  handleGatewayDeposit,
 
   fundReadinessTone,
   fundReadinessStatus,
@@ -49,12 +51,6 @@ export function UnifiedDepositModal({
   fundProviderStatus,
   fundChainStatus,
   fundWalletUsdc,
-  fundPrimaryAction,
-  fundNextStep,
-  fundShowAdvanced,
-  setFundShowAdvanced,
-  connect,
-  refreshFundingReadiness,
 }: UnifiedDepositModalProps) {
   const [depositTab, setDepositTab] = useState<"gateway" | "agent">("gateway");
   const [copied, setCopied] = useState(false);
@@ -67,13 +63,27 @@ export function UnifiedDepositModal({
     }
   };
 
-  const handleMaxPreset = () => {
+  const handleAgentMaxPreset = () => {
     if (fundWalletUsdc) {
       const match = fundWalletUsdc.match(/[\d.]+/);
       if (match) {
         setAgentOpAmount(match[0]);
       }
     }
+  };
+
+  const onChainBalance = Number.parseFloat(fundWalletUsdc || "");
+  const parsedGatewayAmount = Number.parseFloat(gatewayDepositAmount);
+  const gatewayAmountInvalid = (
+    !Number.isFinite(parsedGatewayAmount)
+    || parsedGatewayAmount < 0.000001
+    || (Number.isFinite(onChainBalance) && parsedGatewayAmount > onChainBalance)
+  );
+
+  const handleGatewayMaxPreset = () => {
+    if (!Number.isFinite(onChainBalance)) return;
+    const amountWithGasReserve = Math.max(0, onChainBalance - 0.01);
+    setGatewayDepositAmount(amountWithGasReserve.toFixed(6));
   };
 
   return (
@@ -194,24 +204,110 @@ export function UnifiedDepositModal({
 
             {/* Form Fields depend on selected Tab */}
             {depositTab === "gateway" || !agentWalletAddress ? (
-              <FundArcWalletModalContent
-                fundReadinessTone={fundReadinessTone}
-                fundReadinessStatus={fundReadinessStatus}
-                fundGatewayBalance={fundGatewayBalance}
-                fundRequiredAmount={fundRequiredAmount}
-                wallet={wallet}
-                fundWalletStatus={fundWalletStatus}
-                fundProviderStatus={fundProviderStatus}
-                fundChainStatus={fundChainStatus}
-                fundWalletUsdc={fundWalletUsdc}
-                fundPrimaryAction={fundPrimaryAction}
-                fundNextStep={fundNextStep}
-                fundShowAdvanced={fundShowAdvanced}
-                setFundShowAdvanced={setFundShowAdvanced}
-                setShowFundArcModal={onClose}
-                connect={connect}
-                refreshFundingReadiness={refreshFundingReadiness}
-              />
+              <form onSubmit={handleGatewayDeposit}>
+                <div className="funding-main-section">
+                  <div className="funding-balance-head">
+                    <span className="funding-section-header">2. Gateway Balance</span>
+                    <span className={`funding-status-pill ${fundReadinessTone}`}>
+                      {fundReadinessTone === "ready" ? "✓ Ready" : fundReadinessStatus}
+                    </span>
+                  </div>
+                  <div className="funding-balance-values">
+                    <strong>{fundGatewayBalance}</strong>
+                    <span>target balance {fundRequiredAmount}</span>
+                  </div>
+                  <div className={`funding-progress ${fundReadinessTone}`}>
+                    <span
+                      style={{
+                        width: fundGatewayBalance !== "n/a" && fundRequiredAmount !== "n/a"
+                          ? `${Math.min((Number.parseFloat(fundGatewayBalance) / Number.parseFloat(fundRequiredAmount)) * 100, 100)}%`
+                          : "0%",
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div className="funding-main-section">
+                  <span className="funding-section-header">3. Deposit from Connected Wallet</span>
+                  <div className="funding-wallet-identity">
+                    <span className="funding-wallet-icon">◈</span>
+                    <div>
+                      <strong title={wallet}>{fundWalletStatus}</strong>
+                      <span>{fundProviderStatus} · {fundChainStatus}</span>
+                    </div>
+                    <strong className="funding-wallet-usdc">{fundWalletUsdc}</strong>
+                  </div>
+
+                  <div className="funding-amount-field-group">
+                    <div className="funding-amount-input-box">
+                      <input
+                        type="number"
+                        step="0.000001"
+                        min="0.000001"
+                        placeholder="e.g. 5.00"
+                        value={gatewayDepositAmount}
+                        onChange={(event) => setGatewayDepositAmount(event.target.value)}
+                        aria-label="Gateway deposit amount in USDC"
+                        required
+                      />
+                      <div className="funding-amount-input-badge-wrapper">
+                        <img src="/usdc-logo.svg" style={{ width: "16px", height: "16px" }} alt="USDC" />
+                        <span className="funding-token-select">USDC</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleGatewayMaxPreset}
+                      className="funding-input-max-btn"
+                      disabled={!Number.isFinite(onChainBalance) || onChainBalance <= 0.01}
+                    >
+                      MAX
+                    </button>
+                  </div>
+
+                  <div className="funding-presets-row">
+                    {["0.001", "0.005", "0.01", "0.1"].map((amount) => (
+                      <button
+                        key={amount}
+                        type="button"
+                        onClick={() => setGatewayDepositAmount(amount)}
+                        className="funding-preset-btn"
+                      >
+                        {amount} USDC
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="funding-sparkle-alert">
+                    <span className="funding-sparkle-icon">✦</span>
+                    <span className="funding-sparkle-text">
+                      This calls Circle Gateway deposit on Arc Testnet. MAX keeps 0.01 USDC available for gas.
+                    </span>
+                  </div>
+
+                  {gatewayDepositStatus && (
+                    <div className="funding-next-step" aria-live="polite">
+                      <span className="funding-item-label">Status</span>
+                      <strong className="funding-item-value">{gatewayDepositStatus}</strong>
+                    </div>
+                  )}
+                </div>
+
+                <div className="funding-modal-footer">
+                  <div className="funding-modal-footer-buttons">
+                    <button type="button" onClick={onClose} className="funding-btn-cancel">
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="funding-btn-submit"
+                      disabled={gatewayDepositLoading || !wallet || gatewayAmountInvalid}
+                    >
+                      {gatewayDepositLoading ? "Depositing..." : "Deposit to Gateway"}
+                    </button>
+                  </div>
+                </div>
+              </form>
             ) : (
               <form onSubmit={handleFundAgent}>
                 {/* Section 2: Agent Wallet Address */}
@@ -260,7 +356,7 @@ export function UnifiedDepositModal({
                         </select>
                       </div>
                     </div>
-                    <button type="button" onClick={handleMaxPreset} className="funding-input-max-btn">MAX</button>
+                    <button type="button" onClick={handleAgentMaxPreset} className="funding-input-max-btn">MAX</button>
                   </div>
 
                   {/* Quick Preset buttons */}

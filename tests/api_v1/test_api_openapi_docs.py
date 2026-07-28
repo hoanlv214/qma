@@ -1,6 +1,8 @@
 """OpenAPI presentation contract for the public QMA API documentation."""
 
+import re
 import unittest
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -75,9 +77,72 @@ class OpenApiDocsTests(unittest.TestCase):
             self.schema["servers"],
             [
                 {"url": "http://127.0.0.1:8000", "description": "Local development API"},
-                {"url": "https://qma-api.onrender.com", "description": "Production API"},
+                {"url": "https://qma-api-7o9v.onrender.com", "description": "Production API"},
             ],
         )
+
+    def test_every_operation_has_description_success_schema_and_access_metadata(self):
+        for path, methods in self.paths.items():
+            for method, operation in methods.items():
+                if method == "parameters":
+                    continue
+                label = f"{method.upper()} {path}"
+                self.assertTrue(operation.get("description"), f"{label} is missing a description")
+                self.assertIn("x-qma-access", operation, label)
+                self.assertTrue(operation.get("x-qma-audiences"), label)
+                has_json_success_schema = any(
+                    code.startswith("2")
+                    and response.get("content", {}).get("application/json", {}).get("schema")
+                    for code, response in operation.get("responses", {}).items()
+                )
+                self.assertTrue(has_json_success_schema, f"{label} is missing a JSON success schema")
+
+    def test_audience_documents_follow_operation_metadata(self):
+        for audience in ("public", "agent", "wallet", "admin", "private"):
+            response = self.client.get(f"/openapi/{audience}.json")
+            self.assertEqual(response.status_code, 200, audience)
+            audience_paths = response.json()["paths"]
+            actual = {
+                (path, method)
+                for path, methods in audience_paths.items()
+                for method in methods
+                if method in {"get", "post", "put", "patch", "delete"}
+            }
+            expected = {
+                (path, method)
+                for path, methods in self.paths.items()
+                for method, operation in methods.items()
+                if method in {"get", "post", "put", "patch", "delete"}
+                and audience in operation["x-qma-audiences"]
+            }
+            self.assertEqual(actual, expected, audience)
+
+        wallet_paths = self.client.get("/openapi/wallet.json").json()["paths"]
+        agent_paths = self.client.get("/openapi/agent.json").json()["paths"]
+        self.assertIn("/api/v1/sessions", wallet_paths)
+        self.assertNotIn("/api/v1/sessions/pick", wallet_paths)
+        self.assertIn("/api/v1/sessions/pick", agent_paths)
+        self.assertEqual(self.client.get("/openapi/not-an-audience.json").status_code, 404)
+
+    def test_checked_in_api_inventory_matches_openapi(self):
+        docs_path = Path(__file__).parents[2] / "docs" / "api" / "README.md"
+        inventory = {}
+        row_pattern = re.compile(
+            r"^\|\s*(GET|POST|PUT|PATCH|DELETE)\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|"
+        )
+        for line in docs_path.read_text(encoding="utf-8").splitlines():
+            match = row_pattern.match(line)
+            if match:
+                method, path, access = match.groups()
+                inventory[(path, method.lower())] = access
+
+        contract = {
+            (path, method): operation["x-qma-access"]
+            for path, methods in self.paths.items()
+            for method, operation in methods.items()
+            if method in {"get", "post", "put", "patch", "delete"}
+        }
+        self.assertEqual(inventory, contract)
 
     def test_phase3_public_routes_have_response_models(self):
         expected = {
