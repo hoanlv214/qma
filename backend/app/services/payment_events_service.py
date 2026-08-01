@@ -227,7 +227,7 @@ def build_traction_snapshot(
         if report_key:
             report_groups.setdefault(report_key, []).append(event)
 
-    daily = {
+    daily_paid = {
         (window_start + timedelta(days=offset)).isoformat(): {
             "date": (window_start + timedelta(days=offset)).isoformat(),
             "reports": 0,
@@ -235,31 +235,44 @@ def build_traction_snapshot(
         }
         for offset in range(days)
     }
+    daily_settled = {key: {**value} for key, value in daily_paid.items()}
     provenance = {
         "human": {"reports": 0, "volume_usdc": 0.0},
         "agent": {"reports": 0, "volume_usdc": 0.0},
     }
     settled_groups = []
     settled_rows = []
+    paid_groups = []
 
     for group in report_groups.values():
         first = group[0]
         if payment_event_tier(first) not in {"preview", "full"}:
             continue
-        if not all(payment_event_is_final(event) for event in group):
+        split_roles = {
+            str((event.get("split_leg") or {}).get("role") or "")
+            for event in group
+            if (event.get("split_leg") or {}).get("role")
+        }
+        if split_roles and not {"creator", "platform"}.issubset(split_roles):
             continue
         amount = sum(float(event.get("amount_usdc") or 0) for event in group)
         paid_at = max(float(event.get("paid_at") or 0) for event in group)
+        paid_groups.append((paid_at, amount, group))
+        day = datetime.fromtimestamp(paid_at, timezone.utc).date().isoformat() if paid_at else ""
+        if day in daily_paid:
+            daily_paid[day]["reports"] += 1
+            daily_paid[day]["volume_usdc"] += amount
+        if not all(payment_event_is_final(event) for event in group):
+            continue
         buyer_type = str(first.get("buyer_type") or "human")
         if buyer_type not in provenance:
             buyer_type = "human"
         provenance[buyer_type]["reports"] += 1
         provenance[buyer_type]["volume_usdc"] += amount
         settled_groups.append((paid_at, amount, group))
-        day = datetime.fromtimestamp(paid_at, timezone.utc).date().isoformat() if paid_at else ""
-        if day in daily:
-            daily[day]["reports"] += 1
-            daily[day]["volume_usdc"] += amount
+        if day in daily_settled:
+            daily_settled[day]["reports"] += 1
+            daily_settled[day]["volume_usdc"] += amount
         settled_rows.extend(group)
 
     settled_groups.sort(key=lambda item: item[0], reverse=True)
@@ -267,6 +280,7 @@ def build_traction_snapshot(
     current_paid_reports = int(summary.get("current_paid_count") or 0)
     current_revenue = float(summary.get("current_revenue_usdc") or 0)
     settled_volume = sum(item[1] for item in settled_groups)
+    recorded_volume = sum(item[1] for item in paid_groups)
 
     public_providers = [
         {
@@ -286,8 +300,10 @@ def build_traction_snapshot(
         "summary": {
             "current_paid_reports": current_paid_reports,
             "settled_reports": len(settled_groups),
+            "pending_batch_reports": max(0, len(paid_groups) - len(settled_groups)),
             "current_revenue_usdc": round(current_revenue, 6),
             "settled_volume_usdc": round(settled_volume, 6),
+            "pending_batch_volume_usdc": round(max(0.0, recorded_volume - settled_volume), 6),
             "unique_payers": int(summary.get("current_unique_payers") or 0),
             "average_paid_report_usdc": round(current_revenue / current_paid_reports, 6) if current_paid_reports else 0.0,
             "average_settled_report_usdc": round(settled_volume / len(settled_groups), 6) if settled_groups else 0.0,
@@ -299,13 +315,21 @@ def build_traction_snapshot(
             }
             for key, value in provenance.items()
         },
+        "daily_paid": [
+            {
+                "date": item["date"],
+                "reports": item["reports"],
+                "volume_usdc": round(item["volume_usdc"], 6),
+            }
+            for item in daily_paid.values()
+        ],
         "daily_settled": [
             {
                 "date": item["date"],
                 "reports": item["reports"],
                 "volume_usdc": round(item["volume_usdc"], 6),
             }
-            for item in daily.values()
+            for item in daily_settled.values()
         ],
         "providers": public_providers,
         "recent_settlements": [compact_payment_event_fn(event) for event in settled_rows[:recent_limit]],

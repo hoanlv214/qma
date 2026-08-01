@@ -113,7 +113,7 @@ def create_platform_router(deps: SimpleNamespace) -> APIRouter:
         description="""Read a time-bounded snapshot of traction data. Called by marketing or public traction pages.
         
 **Authentication:** Public route without token enforcement.
-**Behavior & Edge Cases:** Filters events strictly by the `days` parameter (default 14, max 30) rather than returning all-time metrics. Truncates recent events to `recent_limit` (max 50) and compacts them into a lightweight schema to reduce payload size.""",
+**Behavior & Edge Cases:** Filters events strictly by the `days` parameter (default 14, max 30) rather than returning all-time metrics. `daily_paid` includes complete invoices whose required legs are accepted; `daily_settled` remains limited to final Gateway state or transaction-hash evidence. `pending_batch_*` reports the difference. Truncates recent final settlements to `recent_limit` (max 50) and compacts them into a lightweight schema to reduce payload size.""",
         responses=documented_errors(429, 500, 503)
     )
     def get_traction(

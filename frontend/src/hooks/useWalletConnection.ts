@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { clearAllWalletProfileSessions, clearWalletProfileSession, requestWalletProfileSession } from "../services/walletProfileSession";
+import { clearAllWalletProfileSessions, clearWalletProfileSession } from "../services/walletProfileSession";
 import { useWalletStore } from "../state/walletStore";
 import type { Provider } from "../types/qma";
 
@@ -78,12 +78,6 @@ export function useWalletConnection({
       setAddress(next);
       if (next) {
         showToast("Wallet connected.", "success");
-        try {
-          await requestWalletProfileSession(next);
-          showToast("Private profile access unlocked for this session.", "success");
-        } catch (sessionErr: any) {
-          showToast(sessionErr?.message || "Connected. Private snapshots can be unlocked later in Profile.", "warning");
-        }
       }
     } catch (err: any) {
       showToast(err.message || "Connection failed", "error");

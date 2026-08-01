@@ -5,6 +5,7 @@ import { QmaAgent } from "../dist/index.js";
 const originalFetch = globalThis.fetch;
 let reconcileStatus = "paid";
 let paymentCalls = 0;
+let deliveryCalls = 0;
 
 const decision = {
   resolved_candidate: {
@@ -47,6 +48,10 @@ globalThis.fetch = async (input, options = {}) => {
     return Response.json(decision);
   }
   if (url.pathname === "/api/v1/payment/invoice") {
+    const payload = JSON.parse(String(options.body || "{}"));
+    assert.equal(payload.buyer_wallet_address, "0x9999999999999999999999999999999999999999");
+    assert.equal(payload.buyer_type, "agent");
+    assert.equal(payload.run_source, "agent_session_session-smoke");
     return Response.json(invoice);
   }
   if (url.pathname === "/api/v1/payment/verify") {
@@ -65,6 +70,13 @@ globalThis.fetch = async (input, options = {}) => {
         access_token: null,
         split_settlement_ids: ["settled_creator"],
       });
+  }
+  if (url.pathname === "/api/v1/providers/funding_memory/preview") {
+    deliveryCalls += 1;
+    assert.equal(url.searchParams.get("invoice_id"), invoice.invoice_id);
+    assert.equal(options.headers["X-QMA-Access-Token"], "paid_access_token");
+    assert.deepEqual(JSON.parse(String(options.body)), { symbol: "BTC" });
+    return Response.json({ provider_id: "funding_memory", tier: "preview", query_symbol: "BTC" });
   }
   throw new Error(`Unexpected request ${url.pathname}`);
 };
@@ -95,10 +107,13 @@ try {
     sessionBudgetUsdc: 0.01,
     maxPricePerReportUsdc: 0.005,
     runOnce: true,
+    ownerWalletAddress: "0x9999999999999999999999999999999999999999",
+    runSource: "agent_session_session-smoke",
   });
   assert.equal(recovered.status, "completed");
   assert.equal(recovered.purchase_count, 1);
   assert.equal(recovered.spent_usdc, 0.001);
+  assert.equal(deliveryCalls, 1);
 
   reconcileStatus = "partial_paid";
   const uncertainAgent = new QmaAgent({ apiUrl: "https://qma.test", signer });
@@ -108,6 +123,8 @@ try {
     sessionBudgetUsdc: 0.01,
     maxPricePerReportUsdc: 0.005,
     runOnce: true,
+    ownerWalletAddress: "0x9999999999999999999999999999999999999999",
+    runSource: "agent_session_session-smoke",
   });
   assert.equal(uncertain.status, "failed");
   assert.match(String(uncertain.stop_reason), /payment_outcome_uncertain/);

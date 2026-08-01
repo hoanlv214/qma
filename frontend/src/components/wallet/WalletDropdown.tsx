@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { connectWallet, shortAddress } from "../../services/wallet";
-import { clearAllWalletProfileSessions, requestWalletProfileSession } from "../../services/walletProfileSession";
+import { clearAllWalletProfileSessions } from "../../services/walletProfileSession";
 
 export function WalletDropdown({ onFundArc }: { onFundArc: () => void }) {
   const [address, setAddress] = useState(() => localStorage.getItem("qma_connected_wallet") || "");
@@ -10,7 +10,6 @@ export function WalletDropdown({ onFundArc }: { onFundArc: () => void }) {
     const next = await connectWallet();
     setAddress(next);
     localStorage.setItem("qma_connected_wallet", next);
-    await requestWalletProfileSession(next).catch(() => undefined);
   };
 
   return (

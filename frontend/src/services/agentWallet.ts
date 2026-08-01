@@ -1,5 +1,5 @@
 import { requestJson } from "./api";
-import { requireWalletProfileHeaders } from "./walletProfileSession";
+import { getCachedWalletProfileToken } from "./walletProfileSession";
 
 export interface AgentWalletDetails {
   address: string;
@@ -21,16 +21,19 @@ const inFlightRequests = new Map<string, Promise<AgentWalletDetails | null>>();
 
 export function fetchOwnerAgentWallet(ownerWallet: string): Promise<AgentWalletDetails | null> {
   const normalizedOwner = ownerWallet.toLowerCase();
+  const walletToken = getCachedWalletProfileToken(normalizedOwner);
+  // Background balance refreshes must never open a wallet signature prompt.
+  // Private Agent Wallet data becomes available after an explicit authenticated
+  // action has populated the short-lived profile token cache.
+  if (!walletToken) return Promise.resolve(null);
+
   const existing = inFlightRequests.get(normalizedOwner);
   if (existing) return existing;
 
-  const request = requireWalletProfileHeaders(normalizedOwner)
-    .then((headers) =>
-      requestJson<AgentWalletResponse>(
-        `/api/v1/sessions/owner/${encodeURIComponent(normalizedOwner)}/wallet`,
-        { headers },
-      ),
-    )
+  const request = requestJson<AgentWalletResponse>(
+    `/api/v1/sessions/owner/${encodeURIComponent(normalizedOwner)}/wallet`,
+    { headers: { "X-QMA-Wallet-Token": walletToken } },
+  )
     .then((response) => {
       if (!response.wallet?.address) return null;
       return {

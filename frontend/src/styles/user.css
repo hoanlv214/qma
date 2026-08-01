@@ -472,6 +472,10 @@
     background: rgba(255, 255, 255, 0.04);
 }
 
+.profile-body .report-unlock-button {
+    margin-top: 7px;
+}
+
 .profile-body .payment-detail-row td {
     padding: 0 0 18px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.055);

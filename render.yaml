@@ -80,6 +80,9 @@ services:
         value: https://qma-api-7o9v.onrender.com
       - key: QMA_ARC_GATEWAY_URL
         value: https://qma-arc-gateway-4elg.onrender.com
+      # One Node process runs this many autonomous sessions concurrently.
+      - key: QMA_WORKER_MAX_CONCURRENT_SESSIONS
+        value: "10"
       # Must exactly match qma-api and qma-arc-gateway.
       - key: QMA_ARC_GATEWAY_INTERNAL_SECRET
         sync: false

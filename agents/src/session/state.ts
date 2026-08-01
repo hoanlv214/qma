@@ -93,7 +93,15 @@ export function createSessionState(policy: SessionPolicy, sessionId = `agent_ses
 
 export function startSession(state: SessionState): void {
   state.status = "running";
-  state.startedAt = nowIso();
+  state.startedAt = state.startedAt || nowIso();
+  state.endedAt = null;
+  state.stopReason = null;
+}
+
+export function pauseSession(state: SessionState, reason = "manual_interrupt"): void {
+  state.status = "paused";
+  state.stopReason = reason;
+  state.endedAt = null;
 }
 
 export function recordObservation(state: SessionState, observation: Record<string, unknown>, candidateCount: number): void {

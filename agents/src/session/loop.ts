@@ -2,6 +2,7 @@ import type { SessionPolicy } from "./policy.js";
 import {
   createSessionState,
   finishSession,
+  pauseSession,
   recordAction,
   recordCandidateFailure,
   recordFailure,
@@ -75,7 +76,7 @@ export async function runAutonomousSession(policy: SessionPolicy, deps: SessionD
   }
 
   if (state.status === "created") startSession(state);
-  else if (state.status === "paused") state.status = "running";
+  else if (state.status === "paused") startSession(state);
   const sleep = deps.sleep || defaultSleep;
   const now = deps.now || (() => Date.now());
   
@@ -85,7 +86,7 @@ export async function runAutonomousSession(policy: SessionPolicy, deps: SessionD
 
   try {
     while (state.status === "running") {
-      if (signal?.aborted) { finishSession(state, "completed", "manual_interrupt"); break; }
+      if (signal?.aborted) { pauseSession(state); break; }
       if (policy.stopConditions.stopWhenMaxPurchasesReached && policy.maxPurchases !== null && state.purchaseCount >= policy.maxPurchases) {
         finishSession(state, "completed", "max_purchases_reached"); break;
       }
@@ -159,7 +160,7 @@ export async function runAutonomousSession(policy: SessionPolicy, deps: SessionD
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (message === "manual_interrupt" || signal?.aborted) finishSession(state, "completed", "manual_interrupt");
+    if (message === "manual_interrupt" || signal?.aborted) pauseSession(state);
     else { recordFailure(state, { error: message }); finishSession(state, "failed", message); }
   }
   deps.onStateChange?.(state);

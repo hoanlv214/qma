@@ -130,15 +130,20 @@ class ApiPlatformAndCreatorsTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(
             set(payload),
-            {"summary", "provenance", "daily_settled", "providers", "recent_settlements", "generated_at"},
+            {"summary", "provenance", "daily_paid", "daily_settled", "providers", "recent_settlements", "generated_at"},
         )
         self.assertEqual(payload["summary"]["current_paid_reports"], 2)
         self.assertEqual(payload["summary"]["settled_reports"], 1)
+        self.assertEqual(payload["summary"]["pending_batch_reports"], 1)
         self.assertEqual(payload["summary"]["settled_volume_usdc"], 0.005)
+        self.assertEqual(payload["summary"]["pending_batch_volume_usdc"], 0.005)
         self.assertEqual(payload["provenance"]["agent"]["reports"], 1)
         self.assertEqual(len(payload["recent_settlements"]), 2)
         self.assertNotIn("owner_wallet", payload["providers"][0])
         self.assertEqual(len(payload["daily_settled"]), 14)
+        self.assertEqual(len(payload["daily_paid"]), 14)
+        self.assertEqual(sum(day["reports"] for day in payload["daily_paid"]), 2)
+        self.assertEqual(sum(day["reports"] for day in payload["daily_settled"]), 1)
 
     def test_traction_query_validation(self):
         self.assertEqual(self.platform_client.get("/api/v1/traction?days=31").status_code, 422)

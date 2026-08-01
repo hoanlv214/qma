@@ -13,22 +13,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as http from "node:http";
-
-// Start a dummy HTTP server for Render free web service health checks & external keep-alive cron pings
-const PORT = process.env.PORT || 10000;
-http.createServer((req, res) => {
-  const url = req.url || "/";
-  if (url === "/health") {
-    console.log(`[Worker] Keep-alive health check ping received from ${req.socket.remoteAddress}`);
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok", service: "qma-agent-worker", uptime: process.uptime() }));
-  } else {
-    res.writeHead(200, { "Content-Type": "text/plain" });
-    res.end("QMA Worker is active\n");
-  }
-}).listen(PORT, () => {
-  console.log(`[Worker] Dummy HTTP server listening on port ${PORT} for Render health checks and /health pings.`);
-});
+import { SessionTaskPool } from "./workerPool.js";
 
 function loadEnv() {
   try {
@@ -54,6 +39,45 @@ const API_BASE_URL = process.env.API_BASE_URL || "http://127.0.0.1:8000";
 const ARC_GATEWAY_URL = process.env.QMA_ARC_GATEWAY_URL || process.env.ARC_GATEWAY_URL || "http://127.0.0.1:3000";
 const INTERNAL_SECRET = process.env.QMA_ARC_GATEWAY_INTERNAL_SECRET ?? "";
 const POLL_INTERVAL_MS = 5000;
+const SESSION_STATUS_POLL_INTERVAL_MS = 10000;
+const DEFAULT_MAX_CONCURRENT_SESSIONS = 10;
+
+function positiveIntegerEnv(name: string, fallback: number): number {
+  const parsed = Number.parseInt(process.env[name] ?? "", 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const MAX_CONCURRENT_SESSIONS = positiveIntegerEnv(
+  "QMA_WORKER_MAX_CONCURRENT_SESSIONS",
+  DEFAULT_MAX_CONCURRENT_SESSIONS,
+);
+const sessionPool = new SessionTaskPool(MAX_CONCURRENT_SESSIONS);
+
+// Render runs this as a web service. The HTTP surface is health/keep-alive
+// only; autonomous sessions run as independent asynchronous tasks in the pool.
+const PORT = process.env.PORT || 10000;
+http.createServer((req, res) => {
+  const url = req.url || "/";
+  if (url === "/health") {
+    console.log(`[Worker] Keep-alive health check ping received from ${req.socket.remoteAddress}`);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      status: "ok",
+      service: "qma-agent-worker",
+      uptime: process.uptime(),
+      active_sessions: sessionPool.activeCount,
+      max_concurrent_sessions: sessionPool.maxConcurrency,
+      available_slots: sessionPool.availableSlots,
+    }));
+  } else {
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.end("QMA Worker is active\n");
+  }
+}).listen(PORT, () => {
+  console.log(
+    `[Worker] Health server listening on port ${PORT}; session concurrency=${MAX_CONCURRENT_SESSIONS}.`,
+  );
+});
 
 function sessionHeaders(includeJson = false): Record<string, string> {
   const headers: Record<string, string> = {};
@@ -85,6 +109,11 @@ async function runWorkerLoop() {
   console.log("Worker started. Polling for queued sessions...");
 
   while (true) {
+    if (sessionPool.isFull) {
+      await sessionPool.waitForCapacity(POLL_INTERVAL_MS);
+      continue;
+    }
+
     try {
       const res = await fetch(`${API_BASE_URL}/api/v1/sessions/pick`, {
         method: "POST",
@@ -93,12 +122,16 @@ async function runWorkerLoop() {
 
       if (res.ok) {
         const session = await res.json();
-        console.log(`[Worker] Acquired queued session atomically: ${session.id}`);
+        const started = sessionPool.tryStart(session.id, async () => {
+          console.log(
+            `[Worker] Acquired session ${session.id}; active=${sessionPool.activeCount}/${sessionPool.maxConcurrency}.`,
+          );
 
-        let signer;
-        const runtimeState = session.runtime_state || {};
-        const agentWalletAddress = runtimeState.agent_wallet_address;
-        const agentWalletId = runtimeState.agent_wallet_id;
+          try {
+            let signer;
+            const runtimeState = session.runtime_state || {};
+            const agentWalletAddress = runtimeState.agent_wallet_address;
+            const agentWalletId = runtimeState.agent_wallet_id;
 
         if (agentWalletAddress && agentWalletId) {
           console.log(`[Worker] Using session-specific Circle Developer-Controlled Wallet: ${agentWalletAddress}`);
@@ -451,17 +484,26 @@ async function runWorkerLoop() {
                 }
               }
             } catch (e) { /* ignore */ }
-          }, 3000);
+          }, SESSION_STATUS_POLL_INTERVAL_MS);
 
           try {
             let parsedMaxPurchases: number | null = null;
-            const qtyMatch = session.task.match(/(?:buy|purchase|get)\s+(\d+)/i);
+            const qtyMatch = session.task.match(/(?:buy|purchase|get|mua)\s+(\d+)/i);
             if (qtyMatch) {
               parsedMaxPurchases = parseInt(qtyMatch[1], 10);
             }
 
             // Auto-deposit on-chain USDC to Gateway prepaid balance if needed
             await ensureAgentGatewayBalance(session.budget_usdc);
+
+            // Compatibility for sessions stopped by workers released before the
+            // pause-state hotfix. Those workers persisted manual interrupts as
+            // completed, which made the next resume fail immediately.
+            const initialState = session.runtime_state ? { ...session.runtime_state } : undefined;
+            if (initialState?.status === "completed" && initialState?.stopReason === "manual_interrupt") {
+              initialState.status = "paused";
+              initialState.endedAt = null;
+            }
 
             // Support resume: if session.runtime_state exists, pass it as initialState
             await agent.run({
@@ -471,7 +513,9 @@ async function runWorkerLoop() {
               maxPurchases: parsedMaxPurchases,
               pollIntervalSeconds: 5, // Check/buy every 5s instead of default 60s
               executionMode: "live",
-              initialState: session.runtime_state || undefined
+              initialState,
+              ownerWalletAddress: runtimeState.owner_wallet || undefined,
+              runSource: `agent_session_${session.id}`,
             }, ac.signal);
           } finally {
             clearInterval(statusCheckInterval);
@@ -481,10 +525,23 @@ async function runWorkerLoop() {
           // Mark as completed, failed or stopped
           const finalStatus = ac.signal.aborted ? "stopped" : (agent.getState()?.status || "completed");
           await updateSessionState(session.id, agent.getState(), finalStatus);
-        } catch (err) {
-          console.error(`[Worker] Session ${session.id} failed:`, err);
-          await updateSessionState(session.id, agent.getState(), "failed");
+            } catch (err) {
+              console.error(`[Worker] Session ${session.id} failed:`, err);
+              await updateSessionState(session.id, agent.getState(), "failed");
+            }
+          } catch (err) {
+            console.error(`[Worker] Session ${session.id} failed before agent execution:`, err);
+            await updateSessionState(session.id, session.runtime_state || {}, "failed");
+          }
+        });
+
+        if (!started) {
+          console.error(`[Worker] No execution slot available for claimed session ${session.id}.`);
+          await updateSessionState(session.id, session.runtime_state || {}, "failed");
         }
+        // Fill all available slots immediately instead of waiting one poll
+        // interval between successful claims.
+        continue;
       }
     } catch (e) {
       console.error("Worker poll error:", e);

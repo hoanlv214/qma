@@ -124,6 +124,17 @@ The Access column must match the operation's `x-qma-access` value in
 | POST | `/api/v1/wallets/{address}/session` | `signed-payload` | Exchange a wallet signature for a session token |
 | GET | `/api/v1/wallets/{address}/summary` | `public` | Read a public wallet purchase summary |
 
+### Traction response semantics
+
+`GET /api/v1/traction` exposes both `daily_paid` and `daily_settled`.
+`daily_paid` counts complete paid invoices as soon as all required payment legs
+are accepted, including Gateway `received` or `batched` states.
+`daily_settled` is the stricter finality view and only counts groups whose legs
+are `completed`/`confirmed` or have transaction-hash evidence. The summary's
+`pending_batch_reports` and `pending_batch_volume_usdc` are the difference
+between those two projections. Neither projection changes invoice access or
+settlement validation.
+
 ## Documentation maintenance gate
 
 Any change to a route path, method, request/response schema, error status,

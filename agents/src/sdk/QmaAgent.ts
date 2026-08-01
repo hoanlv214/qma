@@ -21,6 +21,8 @@ export interface QmaAgentConfig {
 
 export interface QmaAgentRunOptions extends SessionPolicyInput {
   initialState?: import("../session/state.js").SessionState;
+  ownerWalletAddress?: string;
+  runSource?: string;
 }
 
 function finiteNumber(value: unknown): number {
@@ -73,7 +75,7 @@ export class QmaAgent extends EventEmitter {
               prompt: policy.task,
               budgetUsdc: Math.min(policy.sessionBudgetUsdc, state.remainingBudgetUsdc),
               maxPriceUsdc: policy.maxPricePerReportUsdc,
-              wallet: this.signer?.walletAddress,
+              wallet: options.ownerWalletAddress || this.signer?.walletAddress,
               limit: 25,
             });
             const plan = await planWithLlm(this.decisionGenerator, context);
@@ -124,7 +126,7 @@ export class QmaAgent extends EventEmitter {
 
         const decision = await this.client.getAgentDecision({
           prompt: policy.task,
-          wallet: this.signer?.walletAddress,
+          wallet: options.ownerWalletAddress || this.signer?.walletAddress,
           budget_usdc: policy.sessionBudgetUsdc,
           max_price_usdc: policy.maxPricePerReportUsdc,
           limit: 25,
@@ -147,9 +149,17 @@ export class QmaAgent extends EventEmitter {
             preferred: item.candidate_id === resolved?.candidate_id,
             owned: item.status === "ALREADY_OWNED",
             upgrade: Boolean(item.upgrade),
-            canonical_query: item.canonical_query || (item.candidate_id === resolved?.candidate_id ? decision.canonical_query : undefined),
+            canonical_query: item.canonical_query || (
+              item.candidate_id === resolved?.candidate_id
+                ? decision.canonical_query || resolved?.canonical_query
+                : undefined
+            ),
           }))
-          : resolved ? [{ ...resolved, owned: false, canonical_query: decision.canonical_query }] : [];
+          : resolved ? [{
+            ...resolved,
+            owned: false,
+            canonical_query: decision.canonical_query || resolved.canonical_query,
+          }] : [];
         return {
           candidates: evaluatedCandidates,
           candidateCount: Number(decision.candidate_count || 0),
@@ -182,15 +192,47 @@ export class QmaAgent extends EventEmitter {
         let paymentStarted = false;
         let invoiceAmount = 0;
         let executionSettlements: SettlementProof[] = [];
+        const deliverAfterPayment = async (invoiceId: string, accessToken: string) => {
+          let lastError = "";
+          for (let attempt = 1; attempt <= 3; attempt += 1) {
+            try {
+              const report = await this.client.deliverPaidReport({
+                providerId: candidate.provider_id,
+                tier: candidate.upgrade ? "full" : candidate.tier,
+                invoiceId,
+                accessToken,
+                query: candidate.canonical_query || {},
+              });
+              return {
+                report_unlocked: true,
+                report_summary: {
+                  provider_id: report.provider_id || candidate.provider_id,
+                  tier: report.tier || (candidate.upgrade ? "full" : candidate.tier),
+                  query_symbol: report.query_symbol || candidate.symbol,
+                },
+              };
+            } catch (error) {
+              lastError = error instanceof Error ? error.message : String(error);
+              if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, attempt * 250));
+            }
+          }
+          return {
+            report_unlocked: false,
+            error: `payment_completed_but_delivery_failed: ${lastError}`,
+          };
+        };
         try {
           const createdInvoice = await this.client.createAgentInvoice({
+            ...(candidate.canonical_query || {}),
             candidate_id: candidate.candidate_id,
             provider_id: candidate.provider_id,
             symbol: candidate.symbol,
             tier: candidate.upgrade ? "full" : candidate.tier,
             expected_price_usdc: candidate.price_usdc,
-            buyer_wallet_address: this.signer?.walletAddress || undefined,
-            ...(candidate.canonical_query || {})
+            buyer_wallet_address: options.ownerWalletAddress || this.signer?.walletAddress || undefined,
+            buyer_type: "agent",
+            agent_label: "qma-hosted-worker",
+            run_source: options.runSource,
           }) as AgentInvoice & { invoice_id?: string; invoice_secret?: string };
           if (!createdInvoice.invoice_id || !createdInvoice.invoice_secret) {
             return { status: "failed", error: "Invoice response is missing invoice_id or invoice_secret." };
@@ -218,6 +260,7 @@ export class QmaAgent extends EventEmitter {
           if (!paidInvoiceState(verified)) {
             throw new Error(`Invoice verification returned status ${String(verified?.status || "unknown")} without paid access.`);
           }
+          const delivery = await deliverAfterPayment(createdInvoice.invoice_id, verified.access_token);
           return {
             status: "completed",
             invoice_id: createdInvoice.invoice_id,
@@ -227,13 +270,14 @@ export class QmaAgent extends EventEmitter {
             amount_usdc: invoiceAmount,
             settlement_ids: settlementIds(verified, execution.settlements),
             access_token_received: true,
-            report_unlocked: false,
+            ...delivery,
           };
         } catch (e) {
           if (paymentStarted && invoice?.invoice_id && invoice.invoice_secret) {
             try {
               const reconciled = await this.client.getAgentInvoiceStatus(invoice.invoice_id, invoice.invoice_secret);
               if (paidInvoiceState(reconciled)) {
+                const delivery = await deliverAfterPayment(invoice.invoice_id, reconciled.access_token);
                 return {
                   status: "completed",
                   invoice_id: invoice.invoice_id,
@@ -243,7 +287,7 @@ export class QmaAgent extends EventEmitter {
                   amount_usdc: invoiceAmount,
                   settlement_ids: settlementIds(reconciled, executionSettlements),
                   access_token_received: true,
-                  report_unlocked: false,
+                  ...delivery,
                 };
               }
               throw new Error(

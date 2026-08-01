@@ -114,8 +114,12 @@ export class QmaClient {
     return data as T;
   }
 
-  private async postJson<T>(path: string, payload: unknown): Promise<T> {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
+  private async postJson<T>(
+    path: string,
+    payload: unknown,
+    extraHeaders: Record<string, string> = {},
+  ): Promise<T> {
+    const headers: Record<string, string> = { "Content-Type": "application/json", ...extraHeaders };
     if (this.apiKey) {
       headers["Authorization"] = `Bearer ${this.apiKey}`;
     }
@@ -194,6 +198,21 @@ export class QmaClient {
     return this.getJson(
       `/api/v1/payment/invoices/${encodeURIComponent(invoiceId)}/status`,
       { "X-QMA-Invoice-Secret": invoiceSecret },
+    );
+  }
+
+  async deliverPaidReport(input: {
+    providerId: string;
+    tier: AgentTier;
+    invoiceId: string;
+    accessToken: string;
+    query: Record<string, unknown>;
+  }): Promise<Record<string, unknown>> {
+    const reportPath = input.tier === "preview" ? "preview" : "full-report";
+    return this.postJson(
+      `/api/v1/providers/${encodeURIComponent(input.providerId)}/${reportPath}?invoice_id=${encodeURIComponent(input.invoiceId)}`,
+      input.query,
+      { "X-QMA-Access-Token": input.accessToken },
     );
   }
 }

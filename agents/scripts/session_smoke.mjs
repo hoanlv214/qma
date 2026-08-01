@@ -90,3 +90,47 @@ assert.deepEqual(fallbackPurchases, ["fallback-provider"]);
 assert.equal(fallbackReport.purchase_count, 1);
 assert.equal(fallbackReport.failed_candidate_attempts["funding_memory:SXT:preview"], 1);
 console.log("failed-candidate fallback smoke PASS");
+
+const pausePolicy = normalizeSessionPolicy({
+  task: "pause and resume",
+  sessionBudgetUsdc: 0.01,
+  maxPricePerReportUsdc: 0.005,
+  maxPurchases: 1,
+  pollIntervalSeconds: 1,
+});
+const abortController = new AbortController();
+let pausedState;
+const pausedReport = await runAutonomousSession(pausePolicy, {
+  observe: async () => {
+    abortController.abort();
+    return { candidates: [], candidateCount: 0 };
+  },
+  purchase: async () => ({ status: "failed" }),
+  sleep: async () => {},
+  onStateChange: (state) => { pausedState = structuredClone(state); },
+}, abortController.signal);
+
+assert.equal(pausedReport.status, "paused");
+assert.equal(pausedReport.stop_reason, "manual_interrupt");
+assert.equal(pausedState.status, "paused");
+
+const resumedReport = await runAutonomousSession(pausePolicy, {
+  observe: async () => ({
+    candidateCount: 1,
+    candidates: [{
+      candidate_id: "resume-candidate",
+      provider_id: "funding_memory",
+      symbol: "BTC",
+      tier: "preview",
+      score: 90,
+      price_usdc: 0.001,
+    }],
+  }),
+  purchase: async (candidate) => ({ status: "completed", amount_usdc: candidate.price_usdc, report_unlocked: true }),
+  sleep: async () => {},
+}, pausedState);
+
+assert.equal(resumedReport.status, "completed");
+assert.equal(resumedReport.stop_reason, "max_purchases_reached");
+assert.equal(resumedReport.purchase_count, 1);
+console.log("pause/resume session smoke PASS");

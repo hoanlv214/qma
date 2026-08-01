@@ -69,3 +69,16 @@ không tự động gia hạn.
 3. Kiểm tra idempotency key `(invoice_id, leg_id)` có còn đúng ngữ nghĩa sau khi sửa không.
 4. Không ghi trực tiếp vào state invoice — dùng qua service layer (ast-grep rule: `python-state-invoices-direct-write.yml`).
 5. Nếu confidence Low (theo AGENTS.md) ở bất kỳ bước nào trên — dừng, hỏi lại trước khi sửa.
+
+## Traction projections
+
+The public traction API deliberately keeps two accounting views separate:
+
+- `daily_paid`: complete paid invoices after every required leg is accepted;
+  Gateway `received` and `batched` rows appear here.
+- `daily_settled`: only invoices whose observed legs are final
+  (`completed`/`confirmed`) or carry transaction-hash evidence.
+
+`pending_batch_*` is the difference between these views. This presentation
+layer must never be used to authorize report access and must not weaken the
+two-leg verification, amount/pay-to binding, or idempotency rules above.

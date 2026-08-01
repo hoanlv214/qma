@@ -61,7 +61,7 @@ export function TractionPage({ onNavigate }: TractionPageProps) {
   }, []);
 
   const maxDailyVolume = useMemo(
-    () => Math.max(...(snapshot?.daily_settled.map((day) => day.volume_usdc) || [0]), 0.000001),
+    () => Math.max(...((snapshot?.daily_paid || snapshot?.daily_settled || []).map((day) => day.volume_usdc)), 0.000001),
     [snapshot],
   );
   const summary = snapshot?.summary;
@@ -99,6 +99,7 @@ export function TractionPage({ onNavigate }: TractionPageProps) {
             {[
               ["Paid reports", summary ? compactNumber(summary.current_paid_reports) : "—", "preview + full"],
               ["Settled reports", summary ? compactNumber(summary.settled_reports) : "—", "final gateway state"],
+              ["Pending batch", summary ? compactNumber(summary.pending_batch_reports ?? Math.max(0, summary.current_paid_reports - summary.settled_reports)) : "—", "paid, awaiting finality"],
               ["Current volume", summary ? usdc(summary.current_revenue_usdc) : "—", "recorded report value"],
               ["Settled volume", summary ? usdc(summary.settled_volume_usdc) : "—", "final settlement evidence"],
               ["Unique payers", summary ? compactNumber(summary.unique_payers) : "—", "current reports"],
@@ -129,14 +130,14 @@ export function TractionPage({ onNavigate }: TractionPageProps) {
           <section className="traction-panel">
             <div className="traction-panel-heading">
               <div>
-                <span className="traction-section-label">Settlement activity</span>
-                <h2>Settled · 14 days</h2>
+                <span className="traction-section-label">Payment activity</span>
+                <h2>Paid · 14 days</h2>
               </div>
               <span className="traction-panel-meta">UTC daily aggregation</span>
             </div>
-            <div className="traction-chart" aria-label="Settled volume for the last 14 days">
-              {(snapshot?.daily_settled || Array.from({ length: 14 }, (_, index) => ({ date: String(index), reports: 0, volume_usdc: 0 }))).map((day) => (
-                <div className="traction-bar-wrap" key={day.date} title={`${day.date}: ${usdc(day.volume_usdc)}`}>
+            <div className="traction-chart" aria-label="Paid volume for the last 14 days">
+              {(snapshot?.daily_paid || snapshot?.daily_settled || Array.from({ length: 14 }, (_, index) => ({ date: String(index), reports: 0, volume_usdc: 0 }))).map((day) => (
+                <div className="traction-bar-wrap" key={day.date} title={`${day.date}: ${day.reports} paid reports, ${usdc(day.volume_usdc)}`}>
                   <div className="traction-bar" style={{ height: `${Math.max(3, (day.volume_usdc / maxDailyVolume) * 100)}%` }} />
                 </div>
               ))}

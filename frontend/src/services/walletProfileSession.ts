@@ -103,9 +103,12 @@ export function getWalletSummary(account: string) {
   return requestJson<Record<string, any>>(`/api/v1/wallets/${encodeURIComponent(account)}/summary`);
 }
 
-export function getWalletPayments(account: string, page = 1, pageSize = 10) {
+export function getWalletPayments(account: string, page = 1, pageSize = 10, walletToken = "") {
   const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
-  return requestJson<Record<string, any>>(`/api/v1/wallets/${encodeURIComponent(account)}/payments?${params.toString()}`);
+  return requestJson<Record<string, any>>(
+    `/api/v1/wallets/${encodeURIComponent(account)}/payments?${params.toString()}`,
+    walletToken ? { headers: { "X-QMA-Wallet-Token": walletToken } } : undefined,
+  );
 }
 
 export function getWalletEntitlements(wallet: string) {

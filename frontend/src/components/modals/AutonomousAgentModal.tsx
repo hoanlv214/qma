@@ -9,7 +9,10 @@
 
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { requestJson } from "../../services/api";
-import { requireWalletProfileHeaders } from "../../services/walletProfileSession";
+import {
+  getCachedWalletProfileToken,
+  requestWalletProfileSession,
+} from "../../services/walletProfileSession";
 import { useAgentWalletStore } from "../../state/agentWalletStore";
 
 interface AutonomousAgentModalProps {
@@ -36,10 +39,18 @@ type ChatMessage = {
 
 const STAGE_LABELS = ["Queued", "Research", "Buying", "Finished"];
 
-async function sessionRequest<T>(wallet: string, path: string, init: RequestInit = {}) {
+async function sessionRequest<T>(
+  wallet: string,
+  path: string,
+  init: RequestInit = {},
+  allowSignature = true,
+) {
   const headers = new Headers(init.headers);
-  const authHeaders = await requireWalletProfileHeaders(wallet);
-  Object.entries(authHeaders).forEach(([name, value]) => headers.set(name, value));
+  const walletToken = allowSignature
+    ? await requestWalletProfileSession(wallet)
+    : getCachedWalletProfileToken(wallet);
+  if (!walletToken) throw new Error("Wallet authorization is required for this session action.");
+  headers.set("X-QMA-Wallet-Token", walletToken);
   return requestJson<T>(path, { ...init, headers });
 }
 
@@ -88,8 +99,10 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
   useEffect(() => {
     // 1. On mount, try to find an active session if we don't have one
     if (!sessionId && open && !autoFetchedRef.current && wallet) {
-      autoFetchedRef.current = true;
-      sessionRequest<any[]>(wallet, `/api/v1/sessions?owner_wallet=${wallet}`).then(sessions => {
+      const cachedWalletToken = getCachedWalletProfileToken(wallet);
+      if (cachedWalletToken) {
+        autoFetchedRef.current = true;
+        sessionRequest<any[]>(wallet, `/api/v1/sessions?owner_wallet=${wallet}`, {}, false).then(sessions => {
         const active = sessions.find(s => s.status === "running" || s.status === "queued" || s.status === "stopped");
         if (active) {
           setSessionId(active.id);
@@ -104,7 +117,8 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
             { id: "sys-start", role: "agent", content: "Hi! I'm your Autonomous Background Runner. Tell me what reports you'd like me to purchase, and specify a budget (e.g. 'Buy 3 trending reports under $1.50 USDC')." }
           ]);
         }
-      }).catch(err => console.error("Failed to fetch sessions on mount", err));
+        }).catch(err => console.error("Failed to fetch sessions on mount", err));
+      }
     }
 
     let interval: ReturnType<typeof setInterval>;
@@ -112,7 +126,7 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
     if (sessionId && (status === "queued" || status === "running")) {
       interval = setInterval(async () => {
         try {
-          const data = await sessionRequest<any>(wallet, `/api/v1/sessions/${sessionId}`);
+          const data = await sessionRequest<any>(wallet, `/api/v1/sessions/${sessionId}`, {}, false);
 
           if (data.status !== status) {
             setStatus(data.status);
@@ -559,7 +573,19 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
     // Add user message immediately
     setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: "user", content: userText }]);
 
-    // If session is active or stopped, PATCH it instead of creating a new one
+    // A running worker does not hot-reload task/budget. Refuse the edit instead
+    // of claiming an instruction was applied while the old policy keeps running.
+    if (sessionId && status === "running") {
+      setMessages(prev => [...prev, {
+        id: `sys-stop-first-${Date.now()}`,
+        role: "agent",
+        content: "Stop the current session before changing its instructions. This prevents the running worker from continuing with the old task.",
+      }]);
+      return;
+    }
+
+    // Queued sessions can be edited before claim. Stopped sessions are edited
+    // and then explicitly re-queued so the new instruction actually continues.
     if (sessionId && (status === "queued" || status === "running" || status === "stopped")) {
       let newBudget: number | null = null;
       const budgetMatch = userText.toLowerCase().match(/(?:budget|under|dưới|tối đa|limit|max|price|of|xuống còn|lên)\s*(?:[\$]?)\s*([0-9\.]+)/i);
@@ -581,10 +607,14 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
           method: "PATCH",
           body: JSON.stringify(updatePayload)
         });
+        if (status === "stopped") {
+          await sessionRequest(wallet, `/api/v1/sessions/${sessionId}/resume`, { method: "POST" });
+          setStatus("queued");
+        }
         setMessages(prev => [...prev, {
           id: `sys-${Date.now()}`,
           role: "agent",
-          content: `Got it! I've updated your instructions${newBudget !== null ? ` and set the budget to $${newBudget} USDC` : ''}.`
+          content: `Got it! I've updated your instructions${newBudget !== null ? ` and set the budget to $${newBudget} USDC` : ''}${status === "stopped" ? " and re-queued the session" : ""}.`
         }]);
       } catch (err: any) {
         setMessages(prev => [...prev, { id: `err-${Date.now()}`, role: "agent", content: `❌ Failed to update session: ${err.message}` }]);
