@@ -77,6 +77,8 @@ export function ProfileOrdersPage({ onNavigate }: ProfileOrdersPageProps) {
     return urlParams.get("wallet") || localStorage.getItem("qma_connected_wallet") || "";
   });
   const [walletToken, setWalletToken] = useState("");
+  const [privateProfileUnlocked, setPrivateProfileUnlocked] = useState(false);
+  const [unlockingProfile, setUnlockingProfile] = useState(false);
   const [privacyNotice, setPrivacyNotice] = useState("");
   const tokenRequestRef = useRef<Promise<string> | null>(null);
 
@@ -116,6 +118,8 @@ export function ProfileOrdersPage({ onNavigate }: ProfileOrdersPageProps) {
 
     const handleAccountsChanged = (accounts: any) => {
       const next = accounts && accounts[0] ? String(accounts[0]) : "";
+      setWalletToken("");
+      setPrivateProfileUnlocked(false);
       setWallet(next);
       if (next) {
         localStorage.setItem("qma_connected_wallet", next);
@@ -155,12 +159,14 @@ export function ProfileOrdersPage({ onNavigate }: ProfileOrdersPageProps) {
       const accounts = (await window.ethereum.request({ method: "eth_requestAccounts" })) as any;
       const next = accounts && accounts[0] ? String(accounts[0]) : "";
       if (next) {
+        setWalletToken("");
+        setPrivateProfileUnlocked(false);
         setWallet(next);
         localStorage.setItem("qma_connected_wallet", next);
         const url = new URL(window.location.href);
         url.searchParams.set("wallet", next);
         window.history.replaceState({}, "", url.toString());
-        setPrivacyNotice("Wallet connected. Unlock a paid report only when you want to view its details.");
+        setPrivacyNotice("Wallet connected. Unlock private reports once to view every owned snapshot.");
       }
     } catch (err: any) {
       setPrivacyNotice(err.message || "Failed to connect wallet");
@@ -173,12 +179,14 @@ export function ProfileOrdersPage({ onNavigate }: ProfileOrdersPageProps) {
     }
     setWallet("");
     setWalletToken("");
+    setPrivateProfileUnlocked(false);
     localStorage.removeItem("qma_connected_wallet");
   };
 
   const clearWalletToken = (account: string) => {
     clearWalletProfileSession(account);
     setWalletToken("");
+    setPrivateProfileUnlocked(false);
   };
 
   const cachedWalletToken = (account: string) => {
@@ -186,6 +194,7 @@ export function ProfileOrdersPage({ onNavigate }: ProfileOrdersPageProps) {
     const token = getCachedWalletProfileToken(account);
     if (token) {
       setWalletToken(token);
+      setPrivateProfileUnlocked(true);
     }
     return token;
   };
@@ -200,6 +209,7 @@ export function ProfileOrdersPage({ onNavigate }: ProfileOrdersPageProps) {
       const token = await requestWalletProfileSession(account);
       if (token) {
         setWalletToken(token);
+        setPrivateProfileUnlocked(true);
         setPrivacyNotice("");
       }
       return token;
@@ -274,8 +284,9 @@ export function ProfileOrdersPage({ onNavigate }: ProfileOrdersPageProps) {
         }
       }
       const hasPrivateAccess = payData.access === "private";
+      setPrivateProfileUnlocked(hasPrivateAccess);
       if (!hasPrivateAccess && !isPublicProfile && !privacyNotice) {
-        setPrivacyNotice("Public metadata loaded. Use Unlock report on a paid row to view its private snapshot.");
+        setPrivacyNotice("Public metadata loaded. Unlock private reports once to view every owned snapshot.");
       }
 
       setSummary(sumData);
@@ -472,8 +483,10 @@ export function ProfileOrdersPage({ onNavigate }: ProfileOrdersPageProps) {
 
     setLoadingDetails((prev) => ({ ...prev, [rowId]: true }));
     try {
-      const token = walletToken || await ensureWalletToken(wallet);
-      if (!token) throw new Error("Wallet owner signature required.");
+      // Per-report actions are non-interactive. Only the global profile
+      // unlock button may request a wallet signature.
+      const token = walletToken || getCachedWalletProfileToken(wallet);
+      if (!token) throw new Error("Unlock private reports above before viewing a snapshot.");
       let entitlementId = payment.entitlement_id || "";
 
       // Public profile metadata intentionally omits entitlement identifiers.
@@ -525,6 +538,20 @@ export function ProfileOrdersPage({ onNavigate }: ProfileOrdersPageProps) {
     if ((event.target as HTMLElement).closest("a, button")) return;
     if (hasLegs) {
       setExpandedLegs((prev) => ({ ...prev, [rowId]: !prev[rowId] }));
+    }
+  };
+
+  const unlockPrivateProfile = async () => {
+    if (!wallet || unlockingProfile) return;
+    setUnlockingProfile(true);
+    try {
+      const token = await ensureWalletToken(wallet);
+      if (token) await loadProfile(wallet, currentPage, token);
+    } catch (err: any) {
+      console.warn("Private profile unlock failed", err);
+      setPrivacyNotice(err?.message || "Could not unlock private reports.");
+    } finally {
+      setUnlockingProfile(false);
     }
   };
 
@@ -597,6 +624,22 @@ export function ProfileOrdersPage({ onNavigate }: ProfileOrdersPageProps) {
           </p>
           {privacyNotice ? (
             <p className="profile-hero-desc" style={{ color: "var(--orange)" }}>{privacyNotice}</p>
+          ) : null}
+          {!isPublicProfile && wallet ? (
+            <div style={{ marginTop: 14 }}>
+              <button
+                type="button"
+                className="refresh-btn"
+                onClick={unlockPrivateProfile}
+                disabled={unlockingProfile || privateProfileUnlocked}
+              >
+                {privateProfileUnlocked
+                  ? "Private Reports Unlocked"
+                  : unlockingProfile
+                    ? <Loader label="Unlocking" compact variant="spinner" size="xs" className="button-loader" />
+                    : "Unlock Private Reports"}
+              </button>
+            </div>
           ) : null}
         </section>
 
@@ -704,7 +747,7 @@ export function ProfileOrdersPage({ onNavigate }: ProfileOrdersPageProps) {
                 ) : (
                   payments.map((event, idx) => {
                     const rowId = paymentRowId(event, idx);
-                    const hasReport = !isPublicProfile && Boolean(event.entitlement_id || event.invoice_id);
+                    const hasReport = !isPublicProfile && privateProfileUnlocked && Boolean(event.entitlement_id);
                     const isExpanded = expandedRowId === rowId;
                     const hasLegs = event.is_group && event.legs && event.legs.length > 0;
                     const showLegs = !!expandedLegs[rowId];
@@ -769,10 +812,18 @@ export function ProfileOrdersPage({ onNavigate }: ProfileOrdersPageProps) {
                                   toggleRow(rowId, event);
                                 }}
                               >
-                                {isDetailLoading ? "Unlocking..." : isExpanded ? "Close report" : "Unlock report"}
+                                {isDetailLoading ? "Loading..." : isExpanded ? "Close report" : "View report"}
                               </button>
                             ) : null}
-                            {!hasReport && <div className="row-subtitle">{isPublicProfile ? "Owner only" : "No saved report"}</div>}
+                            {!hasReport && (
+                              <div className="row-subtitle">
+                                {isPublicProfile
+                                  ? "Owner only"
+                                  : !privateProfileUnlocked && event.invoice_id
+                                    ? "Unlock private reports above"
+                                    : "No saved report"}
+                              </div>
+                            )}
                           </td>
                         </tr>
 
