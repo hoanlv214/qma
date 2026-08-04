@@ -107,13 +107,17 @@ The Access column must match the operation's `x-qma-access` value in
 | POST | `/api/v1/providers/{provider_id}/toggle` | `admin` | Enable or disable a provider |
 | POST | `/api/v1/sessions` | `wallet-owner` | Create an autonomous Agent Session |
 | GET | `/api/v1/sessions` | `wallet-owner` | List sessions owned by a wallet |
+| POST | `/api/v1/sessions/acquire-lease` | `internal-worker` | Acquire session tick lease |
 | GET | `/api/v1/sessions/owner/{owner_wallet}/wallet` | `wallet-owner` | Read the owner's Circle Agent Wallet and balances |
 | POST | `/api/v1/sessions/pick` | `internal-worker` | Atomically claim the next queued session |
+| POST | `/api/v1/sessions/reclaim-leases` | `internal-worker` | Reclaim expired session leases |
 | POST | `/api/v1/sessions/withdraw` | `wallet-owner` | Withdraw Agent Wallet USDC to its verified owner |
 | GET | `/api/v1/sessions/{session_id}` | `wallet-or-worker` | Read one Agent Session |
 | DELETE | `/api/v1/sessions/{session_id}` | `wallet-owner` | Delete a wallet-owned Agent Session |
 | PATCH | `/api/v1/sessions/{session_id}` | `wallet-or-worker` | Owner task/budget edit or worker runtime update |
+| POST | `/api/v1/sessions/{session_id}/checkpoint` | `internal-worker` | Checkpoint session tick |
 | POST | `/api/v1/sessions/{session_id}/events` | `internal-worker` | Append a worker event |
+| POST | `/api/v1/sessions/{session_id}/heartbeat` | `internal-worker` | Heartbeat session lease |
 | POST | `/api/v1/sessions/{session_id}/resume` | `wallet-owner` | Resume a stopped session |
 | POST | `/api/v1/sessions/{session_id}/start` | `wallet-owner` | Queue a session |
 | POST | `/api/v1/sessions/{session_id}/stop` | `wallet-owner` | Stop a session |

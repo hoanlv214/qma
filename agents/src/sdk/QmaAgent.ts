@@ -63,11 +63,10 @@ export class QmaAgent extends EventEmitter {
     return this._state;
   }
 
-  async run(options: QmaAgentRunOptions, signal?: AbortSignal): Promise<Record<string, unknown>> {
-    const policy = normalizeSessionPolicy(options);
+  buildDeps(options: QmaAgentRunOptions): SessionDeps {
     const executor = createPaymentExecutor(this.signer);
 
-    const deps: SessionDeps = {
+    return {
       observe: async (state, policy) => {
         if (this.decisionGenerator) {
           try {
@@ -319,7 +318,32 @@ export class QmaAgent extends EventEmitter {
         this.emit("state_change", state);
       }
     };
+  }
 
+  async run(options: QmaAgentRunOptions, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    const policy = normalizeSessionPolicy(options);
+    const deps = this.buildDeps(options);
     return runAutonomousSession(policy, deps, signal, options.initialState);
+  }
+
+  async runTick(options: QmaAgentRunOptions, signal?: AbortSignal): Promise<import("../session/loop.js").TickResult> {
+    const { runSessionTick } = await import("../session/loop.js");
+    const { createSessionState } = await import("../session/state.js");
+    const policy = normalizeSessionPolicy(options);
+    const deps = this.buildDeps(options);
+    const state = createSessionState(policy);
+    if (options.initialState) {
+      Object.assign(state, options.initialState);
+      state.actions = state.actions || [];
+      state.observations = state.observations || [];
+      state.failures = state.failures || [];
+      state.purchasedCandidateIds = state.purchasedCandidateIds || [];
+      state.purchasedEntitlements = state.purchasedEntitlements || [];
+      state.symbolCooldowns = state.symbolCooldowns || {};
+      state.failedCandidateAttempts = state.failedCandidateAttempts || {};
+      state.failedCandidateCooldowns = state.failedCandidateCooldowns || {};
+    }
+    this._state = state;
+    return runSessionTick(policy, deps, state, signal);
   }
 }

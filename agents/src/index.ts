@@ -1,4 +1,4 @@
-export { runAutonomousSession } from "./session/loop.js";
+export { runAutonomousSession, runSessionTick } from "./session/loop.js";
 export { createSessionState } from "./session/state.js";
 export { normalizeSessionPolicy, parseDurationSeconds } from "./session/policy.js";
 export { QmaClient } from "./qma/client.js";
@@ -23,7 +23,7 @@ export type {
 } from "./contracts/index.js";
 export { QmaAgent } from "./sdk/QmaAgent.js";
 export type { QmaAgentConfig, QmaAgentRunOptions } from "./sdk/QmaAgent.js";
-export type { SessionDeps, SessionObservation } from "./session/loop.js";
+export type { SessionDeps, SessionObservation, TickResult } from "./session/loop.js";
 export { planWithLlm, fastParseDecision } from "./planner/llmPlanner.js";
 export type { LlmDecisionGenerator } from "./planner/llmPlanner.js";
 export { candidatePrice, hasEntitlement, validateDecision } from "./policy/validateDecision.js";

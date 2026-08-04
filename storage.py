@@ -381,6 +381,9 @@ class SupabaseStorage:
             return None
         return resp.json()
 
+    def rpc(self, fn_name: str, payload: Optional[dict] = None):
+        return self._request("POST", f"rpc/{fn_name}", json_body=payload or {})
+
     def _upsert(self, table: str, rows: list[dict], conflict: str) -> None:
         if not rows:
             return

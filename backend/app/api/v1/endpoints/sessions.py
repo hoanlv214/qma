@@ -40,6 +40,35 @@ class WalletWithdrawRequest(BaseModel):
             return "non-finite"
         return value
 
+class AcquireLeaseRequest(BaseModel):
+    worker_id: str
+    lease_duration_sec: int = 60
+
+class CheckpointTickRequest(BaseModel):
+    worker_id: str
+    run_generation: int
+    status: str
+    runtime_state: dict
+    next_run_in_sec: int = 15
+
+class HeartbeatLeaseRequest(BaseModel):
+    worker_id: str
+    run_generation: int
+    lease_duration_sec: int = 60
+
+class AcquireLeaseResponse(BaseModel):
+    acquired: bool
+    session: Optional[dict] = None
+
+class CheckpointTickResponse(BaseModel):
+    updated: bool
+
+class HeartbeatLeaseResponse(BaseModel):
+    ok: bool
+
+class ReclaimLeasesResponse(BaseModel):
+    reclaimed_count: int
+
 router = APIRouter(tags=["Agent sessions"])
 ZERO_USER_ID = "00000000-0000-0000-0000-000000000000"
 
@@ -133,6 +162,10 @@ def create_sessions_router(deps) -> APIRouter:
         if row:
             storage._request("PATCH", "agent_sessions", params={"id": f"eq.{session_id}"}, json_body=row)
         return load_session(storage, session_id)
+
+    # =========================================================================
+    # 1. Static / Non-parameterized Session Endpoints (Must be registered FIRST)
+    # =========================================================================
 
     @migrated.post(
         "/api/v1/sessions",
@@ -249,57 +282,50 @@ def create_sessions_router(deps) -> APIRouter:
         resolve_wallet_user_id(storage, normalized_owner, result or [])
         return result or []
 
-    @migrated.get(
-        "/api/v1/sessions/{session_id}",
+    @migrated.post(
+        "/api/v1/sessions/acquire-lease",
+        summary="Acquire session tick lease",
+        description="Acquires an atomic lease on a due session tick for an active Node worker.",
+        response_model=AcquireLeaseResponse,
         tags=["Agent sessions"],
-        response_model=AgentSessionResponse,
-        summary="Read an Agent Session",
-        responses=documented_errors(403, 404, 429, 500, 503),
+        openapi_extra={"x-qma-access": "internal-worker"},
     )
-    def get_session(
-        session_id: str,
-        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
-        internal_secret: Optional[str] = Security(qma_internal_secret_header),
+    def acquire_session_lease_endpoint(
+        body: AcquireLeaseRequest,
+        x_qma_internal_secret: Optional[str] = Security(qma_internal_secret_header),
     ):
-        """Reads a session as either its wallet owner or the authenticated internal worker."""
+        require_internal_secret(x_qma_internal_secret)
         storage = get_storage(deps)
-        session = load_session(storage, session_id)
-        authorize_session(session, qma_wallet_token, internal_secret)
-        return session
-
-    @migrated.delete(
-        "/api/v1/sessions/{session_id}",
-        tags=["Agent sessions"],
-        response_model=AgentSessionDeleteResponse,
-        summary="Delete a wallet-owned Agent Session",
-        responses=documented_errors(403, 404, 429, 500),
-    )
-    def delete_session(
-        session_id: str,
-        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
-    ):
-        """Deletes a session after verifying the wallet bound to that session."""
-        storage = get_storage(deps)
-        session = load_session(storage, session_id)
-        require_wallet_owner(session_owner(session), qma_wallet_token)
         try:
-            # PostgREST DELETE
-            headers = dict(storage.headers)
-            import requests
-            resp = requests.delete(
-                f"{storage.rest_url}/agent_sessions?id=eq.{session_id}",
-                headers=headers,
-                timeout=storage.timeout
-            )
-            if not resp.ok:
-                raise RuntimeError(f"Failed to delete: {resp.text}")
-        except Exception as e:
-            if "returned 40" in str(e):
-                raise HTTPException(status_code=400, detail=str(e))
-            raise HTTPException(status_code=500, detail=str(e))
-            
-        return {"status": "deleted", "id": session_id}
-        
+            rows = storage.rpc("acquire_session_tick_lease", {
+                "p_worker_id": body.worker_id,
+                "p_lease_duration_sec": body.lease_duration_sec,
+            })
+            if not rows:
+                return {"acquired": False, "session": None}
+            return {"acquired": True, "session": rows[0]}
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Acquire lease RPC failed: {exc}")
+
+    @migrated.post(
+        "/api/v1/sessions/reclaim-leases",
+        summary="Reclaim expired session leases",
+        description="Safety sweeper to reclaim expired worker leases back to queue.",
+        response_model=ReclaimLeasesResponse,
+        tags=["Agent sessions"],
+        openapi_extra={"x-qma-access": "internal-worker"},
+    )
+    def reclaim_expired_leases_endpoint(
+        x_qma_internal_secret: Optional[str] = Security(qma_internal_secret_header),
+    ):
+        require_internal_secret(x_qma_internal_secret)
+        storage = get_storage(deps)
+        try:
+            count = storage.rpc("reclaim_expired_leases")
+            return {"reclaimed_count": count or 0}
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Reclaim leases failed: {exc}")
+
     @migrated.post(
         "/api/v1/sessions/pick",
         tags=["Agent sessions"],
@@ -323,129 +349,6 @@ def create_sessions_router(deps) -> APIRouter:
         if not result:
             raise HTTPException(status_code=404, detail="No queued session available")
         return result[0] if isinstance(result, list) else result
-
-    @migrated.patch(
-        "/api/v1/sessions/{session_id}",
-        tags=["Agent sessions"],
-        response_model=AgentSessionResponse,
-        summary="Update an Agent Session",
-        responses=documented_errors(403, 404, 429, 500, 503),
-    )
-    def update_session(
-        session_id: str,
-        req: AgentSessionUpdate,
-        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
-        internal_secret: Optional[str] = Security(qma_internal_secret_header),
-    ):
-        """Lets owners edit task/budget and lets the trusted worker update runtime state/status."""
-        storage = get_storage(deps)
-        session = load_session(storage, session_id)
-        actor = authorize_session(session, qma_wallet_token, internal_secret)
-        if actor == "owner" and (req.status is not None or req.runtime_state is not None):
-            raise HTTPException(status_code=403, detail="Wallet owners must use the session lifecycle endpoints.")
-
-        try:
-            return persist_session_update(storage, session_id, req)
-        except Exception as e:
-            if isinstance(e, HTTPException):
-                raise
-            if "returned 40" in str(e):
-                raise HTTPException(status_code=400, detail=str(e))
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @migrated.post(
-        "/api/v1/sessions/{session_id}/start",
-        tags=["Agent sessions"],
-        response_model=AgentSessionResponse,
-        summary="Queue an Agent Session",
-        responses=documented_errors(403, 404, 429, 500),
-    )
-    def start_session(
-        session_id: str,
-        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
-    ):
-        """Queues a wallet-owned draft or stopped session for worker execution."""
-        storage = get_storage(deps)
-        session = load_session(storage, session_id)
-        require_wallet_owner(session_owner(session), qma_wallet_token)
-        return persist_session_update(storage, session_id, AgentSessionUpdate(status="queued"))
-
-    @migrated.post(
-        "/api/v1/sessions/{session_id}/stop",
-        tags=["Agent sessions"],
-        response_model=AgentSessionResponse,
-        summary="Stop an Agent Session",
-        responses=documented_errors(403, 404, 429, 500),
-    )
-    def stop_session(
-        session_id: str,
-        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
-    ):
-        """Stops a wallet-owned session; the worker observes the state on its next check."""
-        storage = get_storage(deps)
-        session = load_session(storage, session_id)
-        require_wallet_owner(session_owner(session), qma_wallet_token)
-        return persist_session_update(storage, session_id, AgentSessionUpdate(status="stopped"))
-
-    @migrated.post(
-        "/api/v1/sessions/{session_id}/resume",
-        tags=["Agent sessions"],
-        response_model=AgentSessionResponse,
-        summary="Resume an Agent Session",
-        responses=documented_errors(403, 404, 429, 500),
-    )
-    def resume_session(
-        session_id: str,
-        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
-    ):
-        """Moves a stopped wallet-owned session back to the worker queue."""
-        storage = get_storage(deps)
-        session = load_session(storage, session_id)
-        require_wallet_owner(session_owner(session), qma_wallet_token)
-        return persist_session_update(storage, session_id, AgentSessionUpdate(status="queued"))
-
-    from backend.app.schemas.sessions import AgentSessionEventCreate, AgentSessionEventResponse
-
-    @migrated.post(
-        "/api/v1/sessions/{session_id}/events",
-        tags=["Agent sessions"],
-        response_model=AgentSessionEventResponse,
-        summary="Append an Agent Session event",
-        responses=documented_errors(403, 404, 429, 500, 503),
-    )
-    def create_event(
-        session_id: str,
-        req: AgentSessionEventCreate,
-        internal_secret: Optional[str] = Security(qma_internal_secret_header),
-    ):
-        """Appends a worker-authenticated progress or lifecycle event to a session."""
-        require_internal_secret(internal_secret)
-        storage = get_storage(deps)
-        load_session(storage, session_id)
-        row = {
-            "session_id": session_id,
-            "event_type": req.event_type,
-            "payload": req.payload,
-        }
-        try:
-            # We must use POST without id to let identity column generate it
-            storage._request("POST", "agent_session_events", json_body=row)
-        except Exception as e:
-            if "returned 40" in str(e):
-                raise HTTPException(status_code=400, detail=str(e))
-            raise HTTPException(status_code=500, detail=str(e))
-            
-        # PostgREST POST with json_body without returning=representation doesn't return the row.
-        # But we can query it back by getting the latest event for this session.
-        # This is not perfectly atomic for return value, but acceptable for now.
-        result = storage._request("GET", "agent_session_events", params={
-            "session_id": f"eq.{session_id}",
-            "order": "id.desc",
-            "limit": "1"
-        })
-        if not result:
-            raise HTTPException(status_code=500, detail="Failed to retrieve created event")
-        return result[0]
 
     @migrated.post(
         "/api/v1/sessions/withdraw",
@@ -642,5 +545,249 @@ def create_sessions_router(deps) -> APIRouter:
                 "gateway_balance_usdc": gateway_balance
             }
         }
+
+    # =========================================================================
+    # 2. Parameterized Session Endpoints (Must be registered AFTER static paths)
+    # =========================================================================
+
+    @migrated.get(
+        "/api/v1/sessions/{session_id}",
+        tags=["Agent sessions"],
+        response_model=AgentSessionResponse,
+        summary="Read an Agent Session",
+        responses=documented_errors(403, 404, 429, 500, 503),
+    )
+    def get_session(
+        session_id: str,
+        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
+        internal_secret: Optional[str] = Security(qma_internal_secret_header),
+    ):
+        """Reads a session as either its wallet owner or the authenticated internal worker."""
+        storage = get_storage(deps)
+        session = load_session(storage, session_id)
+        authorize_session(session, qma_wallet_token, internal_secret)
+        return session
+
+    @migrated.patch(
+        "/api/v1/sessions/{session_id}",
+        tags=["Agent sessions"],
+        response_model=AgentSessionResponse,
+        summary="Update an Agent Session",
+        responses=documented_errors(403, 404, 429, 500, 503),
+    )
+    def update_session(
+        session_id: str,
+        req: AgentSessionUpdate,
+        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
+        internal_secret: Optional[str] = Security(qma_internal_secret_header),
+    ):
+        """Lets owners edit task/budget and lets the trusted worker update runtime state/status."""
+        storage = get_storage(deps)
+        session = load_session(storage, session_id)
+        actor = authorize_session(session, qma_wallet_token, internal_secret)
+        if actor == "owner" and (req.status is not None or req.runtime_state is not None):
+            raise HTTPException(status_code=403, detail="Wallet owners must use the session lifecycle endpoints.")
+
+        try:
+            return persist_session_update(storage, session_id, req)
+        except Exception as e:
+            if isinstance(e, HTTPException):
+                raise
+            if "returned 40" in str(e):
+                raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @migrated.delete(
+        "/api/v1/sessions/{session_id}",
+        tags=["Agent sessions"],
+        response_model=AgentSessionDeleteResponse,
+        summary="Delete a wallet-owned Agent Session",
+        responses=documented_errors(403, 404, 429, 500),
+    )
+    def delete_session(
+        session_id: str,
+        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
+    ):
+        """Deletes a session after verifying the wallet bound to that session."""
+        storage = get_storage(deps)
+        session = load_session(storage, session_id)
+        require_wallet_owner(session_owner(session), qma_wallet_token)
+        try:
+            # PostgREST DELETE
+            headers = dict(storage.headers)
+            import requests
+            resp = requests.delete(
+                f"{storage.rest_url}/agent_sessions?id=eq.{session_id}",
+                headers=headers,
+                timeout=storage.timeout
+            )
+            if not resp.ok:
+                raise RuntimeError(f"Failed to delete: {resp.text}")
+        except Exception as e:
+            if "returned 40" in str(e):
+                raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=500, detail=str(e))
+
+        return {"status": "deleted", "id": session_id}
+
+    @migrated.post(
+        "/api/v1/sessions/{session_id}/checkpoint",
+        summary="Checkpoint session tick",
+        description="Updates session runtime state and schedules next tick time after worker execution.",
+        response_model=CheckpointTickResponse,
+        tags=["Agent sessions"],
+        openapi_extra={"x-qma-access": "internal-worker"},
+    )
+    def checkpoint_session_tick_endpoint(
+        session_id: str,
+        body: CheckpointTickRequest,
+        x_qma_internal_secret: Optional[str] = Security(qma_internal_secret_header),
+    ):
+        require_internal_secret(x_qma_internal_secret)
+        storage = get_storage(deps)
+        try:
+            res = storage.rpc("checkpoint_session_tick", {
+                "p_session_id": session_id,
+                "p_worker_id": body.worker_id,
+                "p_run_generation": body.run_generation,
+                "p_status": body.status,
+                "p_runtime_state": body.runtime_state,
+                "p_next_run_in_sec": body.next_run_in_sec,
+            })
+            return {"updated": bool(res)}
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Checkpoint RPC failed: {exc}")
+
+    @migrated.post(
+        "/api/v1/sessions/{session_id}/heartbeat",
+        summary="Heartbeat session lease",
+        description="Extends active worker lease expiration time during tick execution.",
+        response_model=HeartbeatLeaseResponse,
+        tags=["Agent sessions"],
+        openapi_extra={"x-qma-access": "internal-worker"},
+    )
+    def heartbeat_session_lease_endpoint(
+        session_id: str,
+        body: HeartbeatLeaseRequest,
+        x_qma_internal_secret: Optional[str] = Security(qma_internal_secret_header),
+    ):
+        require_internal_secret(x_qma_internal_secret)
+        storage = get_storage(deps)
+        try:
+            res = storage.rpc("heartbeat_session_lease", {
+                "p_session_id": session_id,
+                "p_worker_id": body.worker_id,
+                "p_run_generation": body.run_generation,
+                "p_lease_duration_sec": body.lease_duration_sec,
+            })
+            return {"ok": bool(res)}
+        except Exception as exc:
+            return {"ok": False}
+
+    from backend.app.schemas.sessions import AgentSessionEventCreate, AgentSessionEventResponse
+
+    @migrated.post(
+        "/api/v1/sessions/{session_id}/events",
+        tags=["Agent sessions"],
+        response_model=AgentSessionEventResponse,
+        summary="Append an Agent Session event",
+        responses=documented_errors(403, 404, 429, 500, 503),
+    )
+    def create_event(
+        session_id: str,
+        req: AgentSessionEventCreate,
+        internal_secret: Optional[str] = Security(qma_internal_secret_header),
+    ):
+        """Appends a worker-authenticated progress or lifecycle event to a session."""
+        require_internal_secret(internal_secret)
+        storage = get_storage(deps)
+        load_session(storage, session_id)
+        row = {
+            "session_id": session_id,
+            "event_type": req.event_type,
+            "payload": req.payload,
+        }
+        try:
+            # We must use POST without id to let identity column generate it
+            storage._request("POST", "agent_session_events", json_body=row)
+        except Exception as e:
+            if "returned 40" in str(e):
+                raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=500, detail=str(e))
+
+        result = storage._request("GET", "agent_session_events", params={
+            "session_id": f"eq.{session_id}",
+            "order": "id.desc",
+            "limit": "1"
+        })
+        if not result:
+            raise HTTPException(status_code=500, detail="Failed to retrieve created event")
+        return result[0]
+
+    @migrated.post(
+        "/api/v1/sessions/{session_id}/start",
+        tags=["Agent sessions"],
+        response_model=AgentSessionResponse,
+        summary="Queue an Agent Session",
+        responses=documented_errors(403, 404, 429, 500),
+    )
+    def start_session(
+        session_id: str,
+        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
+    ):
+        """Queues a wallet-owned draft or stopped session for worker execution."""
+        storage = get_storage(deps)
+        session = load_session(storage, session_id)
+        require_wallet_owner(session_owner(session), qma_wallet_token)
+        return persist_session_update(storage, session_id, AgentSessionUpdate(status="queued"))
+
+    @migrated.post(
+        "/api/v1/sessions/{session_id}/stop",
+        tags=["Agent sessions"],
+        response_model=AgentSessionResponse,
+        summary="Stop an Agent Session",
+        responses=documented_errors(403, 404, 429, 500),
+    )
+    def stop_session(
+        session_id: str,
+        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
+    ):
+        """Stops a wallet-owned session; invalidates worker lease and generation fence immediately."""
+        storage = get_storage(deps)
+        session = load_session(storage, session_id)
+        require_wallet_owner(session_owner(session), qma_wallet_token)
+        current_gen = session.get("run_generation", 1) or 1
+        try:
+            storage._request("PATCH", f"agent_sessions?id=eq.{session_id}", json_body={
+                "status": "stopped",
+                "lease_owner": None,
+                "lease_expires_at": None,
+                "next_run_at": None,
+                "run_generation": current_gen + 1,
+            })
+            session["status"] = "stopped"
+            session["lease_owner"] = None
+            session["lease_expires_at"] = None
+            session["run_generation"] = current_gen + 1
+            return session
+        except Exception:
+            return persist_session_update(storage, session_id, AgentSessionUpdate(status="stopped"))
+
+    @migrated.post(
+        "/api/v1/sessions/{session_id}/resume",
+        tags=["Agent sessions"],
+        response_model=AgentSessionResponse,
+        summary="Resume an Agent Session",
+        responses=documented_errors(403, 404, 429, 500),
+    )
+    def resume_session(
+        session_id: str,
+        qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
+    ):
+        """Moves a stopped wallet-owned session back to the worker queue."""
+        storage = get_storage(deps)
+        session = load_session(storage, session_id)
+        require_wallet_owner(session_owner(session), qma_wallet_token)
+        return persist_session_update(storage, session_id, AgentSessionUpdate(status="queued"))
 
     return migrated

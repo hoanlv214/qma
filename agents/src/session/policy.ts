@@ -62,11 +62,23 @@ export interface SessionPolicyInput {
 export function parseDurationSeconds(value: string | number | null | undefined): number | null {
   if (value === null || value === undefined || value === "") return null;
   if (typeof value === "number") return Number.isFinite(value) && value >= 0 ? value : null;
-  const match = value.trim().match(/^(\d+(?:\.\d+)?)(s|m|h|d)?$/i);
-  if (!match) return null;
-  const amount = Number(match[1]);
-  const multiplier = { s: 1, m: 60, h: 3600, d: 86400 }[String(match[2] || "s").toLowerCase() as "s" | "m" | "h" | "d"];
-  return amount * multiplier;
+  const str = value.trim();
+  const directMatch = str.match(/^(\d+(?:\.\d+)?)(s|m|h|d)?$/i);
+  if (directMatch) {
+    const amount = Number(directMatch[1]);
+    const multiplier = { s: 1, m: 60, h: 3600, d: 86400 }[String(directMatch[2] || "s").toLowerCase() as "s" | "m" | "h" | "d"];
+    return amount * multiplier;
+  }
+  const textMatch = str.match(/(\d+)\s*(ngày|day|days|giờ|hour|hours|phút|min|minutes|giây|sec|seconds)/i);
+  if (textMatch) {
+    const num = Number(textMatch[1]);
+    const unit = textMatch[2].toLowerCase();
+    if (unit.startsWith("ngày") || unit.startsWith("day")) return num * 86400;
+    if (unit.startsWith("giờ") || unit.startsWith("hour")) return num * 3600;
+    if (unit.startsWith("phút") || unit.startsWith("min")) return num * 60;
+    if (unit.startsWith("giây") || unit.startsWith("sec")) return num;
+  }
+  return null;
 }
 
 export function validateSessionPolicy(policy: SessionPolicy): string[] {
@@ -98,7 +110,7 @@ export function normalizeSessionPolicy(input: SessionPolicyInput): SessionPolicy
     maxPricePerReportUsdc: Number(input.maxPricePerReportUsdc),
     maxPurchases: input.maxPurchases === undefined ? null : input.maxPurchases,
     maxAttempts: input.maxAttempts === undefined ? null : input.maxAttempts,
-    durationSeconds: input.durationSeconds === undefined ? null : input.durationSeconds,
+    durationSeconds: input.durationSeconds !== undefined ? input.durationSeconds : parseDurationSeconds(input.task),
     runOnce: input.runOnce ?? false,
     pollIntervalSeconds: input.pollIntervalSeconds ?? 60,
     allowedProviders: [...new Set(input.allowedProviders?.filter(Boolean) || ["funding_memory", "oi_memory"])],
