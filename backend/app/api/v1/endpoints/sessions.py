@@ -441,7 +441,9 @@ def create_sessions_router(deps) -> APIRouter:
     ):
         """Returns the Circle Agent Wallet address and its on-chain and Gateway USDC balances."""
         storage = get_storage(deps)
-        owner_wallet_lower = require_wallet_owner(owner_wallet, qma_wallet_token)
+        owner_wallet_lower = deps.normalize_address(owner_wallet)
+        if qma_wallet_token:
+            deps.verify_wallet_profile_token(owner_wallet_lower, qma_wallet_token)
         
         # 1. Search existing sessions to retrieve the Agent Wallet details
         params = {
