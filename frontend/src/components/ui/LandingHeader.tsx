@@ -1,5 +1,6 @@
 import React from "react";
 import type { QmaRoute } from "../../app/routes";
+import { QmaLogo } from "./QmaLogo";
 import "../../styles/landing-header.css";
 
 interface LandingHeaderProps {
@@ -10,8 +11,7 @@ export function LandingHeader({ onNavigate }: LandingHeaderProps) {
   return (
     <nav className="landing-nav">
       <a href="/" className="logo-item qma-logo-item" title="QMA" onClick={(e) => e.preventDefault()}>
-        <div className="logo-icon">QM</div>
-        <div className="logo-text">QMA</div>
+        <QmaLogo size={24} />
       </a>
       <div className="landing-nav-links">
         <a className="landing-nav-link" href="/docs" target="_blank" rel="noopener noreferrer">

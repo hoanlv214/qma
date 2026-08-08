@@ -262,8 +262,13 @@ def load_paid_invoices_for_wallet(storage_backend, address: str, normalize_addre
     }
 
 
+from backend.app.services.payment_state_machine import refresh_split_invoice_status
+
+
 def save_invoice(storage_backend, invoice: dict) -> None:
     try:
+        if isinstance(invoice, dict):
+            refresh_split_invoice_status(invoice)
         storage_backend.save_invoice(invoice)
     except Exception as exc:
         logger.warning(f"Could not save invoice: {exc}")

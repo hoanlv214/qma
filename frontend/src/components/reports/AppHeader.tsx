@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { shortAddress } from "../../services/wallet";
+import { QmaLogo } from "../ui/QmaLogo";
 
 interface AppHeaderProps {
   wallet: string;
@@ -32,7 +33,7 @@ export function AppHeader({ wallet, viewMode, metrics, walletRole, ownedProvider
   return <header className="header">
     <div className="logo-section">
       <a href="/" className="logo-item qma-logo-item" title="QMA" onClick={(event) => { event.preventDefault(); onNavigate("landing"); }}>
-        <div className="logo-icon">QM</div><div className="logo-text">QMA</div>
+        <QmaLogo size={24} />
       </a>
       <span className="logo-tag">v1.0.0</span>
     </div>

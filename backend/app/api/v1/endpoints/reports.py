@@ -27,7 +27,6 @@ def create_reports_router(deps: SimpleNamespace) -> APIRouter:
         query: QueryModel,
         invoice_id: str = Query(...),
         qma_access_token: Optional[str] = Security(qma_access_token_header),
-        access_token: Optional[str] = Query(default=None),
     ):
         """Returns a paid provider preview for the exact query snapshot bound to the invoice."""
         try:
@@ -35,7 +34,7 @@ def create_reports_router(deps: SimpleNamespace) -> APIRouter:
                 provider_id=provider_id,
                 query=query,
                 invoice_id=invoice_id,
-                token=qma_access_token or access_token,
+                token=qma_access_token,
                 required_tier="preview",
             )
         except Exception as e:
@@ -56,7 +55,6 @@ def create_reports_router(deps: SimpleNamespace) -> APIRouter:
         query: QueryModel,
         invoice_id: str = Query(...),
         qma_access_token: Optional[str] = Security(qma_access_token_header),
-        access_token: Optional[str] = Query(default=None),
     ):
         """Returns a paid provider full report for the exact query snapshot bound to the invoice."""
         try:
@@ -64,7 +62,7 @@ def create_reports_router(deps: SimpleNamespace) -> APIRouter:
                 provider_id=provider_id,
                 query=query,
                 invoice_id=invoice_id,
-                token=qma_access_token or access_token,
+                token=qma_access_token,
                 required_tier="full",
             )
         except Exception as e:
@@ -85,7 +83,6 @@ def create_reports_router(deps: SimpleNamespace) -> APIRouter:
         query: QueryModel,
         invoice_id: str = Query(...),
         qma_access_token: Optional[str] = Security(qma_access_token_header),
-        access_token: Optional[str] = Query(default=None),
     ):
         """Backward-compatible Funding Memory preview endpoint."""
         return provider_preview_signal(
@@ -93,7 +90,6 @@ def create_reports_router(deps: SimpleNamespace) -> APIRouter:
             query=query,
             invoice_id=invoice_id,
             qma_access_token=qma_access_token,
-            access_token=access_token,
         )
 
     @migrated.post(
@@ -108,7 +104,6 @@ def create_reports_router(deps: SimpleNamespace) -> APIRouter:
         query: QueryModel,
         invoice_id: str = Query(...),
         qma_access_token: Optional[str] = Security(qma_access_token_header),
-        access_token: Optional[str] = Query(default=None),
     ):
         """Backward-compatible Funding Memory full report endpoint."""
         return provider_full_report(
@@ -116,7 +111,6 @@ def create_reports_router(deps: SimpleNamespace) -> APIRouter:
             query=query,
             invoice_id=invoice_id,
             qma_access_token=qma_access_token,
-            access_token=access_token,
         )
 
     return migrated

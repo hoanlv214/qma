@@ -17,6 +17,11 @@
     --accent-dim: rgba(124, 111, 255, 0.12);
     --accent-glow: rgba(124, 111, 255, 0.25);
 
+    /* Logo SVG Gradient tokens */
+    --logo-grad-start: #6745FA;
+    --logo-grad-end: #30FCEB;
+    --logo-gradient: linear-gradient(135deg, #6745FA 0%, #30FCEB 100%);
+
     /* Semantic colors */
     --green: #22d3a0;
     --green-dim: rgba(34, 211, 160, 0.12);
@@ -162,7 +167,7 @@ header {
     width: 26px;
     height: 26px;
     border-radius: 5px;
-    background: var(--accent);
+    background: var(--logo-gradient);
     display: flex;
     align-items: center;
     justify-content: center;

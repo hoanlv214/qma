@@ -41,3 +41,4 @@ __v0_jsx-dev-runtime.ts
 .agents/
 .codex/
 skills-lock.json
+.codegraph

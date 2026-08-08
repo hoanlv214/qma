@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { shortAddress } from "../../services/wallet";
 import type { QmaRoute } from "../../app/routes";
 import { useAgentWalletStore } from "../../state/agentWalletStore";
+import { QmaLogo } from "./QmaLogo";
 
 interface GlobalHeaderProps {
   activePage: QmaRoute;
@@ -88,8 +89,7 @@ export function GlobalHeader({
     <header className="global-header">
       {/* 1. Left - Brand */}
       <a href="/" className="logo-item qma-logo-item" title="QMA" onClick={(e) => { e.preventDefault(); onNavigate("landing"); }}>
-        <div className="logo-icon">QM</div>
-        <div className="logo-text">QMA</div>
+        <QmaLogo size={24} />
       </a>
 
       {/* 2. Center - Navigation */}

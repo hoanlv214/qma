@@ -3,7 +3,10 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import fs from "node:fs";
+
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const packageJson = JSON.parse(fs.readFileSync(path.join(packageRoot, "package.json"), "utf8"));
 const cliPath = path.join(packageRoot, "bin", "qma.js");
 
 function run(args) {
@@ -16,7 +19,7 @@ function run(args) {
 
 const version = run(["--version"]);
 assert.equal(version.status, 0);
-assert.equal(version.stdout.trim(), "2.2.0");
+assert.equal(version.stdout.trim(), packageJson.version);
 
 const help = run(["agent", "run", "--help"]);
 assert.equal(help.status, 0);

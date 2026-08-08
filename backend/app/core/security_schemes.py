@@ -1,6 +1,6 @@
 """OpenAPI security schemes used by the QMA HTTP boundary.
 
-All schemes are non-raising extractors.  Endpoint business logic remains the
+All schemes are non-raising extractors. Endpoint business logic remains the
 source of truth for whether a token is required, including its existing error
 messages and query-parameter fallbacks.
 """
@@ -15,8 +15,7 @@ qma_access_token_header = APIKeyHeader(
     description="""Short-lived JWT granted after a successful invoice settlement. Used to unlock paid report endpoints.
 
 **Retrieval:** A token can be returned by payment verification/status after the invoice reaches the server-accepted paid state.
-**Fallback:** Can be passed via the `access_token` query parameter instead of the header (useful for GET-based downloads or iframe embeds).
-**Enforcement:** Required on the four paid report endpoints and `POST /api/v1/chat`. Missing, invalid, expired, or invoice-mismatched tokens trigger `403 Forbidden`.""",
+**Enforcement:** Required on paid report endpoints and `POST /api/v1/chat` via the `X-QMA-Access-Token` header. Missing, invalid, expired, or invoice-mismatched tokens trigger `403 Forbidden`.""",
 )
 
 qma_wallet_token_header = APIKeyHeader(

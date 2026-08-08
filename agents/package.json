@@ -1,6 +1,6 @@
 {
   "name": "qma-cli",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "license": "MIT",
   "description": "Bounded autonomous buyer-agent CLI and SDK for QMA x402 intelligence reports.",
   "keywords": [

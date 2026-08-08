@@ -150,7 +150,7 @@ def create_sessions_router(deps) -> APIRouter:
             current = load_session(storage, session_id)
             current_state = current.get("runtime_state") if isinstance(current.get("runtime_state"), dict) else {}
             merged_state = {**current_state, **req.runtime_state}
-            for protected_key in ("owner_wallet", "agent_wallet_address", "agent_wallet_id"):
+            for protected_key in ("owner_wallet", "agent_wallet_address", "agent_wallet_id", "user_id"):
                 if protected_key in current_state:
                     merged_state[protected_key] = current_state[protected_key]
             row["runtime_state"] = merged_state
