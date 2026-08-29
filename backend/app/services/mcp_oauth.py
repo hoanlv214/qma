@@ -141,11 +141,14 @@ def create_auth_code(storage, client: dict, owner_wallet: str, caps: dict, pkce_
 
 def redeem_auth_code(storage, client_id: str, code: str, code_verifier: str) -> dict:
     """Single-use exchange: the conditional PATCH claims the code atomically."""
-    rows = _request(storage, 
+    # return=representation is REQUIRED: PostgREST PATCH returns an empty body
+    # by default, and an empty result here would misread as "code not found".
+    rows = _request(storage,
         "PATCH",
         "mcp_auth_codes",
         params={"code": f"eq.{code}", "client_id": f"eq.{client_id}", "used": "eq.false"},
         json_body={"used": True},
+        prefer="return=representation",
     )
     if not rows:
         raise HTTPException(status_code=400, detail="Authorization code is invalid, expired, or already used.")
