@@ -369,6 +369,54 @@ def test_purchase_returns_pending_then_collect_tool_fetches_report(client, monke
     assert collected["entitlement"]["report"]["analogs"] == [7]
 
 
+def test_collect_falls_back_to_newest_entitlement_on_symbol_mismatch(client, monkeypatch):
+    from backend.app.mcp_server import server as mcp_server_module
+
+    monkeypatch.setattr(mcp_server_module, "COLLECT_TIMEOUT_SECONDS", 0.6)
+    monkeypatch.setattr(mcp_server_module, "POLL_INTERVAL_SECONDS", 0.05)
+
+    def handler(method, path, json, headers):
+        if path == "/api/v1/sessions/sess-9" and method == "GET":
+            return 200, {"id": "sess-9", "status": "completed",
+                         "runtime_state": {"status": "completed", "lastPurchaseUsdc": 0.01}}
+        if path == "/api/v1/entitlements/wallet/0x1111111111111111111111111111111111111111":
+            # Planner resolved 1000HNT while the caller asked for HNT.
+            return 200, {"entitlements": [{"entitlement_id": "ent-hnt", "symbol": "1000HNT"}]}
+        if path == "/api/v1/wallets/0x1111111111111111111111111111111111111111/reports/ent-hnt":
+            return 200, {"address": OWNER, "entitlement": {"entitlement_id": "ent-hnt", "report": {"analogs": [42]}}}
+        return None
+
+    client.scripted_api.set_default(handler)
+    collected = tool_text(tool_call(client, "qma_get_purchase", {"session_id": "sess-9", "symbol": "HNT"}))
+    assert collected["entitlement"]["report"]["analogs"] == [42]
+    assert collected["note"].startswith("Matched the newest entitlement")
+
+
+def test_collect_records_spend_exactly_once(client, monkeypatch):
+    from backend.app.mcp_server import server as mcp_server_module
+
+    monkeypatch.setattr(mcp_server_module, "COLLECT_TIMEOUT_SECONDS", 0.3)
+    monkeypatch.setattr(mcp_server_module, "POLL_INTERVAL_SECONDS", 0.05)
+
+    def handler(method, path, json, headers):
+        if path == "/api/v1/sessions/sess-5" and method == "GET":
+            return 200, {"id": "sess-5", "status": "completed",
+                         "runtime_state": {"status": "completed", "lastPurchaseUsdc": 0.05}}
+        if path == "/api/v1/entitlements/wallet/0x1111111111111111111111111111111111111111":
+            return 200, {"entitlements": [{"entitlement_id": "ent-5", "symbol": "BTCUSDT"}]}
+        if path == "/api/v1/wallets/0x1111111111111111111111111111111111111111/reports/ent-5":
+            return 200, {"address": OWNER, "entitlement": {"entitlement_id": "ent-5", "report": {"ok": True}}}
+        return None
+
+    client.scripted_api.set_default(handler)
+    for _ in range(2):
+        result = tool_text(tool_call(client, "qma_get_purchase", {"session_id": "sess-5", "symbol": "BTCUSDT"}))
+        assert result["entitlement"]["report"]["ok"] is True
+    spend_rows = client.oauth_storage.spend
+    assert len(spend_rows) == 1, spend_rows
+    assert float(spend_rows[0]["amount_usdc"]) == 0.05
+
+
 def test_revoked_connection_is_rejected(client):
     client_id = list(client.oauth_storage.connections)[0]
     client.oauth_storage.connections[client_id]["status"] = "revoked"

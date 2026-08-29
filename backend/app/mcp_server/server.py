@@ -188,14 +188,10 @@ def create_mcp_http_app(deps):
         # qma_get_purchase — the purchase keeps running server-side either way.
         deadline = time.time() + PURCHASE_TIMEOUT_SECONDS
         final_status, final_state, report_or_none = await _await_session(
-            deps, headers, connection["wallet"], session_id, symbol.strip().upper(), deadline,
+            deps, storage, connection["client_id"], headers,
+            connection["wallet"], session_id, symbol.strip().upper(), deadline,
         )
         if report_or_none is not None:
-            mcp_oauth.record_spend(
-                storage, connection["client_id"],
-                report_or_none["entitlement_id"],
-                float(final_state.get("lastPurchaseUsdc") or price_cap),
-            )
             return report_or_none["report"]
         if final_status == "completed":
             return {
@@ -220,13 +216,15 @@ def create_mcp_http_app(deps):
         }
 
     async def _await_session(
-        deps, headers, wallet: str, session_id: str, symbol_upper: str, deadline: float,
+        deps, storage, client_id: str, headers, wallet: str,
+        session_id: str, symbol_upper: str, deadline: float,
     ):
         """Poll a purchase session until done or deadline.
 
         Returns (final_status, final_runtime_state, report_or_none) where
-        report_or_none is None unless the session completed AND the report
-        was fetched successfully.
+        report_or_none is None unless the session completed AND a report was
+        resolved. Spend is recorded here (once per entitlement) so purchases
+        collected via qma_get_purchase count toward the connection budget too.
         """
         final_status = "running"
         final_state: Dict[str, Any] = {}
@@ -247,16 +245,31 @@ def create_mcp_http_app(deps):
             "GET", f"/api/v1/entitlements/wallet/{wallet}", headers=headers,
         )
         rows = (entitlements or {}).get("entitlements") or []
-        rows = [row for row in rows if str(row.get("symbol") or "").upper() == symbol_upper]
-        if not rows:
+        matched = [row for row in rows if str(row.get("symbol") or "").upper() == symbol_upper]
+        matched_by = "symbol"
+        if not matched and rows:
+            # The planner may resolve a different trading symbol than the one
+            # the caller asked for (e.g. "HNT" -> "1000HNT"). Fall back to the
+            # newest entitlement rather than reporting a completed buy as lost.
+            matched = [rows[0]]
+            matched_by = "newest_fallback"
+        if not matched:
             return "completed", final_state, None
-        entitlement_id = rows[0].get("entitlement_id")
+        entitlement_id = matched[0].get("entitlement_id")
         status, report = await deps.call_api(
             "GET", f"/api/v1/wallets/{wallet}/reports/{entitlement_id}", headers=headers,
         )
         if status != 200:
             return "completed", final_state, None
-        return final_status, final_state, {"entitlement_id": entitlement_id, "report": report}
+        mcp_oauth.record_spend_once(
+            storage, client_id, entitlement_id,
+            float(final_state.get("lastPurchaseUsdc") or 0),
+        )
+        return final_status, final_state, {
+            "entitlement_id": entitlement_id,
+            "matched_by": matched_by,
+            "report": report,
+        }
 
     @mcp.tool(
         title="Collect a pending purchase",
@@ -271,10 +284,24 @@ def create_mcp_http_app(deps):
         deadline = time.time() + COLLECT_TIMEOUT_SECONDS
         symbol_upper = symbol.strip().upper()
         final_status, final_state, report_or_none = await _await_session(
-            deps, headers, connection["wallet"], session_id.strip(), symbol_upper, deadline,
+            deps, storage, connection["client_id"], headers,
+            connection["wallet"], session_id.strip(), symbol_upper, deadline,
         )
         if report_or_none is not None:
-            return report_or_none["report"]
+            payload_out = report_or_none["report"]
+            if report_or_none.get("matched_by") == "newest_fallback":
+                payload_out = {
+                    "note": "Matched the newest entitlement (planner resolved a different symbol than requested).",
+                    **payload_out,
+                }
+            return payload_out
+        if final_status == "completed":
+            return {
+                "error": "report_not_found",
+                "session_status": final_status,
+                "session_id": session_id,
+                "hint": "Session completed but no entitlement was found. Check qma_check_budget — spend may belong to an earlier purchase.",
+            }
         if final_status in ("failed", "stopped", "poll_failed"):
             return {
                 "error": "purchase_failed",

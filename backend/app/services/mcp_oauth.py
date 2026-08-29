@@ -232,7 +232,7 @@ def touch_connection(storage, client_id: str) -> None:
 
 
 def record_spend(storage, connection_id: str, invoice_id: str, amount_usdc: float) -> None:
-    _request(storage, 
+    storage._request(
         "POST", "mcp_spend_ledger",
         json_body=[{
             "connection_id": connection_id,
@@ -240,6 +240,19 @@ def record_spend(storage, connection_id: str, invoice_id: str, amount_usdc: floa
             "amount_usdc": round(float(amount_usdc), 6),
         }],
     )
+
+
+def record_spend_once(storage, connection_id: str, invoice_id: str, amount_usdc: float) -> bool:
+    """Idempotent spend record: the same report can be collected via the buy
+    tool or the collector tool — count it exactly once per connection."""
+    existing = _request(
+        storage, "GET", "mcp_spend_ledger",
+        params={"connection_id": f"eq.{connection_id}", "invoice_id": f"eq.{invoice_id}", "limit": "1"},
+    )
+    if existing:
+        return False
+    record_spend(storage, connection_id, invoice_id, amount_usdc)
+    return True
 
 
 def spent_for_connection(storage, connection_id: str) -> float:
