@@ -4,10 +4,11 @@ import { requestWalletProfileSession } from "../../services/walletProfileSession
 import { getInjectedWallet } from "../../services/wallet";
 
 // Deep links are opened by cloud AI apps, so they must point at a publicly
-// reachable MCP URL. In dev (API_BASE_URL empty → vite proxy) fall back to
-// the local backend; cloud Claude/ChatGPT cannot reach localhost.
-const MCP_ENDPOINT = API_BASE_URL ? `${API_BASE_URL}/mcp` : "http://localhost:8000/mcp";
-const CLAUDE_DEEP_LINK = `https://claude.ai/new?modal=add-custom-connector&connectorName=QMA&connectorUrl=${encodeURIComponent(MCP_ENDPOINT)}`;
+// reachable HTTPS MCP URL. Priority: VITE_QMA_MCP_PUBLIC_URL (dev tunnel)
+// > API_BASE_URL (production) > localhost (local browser flows only).
+const MCP_ENDPOINT = import.meta.env.VITE_QMA_MCP_PUBLIC_URL
+  || (API_BASE_URL ? `${API_BASE_URL}/mcp` : "http://localhost:8000/mcp");
+const CLAUDE_DEEP_LINK = `https://claude.ai/new?modal=add-custom-connector&connectorName=QMA&connectorUrl=${encodeURIComponent(MCP_ENDPOINT)}#settings/customize-connectors`;
 const CHATGPT_DEEP_LINK = "https://chatgpt.com/plugins#settings/Connectors?create-connector=true&redirectAfter=%2Fplugins";
 
 interface OAuthParams {
@@ -184,10 +185,12 @@ export function AuthorizePage() {
         <p style={{ opacity: 0.6, fontSize: 13, marginTop: 22 }}>
           Or connect your wallet below to review and revoke existing connections.
         </p>
-        <button onClick={() => { getInjectedWallet()?.request<string[]>({ method: "eth_requestAccounts" }).then((accs) => {
-          const active = accs?.[0] ? String(accs[0]).toLowerCase() : "";
-          if (active) { setAccount(active); void loadConnections(active); }
-        }); }} disabled={busy}>
+        <button onClick={() => {
+          getInjectedWallet()?.request<string[]>({ method: "eth_requestAccounts" }).then((accs) => {
+            const active = accs?.[0] ? String(accs[0]).toLowerCase() : "";
+            if (active) { setAccount(active); void loadConnections(active); }
+          });
+        }} disabled={busy}>
           {account ? `Connected: ${account.slice(0, 10)}…${account.slice(-6)}` : "Connect wallet to manage connections"}
         </button>
         {connections.length > 0 && (
