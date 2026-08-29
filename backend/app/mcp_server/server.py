@@ -221,6 +221,9 @@ def create_mcp_http_app(deps):
 
     streamable_app = mcp.streamable_http_app()
 
+    import logging
+    logger = logging.getLogger("qma.mcp")
+
     class BearerAuthMiddleware:
         def __init__(self, app):
             self.app = app
@@ -232,21 +235,25 @@ def create_mcp_http_app(deps):
             headers = {key.decode("latin-1").lower(): value.decode("latin-1") for key, value in scope.get("headers", [])}
             auth = headers.get("authorization", "")
             if not auth.startswith("Bearer "):
-                await self._reject(send)
+                logger.warning("MCP auth rejected (no bearer): %s %s", scope.get("method"), scope.get("path"))
+                await self._reject(send, "missing bearer token")
                 return
             try:
                 payload = mcp_oauth.verify_mcp_access_token(auth[len("Bearer "):].strip())
-            except Exception:
-                await self._reject(send)
+            except Exception as exc:
+                detail = exc.detail if hasattr(exc, "detail") else str(exc)
+                logger.warning("MCP auth rejected (invalid token): %s %s — %s", scope.get("method"), scope.get("path"), detail)
+                await self._reject(send, f"invalid token: {detail}")
                 return
             token = _mcp_payload.set(payload)
             try:
+                logger.info("MCP authed: %s %s (client=%s)", scope.get("method"), scope.get("path"), payload.get("client_id", "")[:16])
                 await self.app(scope, receive, send)
             finally:
                 _mcp_payload.reset(token)
 
         @staticmethod
-        async def _reject(send):
+        async def _reject(send, reason: str):
             body = b'{"error":"invalid_token","message":"A valid MCP connection bearer token is required."}'
             await send({"type": "http.response.start", "status": 401,
                         "headers": [(b"content-type", b"application/json"),
