@@ -67,6 +67,32 @@ def sanitize_caps(raw: Optional[dict], *, max_budget_usdc: float, max_price_cap_
     return caps
 
 
+def _storage_unavailable(exc: RuntimeError) -> HTTPException:
+    """Missing-table (migration not applied) and other storage failures map to
+    a fail-closed 503 with an actionable message instead of a raw 500."""
+    detail = str(exc)
+    if "404" in detail or "PGRST205" in detail or "Could not find the table" in detail:
+        return HTTPException(
+            status_code=503,
+            detail="MCP OAuth storage is not initialized. Apply scripts/migrations/20260826_mcp_oauth.sql in the Supabase SQL editor, then retry.",
+        )
+    return HTTPException(status_code=503, detail=f"MCP OAuth storage is unavailable: {detail[:200]}")
+
+
+def _request(storage, method, table, *, params=None, json_body=None, prefer=""):
+    try:
+        return storage._request(method, table, params=params, json_body=json_body, prefer=prefer)
+    except RuntimeError as exc:
+        raise _storage_unavailable(exc) from exc
+
+
+def _upsert(storage, table, rows, conflict):
+    try:
+        return storage._upsert(table, rows, conflict)
+    except RuntimeError as exc:
+        raise _storage_unavailable(exc) from exc
+
+
 def register_client(storage, client_name: str, redirect_uris: list) -> dict:
     name = str(client_name or "").strip()[:120] or "MCP client"
     uris = [str(uri).strip() for uri in (redirect_uris or []) if str(uri).strip()][:MAX_REDIRECT_URIS]
@@ -77,12 +103,12 @@ def register_client(storage, client_name: str, redirect_uris: list) -> dict:
         "redirect_uris": uris,
         "status": "active",
     }
-    storage._upsert("mcp_connections", [row], conflict="client_id")
+    _upsert(storage, "mcp_connections", [row], conflict="client_id")
     return row
 
 
 def load_client(storage, client_id: str) -> Optional[dict]:
-    rows = storage._request("GET", "mcp_connections", params={"client_id": f"eq.{client_id}", "limit": "1"})
+    rows = _request(storage, "GET", "mcp_connections", params={"client_id": f"eq.{client_id}", "limit": "1"})
     return rows[0] if rows else None
 
 
@@ -92,7 +118,7 @@ def upsert_connection(storage, client_id: str, owner_wallet: str, caps: dict) ->
     if not client or client.get("status") != "active":
         raise HTTPException(status_code=404, detail="Unknown or revoked MCP client.")
     row = {"owner_wallet": owner_wallet, "caps": caps, "status": "active"}
-    storage._request("PATCH", "mcp_connections", params={"client_id": f"eq.{client_id}"}, json_body=row)
+    _request(storage, "PATCH", "mcp_connections", params={"client_id": f"eq.{client_id}"}, json_body=row)
     client.update(row)
     return client
 
@@ -109,13 +135,13 @@ def create_auth_code(storage, client: dict, owner_wallet: str, caps: dict, pkce_
         "used": False,
         "expires_at": _iso_in(AUTH_CODE_TTL_SECONDS),
     }
-    storage._upsert("mcp_auth_codes", [row], conflict="code")
+    _upsert(storage, "mcp_auth_codes", [row], conflict="code")
     return row
 
 
 def redeem_auth_code(storage, client_id: str, code: str, code_verifier: str) -> dict:
     """Single-use exchange: the conditional PATCH claims the code atomically."""
-    rows = storage._request(
+    rows = _request(storage, 
         "PATCH",
         "mcp_auth_codes",
         params={"code": f"eq.{code}", "client_id": f"eq.{client_id}", "used": "eq.false"},
@@ -156,7 +182,7 @@ def verify_mcp_access_token(token: str) -> dict:
 
 
 def list_connections(storage, owner_wallet: str) -> list:
-    rows = storage._request(
+    rows = _request(storage, 
         "GET", "mcp_connections",
         params={"owner_wallet": f"eq.{owner_wallet}", "order": "created_at.desc", "limit": "50"},
     )
@@ -177,12 +203,12 @@ def revoke_connection(storage, owner_wallet: str, client_id: str) -> bool:
     client = load_client(storage, client_id)
     if not client or paid_kit.normalize_address(client.get("owner_wallet") or "") != paid_kit.normalize_address(owner_wallet):
         return False
-    storage._request(
+    _request(storage, 
         "PATCH", "mcp_connections",
         params={"client_id": f"eq.{client_id}"},
         json_body={"status": "revoked"},
     )
-    storage._request("DELETE", "mcp_auth_codes", params={"client_id": f"eq.{client_id}"})
+    _request(storage, "DELETE", "mcp_auth_codes", params={"client_id": f"eq.{client_id}"})
     return True
 
 
@@ -193,7 +219,7 @@ def connection_is_active(storage, client_id: str) -> bool:
 
 def touch_connection(storage, client_id: str) -> None:
     try:
-        storage._request(
+        _request(storage, 
             "PATCH", "mcp_connections",
             params={"client_id": f"eq.{client_id}"},
             json_body={"last_used_at": _iso_in(0)},
@@ -203,7 +229,7 @@ def touch_connection(storage, client_id: str) -> None:
 
 
 def record_spend(storage, connection_id: str, invoice_id: str, amount_usdc: float) -> None:
-    storage._request(
+    _request(storage, 
         "POST", "mcp_spend_ledger",
         json_body=[{
             "connection_id": connection_id,
@@ -214,7 +240,7 @@ def record_spend(storage, connection_id: str, invoice_id: str, amount_usdc: floa
 
 
 def spent_for_connection(storage, connection_id: str) -> float:
-    rows = storage._request(
+    rows = _request(storage, 
         "GET", "mcp_spend_ledger",
         params={"connection_id": f"eq.{connection_id}", "order": "created_at.desc", "limit": "1000"},
     )

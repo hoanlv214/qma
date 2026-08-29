@@ -278,3 +278,52 @@ def test_connections_are_owner_scoped(client):
 
     listed = client.get(f"/api/v1/oauth/connections?owner_wallet={OWNER}", headers=wallet_token()).json()
     assert [row["client_id"] for row in listed["connections"]] == [first["client_id"]]
+
+
+class MissingTableStorage(InMemoryOAuthStorage):
+    """Mimics Supabase before scripts/migrations/20260826_mcp_oauth.sql."""
+
+    def _request(self, method, table, params=None, json_body=None, prefer=""):
+        raise RuntimeError(
+            'Supabase GET mcp_connections returned 404: {"code":"PGRST205",'
+            '"message":"Could not find the table \'public.mcp_connections\' in the schema cache"}'
+        )
+
+    def _upsert(self, table, rows, conflict):
+        raise RuntimeError(
+            'Supabase POST mcp_connections returned 404: {"code":"PGRST205",'
+            '"message":"Could not find the table \'public.mcp_connections\' in the schema cache"}'
+        )
+
+
+def test_missing_migration_returns_actionable_503():
+    storage = MissingTableStorage()
+
+    def verify(address, token):
+        if token != f"token:{address.lower()}":
+            raise HTTPException(status_code=403, detail="nope")
+        return {"wallet": address.lower()}
+
+    from types import SimpleNamespace
+    from fastapi import FastAPI
+    from backend.app.api.v1.endpoints.oauth import create_oauth_router
+
+    app = FastAPI()
+    app.include_router(create_oauth_router(SimpleNamespace(
+        storage_backend=storage,
+        normalize_address=lambda value: str(value).lower(),
+        verify_wallet_profile_token=verify,
+        mcp_token_ttl_seconds=3600,
+        mcp_max_budget_usdc=50.0,
+        mcp_max_price_usdc=5.0,
+        mcp_connect_base_url="http://frontend.test",
+        mcp_api_base_url="https://api.test",
+    )))
+    probe = TestClient(app, raise_server_exceptions=False)
+
+    listed = probe.get(f"/api/v1/oauth/connections?owner_wallet={OWNER}", headers=wallet_token())
+    assert listed.status_code == 503
+    assert "20260826_mcp_oauth.sql" in listed.json()["detail"]
+
+    registered = probe.post("/api/v1/oauth/register", json={"client_name": "X", "redirect_uris": []})
+    assert registered.status_code == 503
