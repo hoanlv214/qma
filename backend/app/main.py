@@ -65,6 +65,12 @@ from backend.app.core.config import (
     ACCESS_TOKEN_SECRET,
     SPLIT_LEG_URL_SECRET,
     SPLIT_RECEIPT_SECRET,
+    # Hosted MCP / OAuth
+    MCP_TOKEN_TTL_SECONDS,
+    MCP_MAX_BUDGET_USDC,
+    MCP_MAX_PRICE_USDC,
+    MCP_CONNECT_BASE_URL,
+    MCP_API_BASE_URL,
     # Admin
     ADMIN_TOKEN,
     ADMIN_WALLET_ADDRESS,
@@ -201,6 +207,7 @@ from backend.app.api.v1.endpoints.health import create_health_router
 from backend.app.api.v1.endpoints.internal import create_internal_router
 from backend.app.api.v1.endpoints.agent import create_agent_router
 from backend.app.api.v1.endpoints.market import create_market_router
+from backend.app.api.v1.endpoints.oauth import create_oauth_router
 from backend.app.api.v1.endpoints.payments import create_payments_router
 from backend.app.api.v1.endpoints.platform import create_platform_router
 from backend.app.api.v1.endpoints.providers import create_providers_router
@@ -393,7 +400,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 
 AUDIENCE_TAGS = {
-    "agent": {"Agent decisioning", "Agent sessions", "Market data", "Provider discovery", "Payments & settlement", "Reports", "System"},
+    "agent": {"Agent decisioning", "Agent sessions", "MCP", "Market data", "Provider discovery", "Payments & settlement", "Reports", "System"},
     "wallet": {"Agent sessions", "Wallet & entitlements", "Traction & analytics", "System", "Payments & settlement", "Creator operations", "Report chat", "Reports"},
     "admin": {"Admin / operations", "Provider discovery", "Traction & analytics", "System", "Internal gateway", "Payments & settlement"},
 }
@@ -1690,3 +1697,17 @@ app.include_router(create_sessions_router(SimpleNamespace(
         address, token, access_token_secret=ACCESS_TOKEN_SECRET,
     ),
 )))
+
+app.include_router(create_oauth_router(SimpleNamespace(
+    storage_backend=storage_backend,
+    normalize_address=paid_kit.normalize_address,
+    verify_wallet_profile_token=lambda address, token: verify_wallet_profile_token_service(
+        address, token, access_token_secret=ACCESS_TOKEN_SECRET,
+    ),
+    mcp_token_ttl_seconds=MCP_TOKEN_TTL_SECONDS,
+    mcp_max_budget_usdc=MCP_MAX_BUDGET_USDC,
+    mcp_max_price_usdc=MCP_MAX_PRICE_USDC,
+    mcp_connect_base_url=MCP_CONNECT_BASE_URL,
+    mcp_api_base_url=MCP_API_BASE_URL,
+)))
+

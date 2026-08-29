@@ -119,6 +119,15 @@ SPLIT_LEG_URL_SECRET = os.getenv("QMA_SPLIT_LEG_URL_SECRET") or f"split-url:{ACC
 SPLIT_RECEIPT_SECRET = os.getenv("QMA_SPLIT_RECEIPT_SECRET") or f"split-receipt:{ACCESS_TOKEN_SECRET}"
 
 # ---------------------------------------------------------------------------
+# Hosted MCP server / OAuth 2.1 for connector clients
+# ---------------------------------------------------------------------------
+MCP_TOKEN_TTL_SECONDS = int(os.getenv("QMA_MCP_TOKEN_TTL_SECONDS", str(30 * 24 * 3600)))
+MCP_MAX_BUDGET_USDC = float(os.getenv("QMA_MCP_MAX_BUDGET_USDC", "50"))
+MCP_MAX_PRICE_USDC = float(os.getenv("QMA_MCP_MAX_PRICE_USDC", "5"))
+MCP_CONNECT_BASE_URL = os.getenv("QMA_MCP_CONNECT_BASE_URL", "http://localhost:5173")
+MCP_API_BASE_URL = os.getenv("QMA_MCP_API_BASE_URL", "http://127.0.0.1:8000")
+
+# ---------------------------------------------------------------------------
 # Admin
 # ---------------------------------------------------------------------------
 ADMIN_TOKEN = os.getenv("QMA_ADMIN_TOKEN", "")

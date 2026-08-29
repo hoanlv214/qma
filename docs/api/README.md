@@ -75,6 +75,7 @@ The Access column must match the operation's `x-qma-access` value in
 
 | Method | Path | Access | Summary |
 | --- | --- | --- | --- |
+| GET | `/.well-known/oauth-authorization-server` | `public` | RFC 8414 OAuth 2.1 metadata for MCP clients |
 | GET | `/api/v1/admin/public-config` | `public` | Read public admin capability hints |
 | POST | `/api/v1/agent/decision` | `public` | Create a bounded purchase decision |
 | GET | `/api/v1/agent/recommendations` | `public` | Rank purchase candidates for an agent |
@@ -90,6 +91,11 @@ The Access column must match the operation's `x-qma-access` value in
 | GET | `/api/v1/health` | `public` | Check API health |
 | GET | `/api/v1/metrics` | `public` | Read landing-page traction metrics |
 | GET | `/api/v1/metrics/wallet/{address}` | `public-optional-auth` | Deprecated wallet metrics alias |
+| POST | `/api/v1/oauth/approve` | `wallet-owner` | Consent-page callback binding an MCP client to the approving wallet (returns single-use code) |
+| GET | `/api/v1/oauth/connections` | `wallet-owner` | List the wallet's connected MCP clients with spend caps |
+| POST | `/api/v1/oauth/register` | `public` | Register an MCP client (RFC 7591 dynamic registration) |
+| POST | `/api/v1/oauth/revoke` | `wallet-owner` | Revoke an MCP connection |
+| POST | `/api/v1/oauth/token` | `public` | Exchange a single-use authorization code (PKCE) for an MCP access token |
 | POST | `/api/v1/payment/invoice` | `public` | Create a provider/query/tier-bound invoice |
 | GET | `/api/v1/payment/invoices/{invoice_id}/status` | `invoice-owner` | Read invoice payment status |
 | POST | `/api/v1/payment/quote` | `public` | Quote a provider-bound report |

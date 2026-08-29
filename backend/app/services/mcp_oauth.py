@@ -1,0 +1,221 @@
+"""OAuth 2.1 (PKCE) authorization-server logic for the hosted QMA MCP server.
+
+Tokens reuse the repo's HMAC access-token format with a dedicated ``mcp``
+scope; PKCE S256 and single-use authorization codes follow the MCP
+authorization spec so Claude/ChatGPT connector flows work unmodified.
+Timestamps are stored as ISO-8601 strings to match the TIMESTAMPTZ columns
+in scripts/migrations/20260826_mcp_oauth.sql.
+"""
+
+import base64
+import hashlib
+import secrets
+import time
+from datetime import datetime, timezone
+from typing import Optional
+
+from fastapi import HTTPException
+
+import paid_intelligence_kit as paid_kit
+
+from backend.app.core.config import ACCESS_TOKEN_SECRET
+
+MCP_OAUTH_SCOPE = "mcp"
+AUTH_CODE_TTL_SECONDS = 600
+MAX_REDIRECT_URIS = 5
+
+
+def _iso_in(seconds: float) -> str:
+    return datetime.fromtimestamp(time.time() + seconds, tz=timezone.utc).isoformat(timespec="seconds")
+
+
+def _epoch_of(value) -> float:
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return 0.0
+
+
+def generate_pkce_challenge(code_verifier: str) -> str:
+    digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+
+def validate_pkce(code_verifier: str, expected_challenge: str) -> bool:
+    if not (43 <= len(code_verifier) <= 128):
+        return False
+    # Constant-time compare keeps timing side channels off the challenge check.
+    return secrets.compare_digest(generate_pkce_challenge(code_verifier), expected_challenge)
+
+
+def sanitize_caps(raw: Optional[dict], *, max_budget_usdc: float, max_price_cap_usdc: float) -> dict:
+    """Clamp user-chosen caps to server-configured ceilings; reject junk."""
+    caps: dict = {}
+    for key, ceiling in (
+        ("max_price_usdc", min(max_price_cap_usdc, max_budget_usdc)),
+        ("budget_usdc", max_budget_usdc),
+    ):
+        try:
+            value = float((raw or {}).get(key) or 0)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"caps.{key} must be a number.")
+        if value < 0:
+            raise HTTPException(status_code=400, detail=f"caps.{key} must be non-negative.")
+        if value > ceiling:
+            value = ceiling
+        caps[key] = round(value, 6)
+    return caps
+
+
+def register_client(storage, client_name: str, redirect_uris: list) -> dict:
+    name = str(client_name or "").strip()[:120] or "MCP client"
+    uris = [str(uri).strip() for uri in (redirect_uris or []) if str(uri).strip()][:MAX_REDIRECT_URIS]
+    client_id = "qma_" + secrets.token_urlsafe(24)
+    row = {
+        "client_id": client_id,
+        "client_name": name,
+        "redirect_uris": uris,
+        "status": "active",
+    }
+    storage._upsert("mcp_connections", [row], conflict="client_id")
+    return row
+
+
+def load_client(storage, client_id: str) -> Optional[dict]:
+    rows = storage._request("GET", "mcp_connections", params={"client_id": f"eq.{client_id}", "limit": "1"})
+    return rows[0] if rows else None
+
+
+def upsert_connection(storage, client_id: str, owner_wallet: str, caps: dict) -> dict:
+    """Bind (or re-bind) a registered client to the approving wallet."""
+    client = load_client(storage, client_id)
+    if not client or client.get("status") != "active":
+        raise HTTPException(status_code=404, detail="Unknown or revoked MCP client.")
+    row = {"owner_wallet": owner_wallet, "caps": caps, "status": "active"}
+    storage._request("PATCH", "mcp_connections", params={"client_id": f"eq.{client_id}"}, json_body=row)
+    client.update(row)
+    return client
+
+
+def create_auth_code(storage, client: dict, owner_wallet: str, caps: dict, pkce_challenge: str, redirect_uri: str = "") -> dict:
+    code = secrets.token_urlsafe(48)
+    row = {
+        "code": code,
+        "client_id": client["client_id"],
+        "owner_wallet": owner_wallet,
+        "caps": caps,
+        "pkce_challenge": pkce_challenge,
+        "redirect_uri": redirect_uri,
+        "used": False,
+        "expires_at": _iso_in(AUTH_CODE_TTL_SECONDS),
+    }
+    storage._upsert("mcp_auth_codes", [row], conflict="code")
+    return row
+
+
+def redeem_auth_code(storage, client_id: str, code: str, code_verifier: str) -> dict:
+    """Single-use exchange: the conditional PATCH claims the code atomically."""
+    rows = storage._request(
+        "PATCH",
+        "mcp_auth_codes",
+        params={"code": f"eq.{code}", "client_id": f"eq.{client_id}", "used": "eq.false"},
+        json_body={"used": True},
+    )
+    if not rows:
+        raise HTTPException(status_code=400, detail="Authorization code is invalid, expired, or already used.")
+    record = rows[0]
+    if _epoch_of(record.get("expires_at")) < time.time():
+        raise HTTPException(status_code=400, detail="Authorization code has expired. Restart the connector flow.")
+    if not validate_pkce(str(code_verifier or ""), str(record.get("pkce_challenge") or "")):
+        raise HTTPException(status_code=400, detail="PKCE verification failed.")
+    return {
+        "owner_wallet": record["owner_wallet"],
+        "caps": record.get("caps") or {},
+    }
+
+
+def issue_mcp_access_token(*, owner_wallet: str, client_id: str, caps: dict, ttl_seconds: int) -> dict:
+    payload = {
+        "scope": MCP_OAUTH_SCOPE,
+        "wallet": owner_wallet,
+        "client_id": client_id,
+        "caps": caps,
+    }
+    token = paid_kit.sign_access_token(payload, secret=ACCESS_TOKEN_SECRET, ttl_seconds=ttl_seconds)
+    return {"access_token": token, "token_type": "Bearer", "expires_in": ttl_seconds, "scope": MCP_OAUTH_SCOPE}
+
+
+def verify_mcp_access_token(token: str) -> dict:
+    try:
+        payload = paid_kit.verify_access_token(token or "", secret=ACCESS_TOKEN_SECRET)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    if payload.get("scope") != MCP_OAUTH_SCOPE or not payload.get("wallet"):
+        raise HTTPException(status_code=403, detail="Token is not an MCP connection token.")
+    return payload
+
+
+def list_connections(storage, owner_wallet: str) -> list:
+    rows = storage._request(
+        "GET", "mcp_connections",
+        params={"owner_wallet": f"eq.{owner_wallet}", "order": "created_at.desc", "limit": "50"},
+    )
+    return [
+        {
+            "client_id": row.get("client_id"),
+            "client_name": row.get("client_name"),
+            "caps": row.get("caps") or {},
+            "status": row.get("status"),
+            "created_at": row.get("created_at"),
+            "last_used_at": row.get("last_used_at"),
+        }
+        for row in rows
+    ]
+
+
+def revoke_connection(storage, owner_wallet: str, client_id: str) -> bool:
+    client = load_client(storage, client_id)
+    if not client or paid_kit.normalize_address(client.get("owner_wallet") or "") != paid_kit.normalize_address(owner_wallet):
+        return False
+    storage._request(
+        "PATCH", "mcp_connections",
+        params={"client_id": f"eq.{client_id}"},
+        json_body={"status": "revoked"},
+    )
+    storage._request("DELETE", "mcp_auth_codes", params={"client_id": f"eq.{client_id}"})
+    return True
+
+
+def connection_is_active(storage, client_id: str) -> bool:
+    client = load_client(storage, client_id)
+    return bool(client) and client.get("status") == "active"
+
+
+def touch_connection(storage, client_id: str) -> None:
+    try:
+        storage._request(
+            "PATCH", "mcp_connections",
+            params={"client_id": f"eq.{client_id}"},
+            json_body={"last_used_at": _iso_in(0)},
+        )
+    except Exception:
+        pass
+
+
+def record_spend(storage, connection_id: str, invoice_id: str, amount_usdc: float) -> None:
+    storage._request(
+        "POST", "mcp_spend_ledger",
+        json_body=[{
+            "connection_id": connection_id,
+            "invoice_id": invoice_id,
+            "amount_usdc": round(float(amount_usdc), 6),
+        }],
+    )
+
+
+def spent_for_connection(storage, connection_id: str) -> float:
+    rows = storage._request(
+        "GET", "mcp_spend_ledger",
+        params={"connection_id": f"eq.{connection_id}", "order": "created_at.desc", "limit": "1000"},
+    )
+    return round(sum(float(row.get("amount_usdc") or 0) for row in rows), 6)
