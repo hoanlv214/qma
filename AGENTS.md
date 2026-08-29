@@ -1,44 +1,32 @@
 # QMA Agent Notes
 
-## Trạng thái repo — đọc trước khi làm bất kỳ việc gì
+## Repository Status — Read Before Starting Work
 
-Repo có 2 branch đang mô tả 2 thực tại khác nhau:
+The repo has 2 branches representing different targets:
 
-- **`main`** — đang **live** và là **nhánh triển khai trực tiếp hiện tại** cho tính năng Ví Tự trị (Agent Wallet) của người dùng. Backend chạy trên Render trỏ vào `main.py` root.
-- **`frontend/vite-react-rebuild`** — branch đang code song song (rebuild).
+- **`main`** — **live** and the **active deployment branch** for the autonomous agent wallet and user features. The backend runs on Render pointing to the root `main.py` shim.
+- **`frontend/vite-react-rebuild`** — parallel rebuild development branch.
 
-Trước khi sửa file, xác định đang ở branch nào (`git branch --show-current` nếu không chắc) và áp dụng đúng phần tương ứng. Theo yêu cầu của user, các tính năng mới cho ví Agent (User-funded) và rút tiền (Withdraw) đang được triển khai trực tiếp trên nhánh `main`.
+Before modifying files, confirm the current branch (`git branch --show-current`) and apply guidelines accordingly. User-funded Agent Wallet and withdrawal features are deployed directly on `main`.
 
-`arc_gateway/` là service Node/TS độc lập, đã deploy ổn định riêng trên
-Render — ngoài phạm vi agent này, không đụng vào trừ khi được yêu cầu rõ.
+`arc_gateway/` is an independent Node/TS service, stably deployed on Render — out of scope for this agent, do not touch unless explicitly instructed.
 
-## Quan hệ main.py / backend/app — đã xác nhận với người dùng
+## Relationship: `main.py` vs `backend/app`
 
-`backend/app/` là nguồn sự thật của logic thật (đã tách xong, không phải
-"đang decompose"). Root `main.py` hiện tại là một **shim/wrapper**: gọi vào
-`backend.app` bên trong, tồn tại để Render tiếp tục chạy được mà không cần
-đổi start command — không phải bản logic độc lập song song.
+`backend/app/` is the authoritative source of truth for backend logic. The root `main.py` is a **shim/wrapper** calling into `backend.app`, preserving Render compatibility without changing start commands.
 
-⚠️ **Chưa xác nhận đầy đủ**: shim này có tương thích ngược hoàn toàn với API
-cũ (route paths, response keys) mà Render config / frontend legacy đang phụ
-thuộc hay không, người dùng cũng chưa chắc chắn 100%. Trước khi:
-- xóa `main.py` root,
-- đổi Render start command trỏ thẳng `backend/app/main.py`,
-- hoặc đổi bất kỳ route path / response schema nào trong `backend/app/`,
+⚠️ **Compatibility Notice**: Before:
+- Deleting the root `main.py`,
+- Changing Render start command to point directly to `backend/app/main.py`,
+- Or altering any route path / response schema in `backend/app/`,
 
-→ bắt buộc kiểm tra `render.yaml` và xác nhận với người dùng trước, không tự
-suy đoán là an toàn.
+→ Always verify `render.yaml` and confirm with the user beforehand.
 
-`main_ref.py` là legacy reference snapshot — **không chạy, không được import
-bởi bất kỳ đâu**, chỉ để đối chiếu logic khi rebuild. Không sửa, không xóa.
+`main_ref.py` is a legacy reference snapshot — **do not run, do not import, do not modify, do not delete**. It serves strictly for comparison during rebuilds.
 
-## Needs verification
+## Needs Verification
 
-- Nguồn sự thật dữ liệu: `paid_reports.json` / `payment_ledger.json` (JSON
-  file ở root) **vs** Supabase (có `scripts/migrate_json_to_supabase.py`,
-  `scripts/repair_supabase_payments.py`, backup trong `exports/`). Xác nhận
-  với người dùng trước khi sửa logic đọc/ghi trong
-  `backend/app/repositories/storage.py`.
+- Data source of truth: `paid_reports.json` / `payment_ledger.json` (root JSON files) **vs** Supabase (see `scripts/migrate_json_to_supabase.py`, `scripts/repair_supabase_payments.py`, backups in `exports/`). Confirm before altering read/write logic in `backend/app/repositories/storage.py`.
 
 ## Code Search And Refactor Tooling
 
@@ -65,109 +53,88 @@ QMA-specific reminders:
 - Payment logic is sensitive. Before changing invoice status, settlement verification, split legs, or access tokens, scan for `save_invoice`, `save_payment_ledger`, and payment-required exceptions.
 - Keep public API paths and response keys stable during the migration.
 
-## Vùng nhạy cảm (payment/x402)
+## Sensitive Areas (payment/x402)
 
 `backend/app/services/`: `payment_state_machine.py`, `x402_gateway.py`,
 `settlement_validation.py`, `payment_signing.py`, `payment_ledger.py`,
 `invoice_builder.py`, `creator_claims.py`.
 
-Trước khi sửa bất kỳ file nào ở trên: đọc `docs/agent/PAYMENT_FLOW.md`
-trước, không đoán invoice lifecycle hay idempotency rule từ code một mình.
-Không ghi trực tiếp vào state invoice — dùng qua service layer (đúng tinh
-thần ast-grep rule đã tồn tại: `python-state-invoices-direct-write.yml`).
+Before modifying any file listed above: read `docs/agent/PAYMENT_FLOW.md` first, do not infer invoice lifecycle or idempotency rules from code alone. Never write directly to invoice state — always go through the service layer (per ast-grep rule: `python-state-invoices-direct-write.yml`).
 
 ## Work Protocol
 
-Với mọi task không tầm thường (non-trivial):
+For all non-trivial tasks:
 
-1. **Inspect** — xác định branch, đọc `AGENTS.md` liên quan (root + nested nếu có).
-2. **Locate source of truth** — file/module thật sự chứa logic cần sửa.
-3. **Locate callers** — ai gọi tới đoạn code này.
-4. **Locate consumers** — ai phụ thuộc vào output/behavior của nó.
-5. **Determine smallest change** — phạm vi sửa nhỏ nhất giải quyết đúng vấn đề.
-6. **Verify** — chạy lint/build/test liên quan.
-7. **Summarize** — liệt kê file đã đổi, đã verify gì, rủi ro còn lại chưa kiểm chứng.
-8. **Branch check** - check branch hiện tại 
+1. **Inspect** — check active branch, review relevant `AGENTS.md` (root + nested if applicable).
+2. **Locate source of truth** — module/file genuinely housing the target logic.
+3. **Locate callers** — identify upstream invocations.
+4. **Locate consumers** — identify downstream consumers of the outputs/behavior.
+5. **Determine smallest change** — minimal intervention solving the problem safely.
+6. **Verify** — run relevant lint/build/test commands.
+7. **Summarize** — list modified files, verification results, and residual risks.
+8. **Branch check** — confirm active branch before and after changes.
 
-Không bắt đầu bằng quét toàn bộ repo. Dừng tìm kiếm ngay khi đã biết: source
-of truth, callers, tests liên quan, và cách verify — không đọc thêm ngoài
-phạm vi đó.
+Stop searching as soon as source of truth, callers, relevant tests, and verification methods are known.
 
-## Confidence trước khi sửa
+## Confidence Assessment
 
-Trước khi bắt đầu edit, tự đánh giá và nêu rõ:
+Before starting edits, evaluate and state:
 
-- **High** — source of truth rõ ràng, đã xác định callers/consumers, không có
-  bản implementation cạnh tranh nào khác. Có thể sửa.
-- **Medium** — hiểu phần lớn nhưng còn 1 điểm chưa chắc (ví dụ: chưa chắc file
-  này có phải bản đang chạy thật hay không). Nêu rõ điểm chưa chắc, hỏi lại
-  nếu ảnh hưởng tới quyết định sửa.
-- **Low** — tìm thấy nhiều implementation cạnh tranh nhau, hoặc chưa xác định
-  được đâu là nguồn sự thật. **Không sửa.** Inspect thêm hoặc hỏi người dùng
-  trước khi động vào code.
+- **High** — source of truth clear, callers/consumers identified, no conflicting implementations. Proceed.
+- **Medium** — mostly clear with one ambiguity. Clarify ambiguity; consult user if it affects decisions.
+- **Low** — competing implementations found or source of truth ambiguous. **Do not modify.** Inspect further or consult user.
 
 ## Scope Control
 
-Không được, trừ khi người dùng yêu cầu rõ ràng:
-- dọn dẹp/refactor file không liên quan tới task đang làm ("tiện đây sửa luôn")
-- đổi tên symbol trên phạm vi toàn repo
-- format lại toàn bộ file khi chỉ cần sửa vài dòng
-- thay đổi kiến trúc/migrate cấu trúc thư mục
-- sửa cả legacy (`main`) và rebuild trong cùng một lượt
+Do not, unless explicitly requested:
+- Clean up/refactor unrelated files
+- Global symbol renaming across the entire repository
+- Reformat whole files when editing a few lines
+- Alter directory architecture or migrate layouts
+- Modify both legacy (`main`) and rebuild concurrently in one pass
 
 ## Verification
 
-Chạy các lệnh kiểm tra thật sự tồn tại trong repo trước khi báo là xong —
-không claim "đã pass" nếu chưa thực sự chạy lệnh. Nếu không có lệnh
-lint/test phù hợp, nói rõ là chưa verify được và tại sao.
+Execute real validation commands available in the repo before marking tasks complete — never claim tests pass without running them. If tests are unavailable, state what was unverified and why.
 
-## Quy trình làm việc (tổng quát)
+## General Workflow Protocol
 
-1. Xác định đang ở branch nào.
-2. Xác định phạm vi nhỏ nhất cần sửa.
-3. Nếu chạm vùng nhạy cảm ở trên → dừng, báo cáo rủi ro trước khi sửa.
-4. Nếu confidence Low → dừng, không đoán.
-5. Sửa tối thiểu, không refactor lan man ngoài phạm vi yêu cầu.
-6. Không chạy git command phá hủy (`reset --hard`, `clean -fd`) trừ khi được yêu cầu rõ ràng.
+1. Confirm the active git branch.
+2. Determine the minimal scope needed.
+3. If touching sensitive areas above → pause, report risks first.
+4. If confidence is Low → pause, do not speculate.
+5. Apply minimal edits; avoid unfocused refactoring.
+6. Never run destructive git commands (`reset --hard`, `clean -fd`) unless explicitly instructed.
 
-## API documentation gate
+## API Documentation Gate
 
-Whenever an API route, method, request/response field, status code,
-authentication rule, audience, or deprecation state changes:
+Whenever an API route, method, request/response field, status code, authentication rule, audience, or deprecation state changes:
 
-1. Update the endpoint's OpenAPI summary/description, response models, errors,
-   `x-qma-access`, and `x-qma-audiences` as applicable.
+1. Update the endpoint's OpenAPI summary/description, response models, errors, `x-qma-access`, and `x-qma-audiences` as applicable.
 2. Update the complete inventory in `docs/api/README.md`.
-3. Update the related flow/security document listed by the maintenance section
-   in that file.
+3. Update the related flow/security document listed by the maintenance section in that file.
 4. Run `python -m pytest tests/api_v1/test_api_openapi_docs.py -q`.
 5. If `/docs` presentation changed, also run the frontend production build.
 
-Do not report an API contract change complete while this documentation gate is
-failing.
+Do not report an API contract change complete while this documentation gate is failing.
 
-## Documentation loading policy
+## Documentation Loading Policy
 
 Load additional documentation only when required.
 
 Frontend UI work:
-
-- frontend/AGENTS.md only
+- `frontend/AGENTS.md` only
 
 Backend API work:
-
-- backend/AGENTS.md only
+- `backend/AGENTS.md` only
 
 Payment:
-
-- PAYMENT_FLOW.md
+- `PAYMENT_FLOW.md`
 
 Legacy migration:
-
-- LEGACY_PARITY_MATRIX.md
+- `LEGACY_PARITY_MATRIX.md`
 
 Deployment:
-
-- DEPLOYMENT_SETUP.md
+- `DEPLOYMENT_SETUP.md`
 
 Do not load unrelated documentation.

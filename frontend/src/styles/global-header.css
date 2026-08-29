@@ -496,7 +496,7 @@
   }
 
   .global-nav-center {
-    /* Màn hình nhỏ thì đẩy Nav xuống dưới cùng màn hình (Bottom Navigation) */
+    /* Push Nav to bottom on small viewports (Bottom Navigation) */
     position: fixed;
     bottom: 0;
     left: 0;

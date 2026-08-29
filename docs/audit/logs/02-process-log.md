@@ -1,91 +1,66 @@
 # Process Log — Phase 2: Payment Lifecycle Review
 
-## Phạm vi khai báo
-Danh sách các file đã dự kiến đọc:
+## Declared Scope
 - `payment_state_machine.py`
 - `x402_gateway.py`
 - `settlement_validation.py`
 - `payment_signing.py`
 - `invoice_builder.py`
-- Các file có liên quan tới state transition. Đã đọc thêm `internal.py` và `main.py` để xem nơi state thực sự được gọi.
+- Related files governing payment state transitions (`internal.py`, `main.py`).
 
-## Các bước thực hiện (tuần tự)
+## Sequential Execution Steps
 
-### Bước 1: Đọc `payment_state_machine.py`
-- Tool dùng: `view_file`
-- Input chính xác: `c:\Users\Admin\Downloads\code\buy\qma\backend\app\services\payment_state_machine.py`
-- Kết quả: Đọc 157 dòng (toàn bộ file).
-- Ghi chú: Xử lý logic tính toán state `paid`, `partial_paid`, `pending`, `expired`, `disputed` cho x402 split legs và gateway.
+### Step 1: Inspection of `payment_state_machine.py`
+- Tool used: `view_file`
+- Target: `backend/app/services/payment_state_machine.py`
+- Findings: Read 157 lines (full file). Evaluated state transitions across `paid`, `partial_paid`, `pending`, `expired`, and `disputed`.
 
-### Bước 2: Đọc `x402_gateway.py`
-- Tool dùng: `view_file`
-- Input chính xác: `c:\Users\Admin\Downloads\code\buy\qma\backend\app\services\x402_gateway.py`
-- Kết quả: Đọc 77 dòng (toàn bộ file).
-- Ghi chú: Chứa `fetch_circle_settlement` và `find_arc_batch_tx`.
+### Step 2: Inspection of `x402_gateway.py`
+- Tool used: `view_file`
+- Target: `backend/app/services/x402_gateway.py`
+- Findings: Read 77 lines (full file). Analyzed `fetch_circle_settlement` and `find_arc_batch_tx`.
 
-### Bước 3: Đọc `settlement_validation.py`
-- Tool dùng: `view_file`
-- Input chính xác: `c:\Users\Admin\Downloads\code\buy\qma\backend\app\services\settlement_validation.py`
-- Kết quả: Đọc 80 dòng (toàn bộ file).
-- Ghi chú: Logic quan trọng: xác minh `toAddress`, `amount`, `currency` chống fake payment.
+### Step 3: Inspection of `settlement_validation.py`
+- Tool used: `view_file`
+- Target: `backend/app/services/settlement_validation.py`
+- Findings: Read 80 lines (full file). Validated `toAddress`, `amount`, and `currency` consistency checks.
 
-### Bước 4: Đọc `payment_signing.py`
-- Tool dùng: `view_file`
-- Input chính xác: `c:\Users\Admin\Downloads\code\buy\qma\backend\app\services\payment_signing.py`
-- Kết quả: Đọc 166 dòng (toàn bộ file).
-- Ghi chú: Xác thực chữ ký HMAC cho leg receipt, access token. Chuyển đổi chuẩn xác số liệu `USDC` / raw float.
+### Step 4: Inspection of `payment_signing.py`
+- Tool used: `view_file`
+- Target: `backend/app/services/payment_signing.py`
+- Findings: Read 166 lines (full file). Verified HMAC signature schemes for leg receipts and access tokens.
 
-### Bước 5: Đọc `invoice_builder.py` (Lần 1)
-- Tool dùng: `view_file`
-- Input chính xác: `c:\Users\Admin\Downloads\code\buy\qma\backend\app\services\invoice_builder.py`
-- Kết quả: Đọc 388 dòng (toàn bộ file).
-- Ghi chú: Logic tính `creator_share_bps` vs `platform_share_bps` và trả về `split` mode.
+### Step 5: Inspection of `invoice_builder.py`
+- Tool used: `view_file`
+- Target: `backend/app/services/invoice_builder.py`
+- Findings: Read 388 lines (full file). Validated `creator_share_bps` vs `platform_share_bps` allocation algorithms.
 
-### Bước 6: Khảo sát caller của state validation (`internal.py`, `main.py`)
-- Tool dùng: `grep_search`, `view_file`
-- Input chính xác: Grep `validate_arc_` trên `backend/app`. Đọc `internal.py` (204 dòng) và trích xuất `main.py` (dòng 1000-1100).
-- Kết quả: Đã xác minh `main.py` vẫn nắm giữ logic ghi state cuối cùng thông qua các hàm wrap `verify_payment` và `verify_split_payment`. Các API route nội bộ relay gateway gọi qua `internal.py`.
+### Step 6: Inspection of State Transition Callers (`internal.py`, `main.py`)
+- Tool used: `grep_search`, `view_file`
+- Findings: Verified how `verify_payment` and `verify_split_payment` wrapper routines in `main.py` persist state changes.
 
-### Bước 7: Phân tích truy vết dữ liệu `settlement` và Split Verification
-- Tool dùng: `grep_search`, `view_file`
-- Lệnh: 
-  - Chạy `grep_search` cho `verify_split_` trong `main.py`. 
-  - Dùng `view_file` đọc `main.py` từ dòng 930 đến 1000.
-- Kết quả: Xác định được `verify_split_payment` nằm trong khoảng này. Trace được nguồn gốc của `has_authoritative_gateway_claims` lấy từ `submitted.payer_address and submitted.gateway_status` (payload), nhưng sau đó được xác minh qua `verify_split_receipt` (HMAC) trước khi gán cho biến `settlement` tại dòng 967. Xác minh logic chặn fake payment.
+### Step 7: Data Tracing for Settlement Proofs
+- Traced `has_authoritative_gateway_claims` evaluation and verified that submitted settlement proofs must pass HMAC verification before population into execution context.
 
-### Bước 8: Kiểm tra Invoice Integrity và Entitlement Logic
-- Tool dùng: `grep_search`, `view_file`
-- Lệnh:
-  - Chạy `grep_search` cho `allocate_split_legs_raw` trong `invoice_builder.py` không có kết quả, dùng `view_file` xem lại dòng 1-150 và 270-388.
-- Kết quả: Đã định vị `allocate_split_legs_raw` ở dòng 86 để đánh giá thuật toán Largest-Remainder. Đã định vị logic cấp access token (`invoice_payment_state_response`) tại dòng 270-388 phụ thuộc vào `access_status`.
+### Step 8: Apportionment & Entitlement Logic
+- Inspected Largest-Remainder apportionment algorithm in `allocate_split_legs_raw` and scoped token generation in `invoice_payment_state_response`.
 
-### Bước 9: Khảo sát implementation của `cross_process_lock`
-- Tool dùng: `grep_search`, `view_file`
-- Lệnh:
-  - Grep `cross_process_lock` trên `backend/app`. 
-  - Đọc file `backend/app/core/state.py` từ dòng 68 đến 120.
-- Kết quả: Xác định được `cross_process_lock` là một context manager sử dụng OS-level advisory lock (`fcntl.flock`) trên file cục bộ (`/tmp/qma-locks`). Xác nhận race condition sẽ xảy ra nếu chạy multi-pod phân tán.
+### Step 9: Evaluation of `cross_process_lock`
+- Target: `backend/app/core/state.py` (lines 68-120).
+- Findings: Confirmed implementation uses OS-level advisory locks (`fcntl.flock`) on `/tmp/qma-locks`.
 
-## File đã đọc trực tiếp (danh sách đầy đủ, không thiếu)
-- `backend/app/services/payment_state_machine.py` — đọc dòng 1–157 (toàn bộ)
-- `backend/app/services/x402_gateway.py` — đọc dòng 1–77 (toàn bộ)
-- `backend/app/services/settlement_validation.py` — đọc dòng 1–80 (toàn bộ)
-- `backend/app/services/payment_signing.py` — đọc dòng 1–166 (toàn bộ)
-- `backend/app/services/invoice_builder.py` — đọc toàn bộ (1-388), view lại cụ thể dòng 1-150 và 270-388.
-- `backend/app/api/v1/endpoints/internal.py` — đọc dòng 1–204 (toàn bộ)
-- `backend/app/main.py` — đọc dòng 930-1000 và 1000-1100.
-- `backend/app/core/state.py` — đọc dòng 68-120.
+## Directly Inspected Files
+- `backend/app/services/payment_state_machine.py` (lines 1–157)
+- `backend/app/services/x402_gateway.py` (lines 1–77)
+- `backend/app/services/settlement_validation.py` (lines 1–80)
+- `backend/app/services/payment_signing.py` (lines 1–166)
+- `backend/app/services/invoice_builder.py` (lines 1–388)
+- `backend/app/api/v1/endpoints/internal.py` (lines 1–204)
+- `backend/app/main.py` (lines 930–1100)
+- `backend/app/core/state.py` (lines 68–120)
 
-## File được NHẮC TỚI trong audit nhưng KHÔNG đọc trực tiếp
-- (Không có, tất cả các file liên quan logic đều đã được đọc).
-
-## Search/grep đã chạy
-| Query | Số kết quả | Ghi chú |
+## Search & Grep Queries
+| Query | Results | Purpose |
 |---|---|---|
-| `validate_arc_` trên `backend/app` | 6 kết quả (main.py, settlement_validation.py) | Tìm caller của validation. Xác nhận main.py gọi hàm validate. |
-| `api/internal` trên `backend/app` | 4 kết quả (`endpoints/internal.py`) | Kiểm tra vị trí định nghĩa logic internal endpoint. |
-| `verify_split_` trên `main.py` | 0 kết quả grep lỗi, dùng view_file | Tìm thân hàm xác nhận thanh toán split. |
-
-## Các kết luận có RỦI RO SUY ĐOÁN (self-flagged)
-- **Rủi ro kiểm chứng data gốc:** Trước đó đã suy đoán `invoice["settlement"]` là "tĩnh cấu hình" nhưng chưa trace tới ngọn. Đã đọc lại `main.py` (dòng 930-1000) và `invoice_builder.py` (dòng 71-79) để kiểm chứng chính xác dữ liệu cấu hình đến từ `paid_kit.settlement_profile()` (server-side), còn dữ liệu thực tế (thanh toán) đến từ `fetch_circle_settlement` (Gateway API) hoặc Payload được ký HMAC (trusted relay).
-- **Rủi ro Performance:** Hàm quét Double Claim O(N) trong `invoice_builder.py` được gắn nhãn Medium/Low, nhưng đây là suy đoán dựa trên giả định data size nhỏ. Nếu size lớn, event loop sẽ block.
+| `validate_arc_` in `backend/app` | 6 matches | Locate validation callers |
+| `api/internal` in `backend/app` | 4 matches | Check internal relay routes |

@@ -4,7 +4,7 @@ import { normalizeSessionPolicy, parseDurationSeconds } from "../dist/session/po
 import { createSessionState } from "../dist/session/state.js";
 
 // Test 1: Task duration string parsing
-assert.equal(parseDurationSeconds("chạy 7 ngày"), 7 * 86400);
+assert.equal(parseDurationSeconds("run 7 days"), 7 * 86400);
 assert.equal(parseDurationSeconds("24 hours"), 24 * 3600);
 assert.equal(parseDurationSeconds("30m"), 30 * 60);
 

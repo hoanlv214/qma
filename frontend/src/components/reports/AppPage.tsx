@@ -161,7 +161,7 @@ export function AppPage({
     showToast,
   });
 
-  // Cấu hình state quản lý Ví Agent
+  // Configure Agent Wallet state management
   const { agentWallet, refresh: refreshAgentWallet } = useAgentWalletStore();
   const agentWalletAddress = agentWallet?.address || "";
   const agentWalletBalance = agentWallet?.balanceUsdc || 0;

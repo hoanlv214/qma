@@ -146,6 +146,13 @@ class WalletProfileSessionResponse(ResponseModel):
     message: str
 
 
+class WalletProfileNonceResponse(ResponseModel):
+    address: str
+    nonce: str
+    issued_at: int
+    expires_in: int
+
+
 class WalletReportDetailResponse(ResponseModel):
     address: str
     entitlement: EntitlementItem

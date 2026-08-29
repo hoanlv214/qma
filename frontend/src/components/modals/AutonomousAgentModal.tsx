@@ -103,20 +103,20 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
       if (cachedWalletToken) {
         autoFetchedRef.current = true;
         sessionRequest<any[]>(wallet, `/api/v1/sessions?owner_wallet=${wallet}`, {}, false).then(sessions => {
-        const active = sessions.find(s => s.status === "running" || s.status === "queued" || s.status === "stopped");
-        if (active) {
-          setSessionId(active.id);
-          setStatus(active.status);
-          setBudget(active.budget_usdc || 0);
+          const active = sessions.find(s => s.status === "running" || s.status === "queued" || s.status === "stopped");
+          if (active) {
+            setSessionId(active.id);
+            setStatus(active.status);
+            setBudget(active.budget_usdc || 0);
 
-          setMessages([
-            { id: "sys-0", role: "agent", content: `Resumed session ${active.id.split("-")[0]}. Currently ${active.status}.` }
-          ]);
-        } else {
-          setMessages([
-            { id: "sys-start", role: "agent", content: "Hi! I'm your Autonomous Background Runner. Tell me what reports you'd like me to purchase, and specify a budget (e.g. 'Buy 3 trending reports under $1.50 USDC')." }
-          ]);
-        }
+            setMessages([
+              { id: "sys-0", role: "agent", content: `Resumed session ${active.id.split("-")[0]}. Currently ${active.status}.` }
+            ]);
+          } else {
+            setMessages([
+              { id: "sys-start", role: "agent", content: "Hi! I'm your Autonomous Background Runner. Tell me what reports you'd like me to purchase, and specify a budget (e.g. 'Buy 3 trending reports under $1.50 USDC')." }
+            ]);
+          }
         }).catch(err => console.error("Failed to fetch sessions on mount", err));
       }
     }
@@ -588,7 +588,7 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
     // and then explicitly re-queued so the new instruction actually continues.
     if (sessionId && (status === "queued" || status === "running" || status === "stopped")) {
       let newBudget: number | null = null;
-      const budgetMatch = userText.toLowerCase().match(/(?:budget|under|dưới|tối đa|limit|max|price|of|xuống còn|lên)\s*(?:[\$]?)\s*([0-9\.]+)/i);
+      const budgetMatch = userText.toLowerCase().match(/(?:budget|under|limit|max|cap|price|of|to|up to)\s*(?:[\$]?)\s*([0-9\.]+)/i);
       const usdcMatch = userText.toLowerCase().match(/([0-9\.]+)\s*(?:usdc|usd)/i);
       const dollarMatch = userText.toLowerCase().match(/\$\s*([0-9\.]+)/i);
 
@@ -632,7 +632,7 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
 
     // Parse budget
     let parsedBudget = 10.0;
-    const kwMatch = userText.toLowerCase().match(/(?:budget|under|dưới|tối đa|limit|max|price|of|còn)\s*(?:[\$]?)\s*([0-9\.]+)/i);
+    const kwMatch = userText.toLowerCase().match(/(?:budget|under|limit|max|cap|price|of|to|up to)\s*(?:[\$]?)\s*([0-9\.]+)/i);
     const usdcMatch = userText.toLowerCase().match(/([0-9\.]+)\s*(?:usdc|usd)/i);
     const dollarMatch = userText.toLowerCase().match(/\$\s*([0-9\.]+)/i);
 

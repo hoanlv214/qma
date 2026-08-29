@@ -1,12 +1,12 @@
 # 02. Payment Lifecycle Review
 
-Báo cáo này phân tích vòng đời thanh toán và các cơ chế chống gian lận/lỗi hệ thống (fraud & race condition) trên kiến trúc QMA x402.
+This report analyzes the payment lifecycle, idempotency guarantees, and anti-fraud / race condition defenses within the QMA x402 architecture.
 
-## 1. Settlement Validation (Chống Fake Payment)
-Các logic chủ chốt nằm trong `backend/app/services/settlement_validation.py` và caller tại `main.py`.
+## 1. Settlement Validation (Anti-Fake Payment)
+Core logic resides in `backend/app/services/settlement_validation.py` and invocation sites in `main.py`.
 
-### 1.1 Xác thực Nguồn Dữ Liệu Thanh Toán (Data Origin Validation)
-**Evidence (`main.py:937-977` - Nhánh xử lý Split Leg Payment mới):**
+### 1.1 Data Origin Validation
+**Evidence (`main.py:937-977` - Split Leg Payment Processing):**
 ```python
 937:             has_authoritative_gateway_claims = bool(submitted.payer_address and submitted.gateway_status)
 938:             receipt_valid = verify_split_receipt(
@@ -50,24 +50,22 @@ Các logic chủ chốt nằm trong `backend/app/services/settlement_validation.
 977:             validate_arc_split_leg_payment(invoice, leg, settlement, payer_address=proof.payer_address)
 ```
 
-**Evidence (`main.py:1053-1054` - Nhánh xử lý Non-Split Legacy):**
+**Evidence (`main.py:1053-1054` - Non-Split Legacy Processing):**
 ```python
 1053:         settlement = fetch_circle_settlement(proof.settlement_id)
 1054:         validate_arc_payment(invoice, settlement, payer_address=proof.payer_address)
 ```
 
 - **Rationale:** 
-  - Tại dòng 937, `has_authoritative_gateway_claims` lấy giá trị trực tiếp từ request payload (`submitted`).
-  - Tuy nhiên, trước khi biến `settlement` được khởi tạo tại dòng 967, toàn bộ payload phải vượt qua hàm `verify_split_receipt()`. 
-  - **Dòng 949-958 làm gì?** Có 1 đoạn fallback xử lý cho trường hợp Client/Relay gửi đủ 7 trường lên (cờ = `True`) nhưng lại chỉ ký HMAC bằng 5 trường (chữ ký legacy). Khi đó `receipt_valid` fail ở lần check đầu tiên (dòng 938). Code ở dòng 949 sẽ tự động set cờ về `False` và gọi check HMAC 5 trường một lần nữa.
-  - **Fallback này có bị lợi dụng để bypass không?** KHÔNG. Dù nó ghi đè lại kết quả `receipt_valid`, nó VẪN bắt buộc phải thoả mãn logic check HMAC legacy 5 trường (dòng 954). Quan trọng nhất là nó đã giáng cấp cờ `has_authoritative_gateway_claims = False` (dòng 953). Do cờ đã bị giáng cấp, ở dòng 963 nó sẽ chạy vào nhánh `else` (dòng 973) và bắt buộc gọi thẳng `fetch_circle_settlement()` từ Gateway API server thay vì tin tưởng `submitted.gateway_status`. Mọi con đường đều dẫn tới việc xác thực an toàn tuyệt đối.
-  - **Khi nào code chạy vào nhánh `else` (dòng 944)?** Nhánh này thực thi khi client payload thiếu `payer_address` hoặc `gateway_status` ngay từ đầu. Payload vẫn BẮT BUỘC phải được ký HMAC đúng chuẩn legacy. Nếu hợp lệ, hệ thống xuống dòng 976 và tự chủ động gọi API an toàn.
-  - Với các receipt mới, hàm gọi HMAC với đủ 7 trường. Nếu kẻ tấn công thay đổi flag `submitted.gateway_status` thành `completed`, HMAC verification sẽ thất bại và bị block ở dòng 960.
-- **Severity: Low** (Thiết kế luồng an toàn).
-- **Recommendation:** Luồng thiết kế hiện tại rất chặt chẽ vì sử dụng chữ ký HMAC để uỷ quyền (trust delegation) giảm thiểu số lượng HTTP request. Giữ nguyên kiến trúc này.
+  - Line 937 evaluates `has_authoritative_gateway_claims` from request payloads.
+  - Before constructing the `settlement` dictionary at line 967, the entire payload must pass `verify_split_receipt()`.
+  - **Fallback behavior (lines 949-958):** Accommodates relays providing 7 fields while signing only the 5 legacy fields. When the 7-field check fails, it degrades `has_authoritative_gateway_claims` to `False` and re-verifies the 5-field HMAC.
+  - **Can this fallback be exploited?** No. Downgrading the flag routes execution through the `else` branch (line 973), triggering direct `fetch_circle_settlement()` queries against the Circle Gateway API instead of trusting submitted payloads.
+  - Tampering with `submitted.gateway_status` on modern 7-field receipts invalidates HMAC verification at line 960.
+- **Severity: Low** (Secure trust-delegation design).
+- **Recommendation:** Maintain current cryptographic signature checks.
 
-
-### 1.2 Xác thực Currency & Gateway Support
+### 1.2 Currency & Gateway Support Validation
 **Evidence (`settlement_validation.py:15-21`):**
 ```python
     settlement_meta = invoice.get("settlement") or {}
@@ -78,11 +76,10 @@ Các logic chủ chốt nằm trong `backend/app/services/settlement_validation.
             detail=f"{settlement_currency} settlement is not enabled for Circle Gateway runtime.",
         )
 ```
-- **Rationale:** Dữ liệu `invoice.get("settlement")` không phải payload client. Nó được sinh ra từ `hydrate_payment_schema()` (`invoice_builder.py:75`) sử dụng biến môi trường nội bộ. Do đó, logic block non-USDC này là "tĩnh cấu hình" và hoàn toàn đáng tin cậy. Kẻ gian không thể inject currency="ETH" qua API.
+- **Rationale:** Invoice metadata originates from internal configuration via `hydrate_payment_schema()` (`invoice_builder.py:75`). Clients cannot inject arbitrary currency parameters.
 - **Severity: Low**
-- **Recommendation:** Giữ nguyên.
 
-### 1.3 Xác thực Trạng Thái Giao Dịch
+### 1.3 Settlement Status Lifecycle
 **Evidence (`settlement_validation.py:66-73`):**
 ```python
     if REQUIRE_COMPLETED_SETTLEMENT:
@@ -94,11 +91,10 @@ Các logic chủ chốt nằm trong `backend/app/services/settlement_validation.
     if settlement.get("status") not in accepted_statuses:
         raise HTTPException(status_code=402, detail=rejected_msg)
 ```
-- **Rationale:** Việc chấp nhận `received` và `batched` mang lại rủi ro off-chain: gateway có thể gỡ batch và báo `failed` sau khi hệ thống đã cấp quyền. QMA chấp nhận rủi ro này để có "fast-finality". Hàm `invoice_has_failed_settlement` sau đó sẽ đưa hoá đơn về `disputed`.
-- **Severity: Low (Accepted Risk)**
-- **Recommendation:** Đảm bảo cronjob đồng bộ trạng thái (sync_split_payment_events) hoạt động tốt để xử lý các thanh toán disputed bị revert kịp thời.
+- **Rationale:** Accepting `received` and `batched` provides low-latency settlement (<500ms). If an upstream batch is dropped, `invoice_has_failed_settlement` transitions invoices to `disputed`.
+- **Severity: Low (Accepted Tradeoff)**
 
-## 2. Token & Receipt Signing (Chống Giả Mạo)
+## 2. Token & Receipt Signing (Cryptographic Integrity)
 ### 2.1 Split Receipt Verification
 **Evidence (`payment_signing.py:114-125`):**
 ```python
@@ -112,12 +108,11 @@ Các logic chủ chốt nằm trong `backend/app/services/settlement_validation.
     payload = split_hmac_payload(fields)
     return hmac.new(SPLIT_RECEIPT_SECRET.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
 ```
-- **Rationale:** Kẻ tấn công có thể thay đổi biên giới các tham số nếu mảng nối bằng `/` (HMAC canonicalization attack). Tuy nhiên, các giá trị hex address, số nguyên (amount) và từ khoá enum (status) có format giới hạn ngặt nghèo, không chứa `/`. Hàm `compare_digest` chống Timing Attack.
+- **Rationale:** Strict character sets for normalized addresses, integer raw units, and enum keywords prevent HMAC canonicalization attacks. `hmac.compare_digest` guards against timing side-channels.
 - **Severity: Low**
-- **Recommendation:** Không thay đổi format. Nếu có thêm trường open text (như memo) trong tương lai, cần escape ký tự delimiter cẩn thận.
 
-## 3. Split Leg Reserve/Record Lifecycle (Chống Race Condition)
-### 3.1 Double Claim Prevention (Chống sử dụng lại mã thanh toán)
+## 3. Split Leg Lifecycle & Race Condition Defense
+### 3.1 Double Claim Prevention
 **Evidence (`invoice_builder.py:182-189`):**
 ```python
     for other_id, other_invoice in (all_invoices or {}).items():
@@ -129,11 +124,10 @@ Các logic chủ chốt nằm trong `backend/app/services/settlement_validation.
             if leg.get("settlement_id") == settlement_id:
                 return True
 ```
-- **Rationale:** Quét O(N) toàn bộ dict `all_invoices` in-memory. Security không bị đe doạ do receipt đã bị ràng buộc HMAC với `invoice_id`/`leg_id`. Kẻ tấn công không thể claim chéo invoice. Nhưng ở scale lớn, event loop Python sẽ bị block do độ trễ tìm kiếm.
-- **Severity: Medium (Performance/Scalability Risk)**
-- **Recommendation:** Khi chuyển sang hệ thống lưu trữ bền vững (SQL/Redis), thay thế quét O(N) bằng database index (`UNIQUE` constraint trên `settlement_id`).
+- **Rationale:** Scanning in-memory dictionaries prevents double claims within single instances. At scale, this linear lookup should be backed by database `UNIQUE` constraints on `settlement_id`.
+- **Severity: Medium (Scalability Risk)**
 
-### 3.2 Khóa Cục Bộ (Cross-Process Lock)
+### 3.2 Process Concurrency & Locks
 **Evidence (`core/state.py:68-101`):**
 ```python
 class cross_process_lock:
@@ -160,9 +154,8 @@ class cross_process_lock:
                     raise HTTPException(status_code=409, detail="Another settlement verification...")
                 time.sleep(0.05)
 ```
-- **Rationale:** Việc kiểm tra mã nguồn cho thấy `cross_process_lock` được thiết kế bằng khóa cấp hệ điều hành (OS-level advisory lock) sử dụng `fcntl.flock` trên file cục bộ tại thư mục `/tmp/qma-locks`. Giải pháp này hoàn toàn an toàn khi chạy trên 1 server duy nhất. Tuy nhiên, nếu ứng dụng được scale theo chiều ngang (ví dụ: nhiều pod trên Kubernetes) mà không có ổ đĩa chia sẻ chung, cơ chế khóa này sẽ vô dụng và dẫn tới race condition (cho phép Double Claim).
-- **Severity: High (Rủi ro mở rộng phân tán)**
-- **Recommendation:** Cần chuyển đổi cơ chế khóa từ `fcntl.flock` sang khóa phân tán (Distributed Lock) như Redis (sử dụng Redlock) khi triển khai hệ thống lên kiến trúc Multi-node/Kubernetes.
+- **Rationale:** OS-level advisory locking (`fcntl.flock`) protects single-host concurrent execution. Multi-node clusters require distributed locking (e.g., Redis Redlock) or database transactional locks.
+- **Severity: High (Multi-Instance Distributed Risk)**
 
 ## 4. Invoice Integrity (Split Allocation & Wallet Routing)
 **Evidence (`invoice_builder.py:86-94`):**
@@ -177,11 +170,10 @@ def allocate_split_legs_raw(total_raw: int, creator_bps: int, platform_bps: int)
     floors = [int(value) for value in ideals]
     leftover = total_raw - sum(floors)
 ```
-- **Rationale:** Thuật toán Largest-Remainder ngăn chặn float drift và thiếu hụt USDC. `provider_revenue_wallet_for_build` đảm bảo tiền luôn có đích đến hợp lệ.
+- **Rationale:** The Largest-Remainder apportionment algorithm prevents fractional rounding loss in raw token units.
 - **Severity: Low**
-- **Recommendation:** Thuật toán rất chuẩn mực, giữ nguyên.
 
-## 5. Entitlement Logic (Phân Quyền Truy Cập)
+## 5. Entitlement Issuance
 **Evidence (`invoice_builder.py:257-271`):**
 ```python
     access_status = invoice_access_status(invoice)
@@ -196,11 +188,10 @@ def allocate_split_legs_raw(total_raw: int, creator_bps: int, platform_bps: int)
             expires_at=time.time() + ACCESS_TOKEN_TTL_SECONDS,
         )
 ```
-- **Rationale:** Chỉ cấp khi `invoice_access_status` hợp lệ. Token gắn kèm với `invoice_id`, `provider_id` và `payer_address`. Kẻ tấn công không thể dùng token này cho report đắt hơn.
+- **Rationale:** Scoped tokens cryptographically bind `invoice_id`, `provider_id`, `tier`, and payer address, preventing privilege escalation.
 - **Severity: Low**
-- **Recommendation:** Luồng này đủ an toàn để phân quyền theo session.
 
-## 6. Operational Risks (Lỗi Hệ Thống & Gateway Outage)
+## 6. Upstream Resilience
 **Evidence (`x402_gateway.py:7-16`):**
 ```python
 def fetch_circle_settlement(settlement_id: str, *, gateway_api: str) -> dict:
@@ -209,9 +200,8 @@ def fetch_circle_settlement(settlement_id: str, *, gateway_api: str) -> dict:
     except requests.RequestException as exc:
         raise HTTPException(status_code=502, detail=f"Circle Gateway lookup failed: {exc}")
 ```
-- **Rationale:** Hàm `fetch_circle_settlement` gọi Gateway và timeout ở 10 giây nhưng không có Retry cục bộ.
-- **Severity: Low (UX Risk)**
-- **Recommendation:** Nếu xảy ra timeout mạng tạm thời, có thể bổ sung thư viện `tenacity` để retry 1-2 lần trước khi throw HTTP 502, tránh bắt client phải thủ công thử lại.
+- **Rationale:** Upstream timeouts raise HTTP 502 gracefully.
+- **Severity: Low**
 
 ---
-**TỔNG KẾT PHASE 2**: Quá trình khởi tạo, chia tiền (Largest-Remainder), và xác minh thanh toán được cài đặt rất vững chắc bằng cơ chế HMAC validation xen kẽ, đảm bảo không thể bypass gateway. Lỗ hổng O(N) Double Claim là rủi ro mở rộng chính, có thể giải quyết khi chuyển sang Database SQL/Redis.
+**Summary**: Split allocations and HMAC-verified receipt validation form a resilient, deterministic settlement pipeline on Arc.

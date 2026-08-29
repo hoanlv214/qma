@@ -69,14 +69,14 @@ export function parseDurationSeconds(value: string | number | null | undefined):
     const multiplier = { s: 1, m: 60, h: 3600, d: 86400 }[String(directMatch[2] || "s").toLowerCase() as "s" | "m" | "h" | "d"];
     return amount * multiplier;
   }
-  const textMatch = str.match(/(\d+)\s*(ngày|day|days|giờ|hour|hours|phút|min|minutes|giây|sec|seconds)/i);
+  const textMatch = str.match(/(\d+)\s*(day|days|hour|hours|min|minute|minutes|sec|second|seconds)/i);
   if (textMatch) {
     const num = Number(textMatch[1]);
     const unit = textMatch[2].toLowerCase();
-    if (unit.startsWith("ngày") || unit.startsWith("day")) return num * 86400;
-    if (unit.startsWith("giờ") || unit.startsWith("hour")) return num * 3600;
-    if (unit.startsWith("phút") || unit.startsWith("min")) return num * 60;
-    if (unit.startsWith("giây") || unit.startsWith("sec")) return num;
+    if (unit.startsWith("day")) return num * 86400;
+    if (unit.startsWith("hour")) return num * 3600;
+    if (unit.startsWith("min")) return num * 60;
+    if (unit.startsWith("sec")) return num;
   }
   return null;
 }

@@ -19,8 +19,15 @@ class InMemorySupabase(SupabaseStorage):
         super().__init__(url="http://fake-supabase", service_role_key="test")
         self.sessions = {}
         self.events = []
+        self.wallet_registry = {}
 
     def _upsert(self, table, rows, conflict):
+        if table == "agent_wallets":
+            for source in rows:
+                row = dict(source)
+                row.setdefault("created_at", datetime.now(timezone.utc).isoformat())
+                self.wallet_registry[row["owner_wallet"]] = row
+            return
         assert table == "agent_sessions"
         now = datetime.now(timezone.utc).isoformat()
         for source in rows:
@@ -38,6 +45,13 @@ class InMemorySupabase(SupabaseStorage):
                 return []
             queued["status"] = "running"
             return [queued]
+
+        if table == "agent_wallets":
+            if method == "GET":
+                owner = params.get("owner_wallet", "").removeprefix("eq.")
+                row = self.wallet_registry.get(owner)
+                return [row] if row else []
+            return []
 
         if table == "agent_sessions":
             if method == "GET":
@@ -123,7 +137,11 @@ def client(storage, monkeypatch):
             raise HTTPException(status_code=403, detail="Wallet profile token does not match this wallet.")
         return {"wallet": address.lower()}
 
+    gateway_calls = []
+    gateway_balances = {"eoa": "0", "prepaid": "0"}
+
     def fake_gateway_post(url, **kwargs):
+        gateway_calls.append((url, kwargs))
         if url.endswith("/api/wallet/create"):
             return FakeGatewayResponse({
                 "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -133,7 +151,24 @@ def client(storage, monkeypatch):
             return FakeGatewayResponse({"status": "submitted", "destination": kwargs["json"]["destinationAddress"]})
         raise AssertionError(f"Unexpected gateway URL: {url}")
 
+    def fake_gateway_get(url, **kwargs):
+        if "/api/balance/" in url:
+            return FakeGatewayResponse({"balance": gateway_balances["prepaid"]})
+        if "/api/wallet/" in url and url.endswith("/balance"):
+            return FakeGatewayResponse({
+                "tokenBalances": [{"amount": gateway_balances["eoa"], "token": {"symbol": "USDC"}}],
+            })
+        raise AssertionError(f"Unexpected gateway GET URL: {url}")
+
+    def fake_storage_delete(url, **kwargs):
+        assert "agent_sessions" in url and "id=eq." in url
+        session_id = url.split("id=eq.")[1]
+        storage.sessions.pop(session_id, None)
+        return FakeGatewayResponse({"status": "deleted"})
+
     monkeypatch.setattr("requests.post", fake_gateway_post)
+    monkeypatch.setattr("requests.get", fake_gateway_get)
+    monkeypatch.setattr("requests.delete", fake_storage_delete)
     deps = SimpleNamespace(
         internal_secret=WORKER_SECRET,
         normalize_address=lambda value: str(value).lower(),
@@ -142,7 +177,10 @@ def client(storage, monkeypatch):
     )
     app = FastAPI()
     app.include_router(create_sessions_router(deps))
-    return TestClient(app)
+    client = TestClient(app)
+    client.gateway_calls = gateway_calls
+    client.gateway_balances = gateway_balances
+    return client
 
 
 def create_session(client, owner=OWNER, **overrides):
@@ -314,3 +352,121 @@ def test_withdraw_requires_owner_proof_and_is_bound_to_owner_destination(client)
     )
     assert response.status_code == 200
     assert response.json()["destination"] == OWNER
+
+
+def test_withdraw_blocked_while_session_active(client):
+    session_id = create_session(client).json()["id"]
+    client.post(f"/api/v1/sessions/{session_id}/start", headers=wallet_token())
+
+    blocked = client.post(
+        "/api/v1/sessions/withdraw",
+        json={"owner_wallet": OWNER, "amount_usdc": 1.0},
+        headers=wallet_token(),
+    )
+    assert blocked.status_code == 400
+
+    client.post(f"/api/v1/sessions/{session_id}/stop", headers=wallet_token())
+    allowed = client.post(
+        "/api/v1/sessions/withdraw",
+        json={"owner_wallet": OWNER, "amount_usdc": 1.0},
+        headers=wallet_token(),
+    )
+    assert allowed.status_code == 200
+
+
+def test_withdraw_sends_stable_idempotency_key(client):
+    create_session(client)
+
+    for amount in (1.0, 1.0, 2.0):
+        response = client.post(
+            "/api/v1/sessions/withdraw",
+            json={"owner_wallet": OWNER, "amount_usdc": amount},
+            headers=wallet_token(),
+        )
+        assert response.status_code == 200
+
+    withdraw_calls = [
+        kwargs["json"]
+        for url, kwargs in client.gateway_calls
+        if url.endswith("/api/wallet/withdraw")
+    ]
+    assert len(withdraw_calls) == 3
+    keys = [body["idempotencyKey"] for body in withdraw_calls]
+    # Retries of the same withdrawal reuse the key so the relayer cannot
+    # double-send after a timed-out response; a different amount gets a new one.
+    assert keys[0] == keys[1]
+    assert keys[0] != keys[2]
+
+
+def test_delete_last_session_with_funded_agent_wallet_is_blocked(client, storage):
+    session_id = create_session(client).json()["id"]
+    # Simulate a legacy session whose binding exists only in runtime_state:
+    # without a registry row, deleting the last binding strands the wallet.
+    storage.wallet_registry.clear()
+
+    client.gateway_balances["eoa"] = "2.5"
+    blocked = client.delete(f"/api/v1/sessions/{session_id}", headers=wallet_token())
+    assert blocked.status_code == 409
+
+    client.gateway_balances["eoa"] = "0"
+    client.gateway_balances["prepaid"] = "0"
+    deleted = client.delete(f"/api/v1/sessions/{session_id}", headers=wallet_token())
+    assert deleted.status_code == 200
+    assert deleted.json()["status"] == "deleted"
+
+
+def test_create_session_registers_and_reuses_agent_wallet(client, storage):
+    first = create_session(client).json()
+    second = create_session(client, title="Second Session").json()
+
+    wallet_creates = [
+        url for url, _kwargs in client.gateway_calls
+        if url.endswith("/api/wallet/create")
+    ]
+    assert len(wallet_creates) == 1
+    assert first["runtime_state"]["agent_wallet_id"] == "agent-wallet-id"
+    assert second["runtime_state"]["agent_wallet_id"] == first["runtime_state"]["agent_wallet_id"]
+    assert storage.wallet_registry[OWNER]["agent_wallet_id"] == "agent-wallet-id"
+    assert storage.wallet_registry[OWNER]["agent_wallet_address"] == "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+
+def test_withdraw_works_after_all_sessions_deleted(client, storage):
+    session_id = create_session(client).json()["id"]
+    client.gateway_balances["eoa"] = "2.5"
+    deleted = client.delete(f"/api/v1/sessions/{session_id}", headers=wallet_token())
+    assert deleted.status_code == 200
+    assert storage.sessions == {}
+
+    withdrawn = client.post(
+        "/api/v1/sessions/withdraw",
+        json={"owner_wallet": OWNER, "amount_usdc": 2.5},
+        headers=wallet_token(),
+    )
+    assert withdrawn.status_code == 200
+    withdraw_calls = [
+        kwargs["json"]
+        for url, kwargs in client.gateway_calls
+        if url.endswith("/api/wallet/withdraw")
+    ]
+    assert len(withdraw_calls) == 1
+    assert withdraw_calls[0]["walletId"] == "agent-wallet-id"
+
+
+def test_delete_last_funded_session_allowed_when_wallet_registered(client, storage):
+    session_id = create_session(client).json()["id"]
+    # The registry keeps the binding reachable, so a funded wallet can no
+    # longer be stranded by deleting the last session.
+    assert OWNER in storage.wallet_registry
+    client.gateway_balances["eoa"] = "2.5"
+
+    deleted = client.delete(f"/api/v1/sessions/{session_id}", headers=wallet_token())
+    assert deleted.status_code == 200
+
+
+def test_delete_allowed_when_another_session_keeps_wallet_binding(client):
+    first_id = create_session(client).json()["id"]
+    create_session(client, title="Second Session")
+
+    client.gateway_balances["prepaid"] = "3.0"
+    deleted = client.delete(f"/api/v1/sessions/{first_id}", headers=wallet_token())
+    assert deleted.status_code == 200

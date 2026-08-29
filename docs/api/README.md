@@ -51,10 +51,12 @@ Audience schemas are filtered using these extensions, not by tags alone.
 
 ### Wallet owner token
 
-1. Request the message format represented by
-   `POST /api/v1/wallets/{address}/session`.
+1. Fetch a single-use nonce and server timestamp from
+   `GET /api/v1/wallets/{address}/nonce`.
 2. Sign the nonce/timestamp message with the connected wallet.
-3. Exchange the signature for `X-QMA-Wallet-Token`.
+3. Exchange the signature for `X-QMA-Wallet-Token` via
+   `POST /api/v1/wallets/{address}/session`. The nonce is burned on use;
+   client-generated nonces are rejected.
 4. Use it only for the same wallet address. The token controls private wallet
    reports and owner-facing Agent Session operations.
 
@@ -113,7 +115,7 @@ The Access column must match the operation's `x-qma-access` value in
 | POST | `/api/v1/sessions/reclaim-leases` | `internal-worker` | Reclaim expired session leases |
 | POST | `/api/v1/sessions/withdraw` | `wallet-owner` | Withdraw Agent Wallet USDC to its verified owner |
 | GET | `/api/v1/sessions/{session_id}` | `wallet-or-worker` | Read one Agent Session |
-| DELETE | `/api/v1/sessions/{session_id}` | `wallet-owner` | Delete a wallet-owned Agent Session |
+| DELETE | `/api/v1/sessions/{session_id}` | `wallet-owner` | Delete a wallet-owned Agent Session (409 only for legacy sessions whose funded Agent Wallet binding is not yet in the agent_wallets registry) |
 | PATCH | `/api/v1/sessions/{session_id}` | `wallet-or-worker` | Owner task/budget edit or worker runtime update |
 | POST | `/api/v1/sessions/{session_id}/checkpoint` | `internal-worker` | Checkpoint session tick |
 | POST | `/api/v1/sessions/{session_id}/events` | `internal-worker` | Append a worker event |
@@ -123,9 +125,10 @@ The Access column must match the operation's `x-qma-access` value in
 | POST | `/api/v1/sessions/{session_id}/stop` | `wallet-owner` | Stop a session |
 | GET | `/api/v1/traction` | `public` | Read the public traction snapshot |
 | GET | `/api/v1/wallets/{address}` | `public` | Deprecated wallet summary alias |
+| GET | `/api/v1/wallets/{address}/nonce` | `public` | Issue a single-use nonce for wallet profile session signing |
 | GET | `/api/v1/wallets/{address}/payments` | `public-optional-auth` | Read redacted or private payment history |
 | GET | `/api/v1/wallets/{address}/reports/{entitlement_id}` | `wallet-owner` | Read an owned private report snapshot |
-| POST | `/api/v1/wallets/{address}/session` | `signed-payload` | Exchange a wallet signature for a session token |
+| POST | `/api/v1/wallets/{address}/session` | `signed-payload` | Exchange a wallet signature over a server-issued nonce for a session token |
 | GET | `/api/v1/wallets/{address}/summary` | `public` | Read a public wallet purchase summary |
 
 ### Traction response semantics

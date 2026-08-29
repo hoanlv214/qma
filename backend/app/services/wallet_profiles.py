@@ -1,5 +1,7 @@
 """Wallet profile session and public wallet row helpers."""
 
+import secrets
+import threading
 import time
 
 from fastapi import HTTPException, status
@@ -58,6 +60,51 @@ def wallet_profile_token_payload(address: str, payload) -> dict:
         "nonce": payload.nonce,
         "purpose": "unlock-paid-report-snapshots",
     }
+
+
+# Server-issued, single-use nonces close the replay window on wallet profile
+# signatures: a captured signature can no longer be re-submitted inside the
+# ±300s issued_at tolerance because each nonce is burned on first use and is
+# bound to one address. In-memory storage matches the current single-process
+# deployment; move to a shared store before running multiple app replicas.
+WALLET_PROFILE_NONCE_TTL_SECONDS = 300
+_WALLET_PROFILE_NONCE_STORE_LIMIT = 10_000
+_wallet_profile_nonces: dict = {}
+_wallet_profile_nonces_lock = threading.Lock()
+
+
+def issue_wallet_profile_nonce(address: str) -> dict:
+    normalized = paid_kit.normalize_address(address)
+    nonce = secrets.token_urlsafe(24)
+    now = time.time()
+    with _wallet_profile_nonces_lock:
+        if len(_wallet_profile_nonces) >= _WALLET_PROFILE_NONCE_STORE_LIMIT:
+            for stale_nonce in [
+                key for key, record in _wallet_profile_nonces.items()
+                if record["expires_at"] <= now
+            ]:
+                _wallet_profile_nonces.pop(stale_nonce, None)
+        _wallet_profile_nonces[nonce] = {
+            "wallet": normalized,
+            "expires_at": now + WALLET_PROFILE_NONCE_TTL_SECONDS,
+        }
+    return {
+        "address": normalized,
+        "nonce": nonce,
+        "issued_at": int(now),
+        "expires_in": WALLET_PROFILE_NONCE_TTL_SECONDS,
+    }
+
+
+def consume_wallet_profile_nonce(address: str, nonce: str) -> bool:
+    normalized = paid_kit.normalize_address(address)
+    with _wallet_profile_nonces_lock:
+        record = _wallet_profile_nonces.pop(str(nonce or ""), None)
+    return bool(
+        record
+        and record["wallet"] == normalized
+        and record["expires_at"] > time.time()
+    )
 
 
 def public_payment_row(row: dict) -> dict:

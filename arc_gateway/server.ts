@@ -1067,13 +1067,17 @@ app.post("/api/wallet/withdraw", async (req, res) => {
     
     const isMainnet = process.env.QMA_NETWORK_MODE === "mainnet";
     const tokenId = isMainnet
-      ? "usdc-token-id-on-arc-mainnet" // Thay thế bằng Token ID thực tế khi lên mainnet
+      ? "usdc-token-id-on-arc-mainnet" // Replace with actual Token ID on mainnet
       : "ef87c8c3-85de-598a-af50-c5135eecfa74"; // ARC-TESTNET USDC Token ID
       
     console.log(`[Withdraw] Transferring ${amountUsdc} USDC from ${sourceWalletId} to ${destinationAddress}`);
     
+    // Prefer the backend-supplied idempotency key so retries after a timed-out
+    // response collapse into the original Circle transaction instead of
+    // double-sending funds; fall back to a random key for legacy callers.
+    const clientKey = String(req.body?.idempotencyKey ?? "").trim();
     const response = await circleClient.createTransaction({
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: clientKey || crypto.randomUUID(),
       walletId: sourceWalletId,
       destinationAddress,
       amount: [amountUsdc],

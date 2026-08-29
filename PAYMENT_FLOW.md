@@ -1,84 +1,63 @@
 # QMA Payment Flow
 
-Đọc file này trước khi sửa bất kỳ file nào trong
-`backend/app/services/{payment_state_machine,x402_gateway,settlement_validation,
-payment_signing,payment_ledger,invoice_builder,creator_claims}.py`.
+Read this file before modifying any file in:
+`backend/app/services/{payment_state_machine,x402_gateway,settlement_validation,payment_signing,payment_ledger,invoice_builder,creator_claims}.py`.
 
-Không đoán state machine hay idempotency rule từ đọc code một mình — phần
-dưới đây là thiết kế đã được xác nhận, dùng làm căn cứ đối chiếu.
+Do not guess the state machine or idempotency rules from reading the code alone — the section below is the confirmed design and serves as the baseline specification.
 
-## Mô hình thanh toán: `x402_direct_split`
+## Payment Model: `x402_direct_split`
 
-Hai chân thanh toán (two-leg) cho mỗi giao dịch:
-- **Leg 1** — thanh toán tới creator wallet.
-- **Leg 2** — thanh toán tới platform treasury.
+Two payment legs (two-leg) for every transaction:
+- **Leg 1** — payment to the creator wallet.
+- **Leg 2** — payment to the platform treasury.
 
-## Invoice lifecycle
+## Invoice Lifecycle
 
-Trạng thái hợp lệ: `pending` → `partial_paid` → `paid`, hoặc `pending` →
-`expired`.
+Valid states: `pending` → `partial_paid` → `paid`, or `pending` → `expired`.
 
-- `pending` — invoice vừa tạo, chưa nhận payment nào.
-- `partial_paid` — mới nhận được 1 trong 2 leg.
-- `paid` — cả 2 leg đã settle.
-- `expired` — hết TTL (30 phút) mà chưa đủ 2 leg.
+- `pending` — invoice just created, no payment received yet.
+- `partial_paid` — only 1 of the 2 legs has been received.
+- `paid` — both legs have settled.
+- `expired` — TTL (30 minutes) elapsed without settling both legs.
 
-Không có trạng thái nào cho phép unlock nội dung khi chưa đủ cả 2 leg —
-đây chính là lớp bảo vệ chống exploit "underpay-but-unlock".
+No state allows content unlocking before both legs are fulfilled — this is the core protection against the "underpay-but-unlock" exploit.
 
 ## Idempotency
 
-Khóa idempotency ở cấp `(invoice_id, leg_id)` — không phải chỉ
-`invoice_id`. Một leg được xử lý (ghi nhận thanh toán) chỉ một lần; xử lý
-lại request cho cùng `(invoice_id, leg_id)` phải là no-op, không được cộng
-dồn hoặc ghi đè trạng thái.
+The idempotency key is at the `(invoice_id, leg_id)` level — not merely `invoice_id`. A leg is processed (payment recorded) exactly once; re-processing a request for the same `(invoice_id, leg_id)` must be a no-op and must not accumulate amounts or overwrite state.
 
-## Binding chain (chống underpay-but-unlock)
+## Binding Chain (Anti-Underpay & Spoof Protection)
 
-Ba tầng ràng buộc giữa amount và payTo, theo thứ tự kiểm tra:
-1. Invoice tạo ra amount + payTo cố định cho từng leg.
-2. Payment request phải khớp chính xác amount + payTo đã bind ở bước 1.
-3. Settlement verification xác nhận on-chain khớp với binding — không tin
-   payload từ client, phải verify lại từ dữ liệu on-chain/Circle Gateway.
+Three tiers of binding between amount and payTo, in verification order:
+1. Invoice generates a fixed amount + payTo for each leg.
+2. Payment request must precisely match the amount + payTo bound in Step 1.
+3. Settlement verification confirms that on-chain data matches the binding — never trusts client payloads, always re-verifies against on-chain / Circle Gateway data.
 
-Nếu sửa bất kỳ bước nào trong 3 bước trên, phải xác nhận cả 2 bước còn lại
-không bị phá vỡ theo — đây là chuỗi phụ thuộc lẫn nhau, sửa rời một khâu dễ
-mở lại lỗ hổng underpay.
+If any of the 3 steps above is modified, confirm that the other 2 steps remain intact — this is an interdependent chain; modifying one step in isolation can reopen the underpay vulnerability.
 
 ## TTL
 
-30 phút kể từ lúc tạo invoice. Sau TTL mà chưa đủ 2 leg → chuyển `expired`,
-không tự động gia hạn.
+30 minutes from invoice creation. If both legs are not fulfilled after TTL → transitions to `expired`, no automatic renewal.
 
-## Trạng thái chưa xác nhận (Needs verification)
+## Items Needing Verification
 
-- Cross-process locking cho concurrent leg updates — cơ chế cụ thể (DB lock,
-  advisory lock, hay optimistic concurrency) chưa được xác nhận lại gần đây;
-  kiểm tra `payment_state_machine.py` và `storage.py` hiện tại trước khi giả
-  định.
-- Disputed invoice handling — quy trình xử lý khi có tranh chấp (ví dụ leg đã
-  trả nhưng không match binding) cần đọc code hiện tại, không suy đoán.
-- Nguồn dữ liệu thật (JSON file root vs Supabase) — xem mục "Needs
-  verification" trong `AGENTS.md` root, ảnh hưởng trực tiếp tới
-  `payment_ledger.py` và `invoice_builder.py`.
+- Cross-process locking for concurrent leg updates — specific mechanism (DB lock, advisory lock, or optimistic concurrency) needs confirmation; check current `payment_state_machine.py` and `storage.py` before making assumptions.
+- Disputed invoice handling — dispute resolution workflow (e.g., leg paid but does not match binding) requires inspecting active code, do not extrapolate.
+- Data source of truth (root JSON files vs Supabase) — see "Needs verification" in root `AGENTS.md`, directly impacting `payment_ledger.py` and `invoice_builder.py`.
 
-## Trước khi sửa
+## Before Modifying Code
 
-1. Xác định leg nào bị ảnh hưởng (creator wallet leg hay treasury leg).
-2. Xác định bước nào trong binding chain bị chạm tới.
-3. Kiểm tra idempotency key `(invoice_id, leg_id)` có còn đúng ngữ nghĩa sau khi sửa không.
-4. Không ghi trực tiếp vào state invoice — dùng qua service layer (ast-grep rule: `python-state-invoices-direct-write.yml`).
-5. Nếu confidence Low (theo AGENTS.md) ở bất kỳ bước nào trên — dừng, hỏi lại trước khi sửa.
+1. Identify which leg is affected (creator wallet leg or treasury leg).
+2. Identify which step in the binding chain is touched.
+3. Verify that the idempotency key `(invoice_id, leg_id)` maintains correct semantics after edits.
+4. Do not write directly to invoice state — always use the service layer (ast-grep rule: `python-state-invoices-direct-write.yml`).
+5. If confidence is Low (per AGENTS.md) on any step above — pause and confirm before modifying.
 
-## Traction projections
+## Traction Projections
 
 The public traction API deliberately keeps two accounting views separate:
 
-- `daily_paid`: complete paid invoices after every required leg is accepted;
-  Gateway `received` and `batched` rows appear here.
-- `daily_settled`: only invoices whose observed legs are final
-  (`completed`/`confirmed`) or carry transaction-hash evidence.
+- `daily_paid`: complete paid invoices after every required leg is accepted; Gateway `received` and `batched` rows appear here.
+- `daily_settled`: only invoices whose observed legs are final (`completed`/`confirmed`) or carry transaction-hash evidence.
 
-`pending_batch_*` is the difference between these views. This presentation
-layer must never be used to authorize report access and must not weaken the
-two-leg verification, amount/pay-to binding, or idempotency rules above.
+`pending_batch_*` is the difference between these views. This presentation layer must never be used to authorize report access and must not weaken the two-leg verification, amount/pay-to binding, or idempotency rules above.

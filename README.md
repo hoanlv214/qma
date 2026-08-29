@@ -32,7 +32,7 @@ You can install the QMA Autonomous Agent CLI directly via NPM. This allows you t
 
 ```bash
 # Install globally
-npm install -g qma
+npm install -g qma-cli
 
 # Check available commands and configuration options
 qma --help

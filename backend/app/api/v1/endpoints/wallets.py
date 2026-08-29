@@ -9,6 +9,7 @@ from backend.app.schemas import (
     WalletEntitlementsResponse,
     WalletMetricsResponse,
     WalletPaymentsResponse,
+    WalletProfileNonceResponse,
     WalletProfileSessionRequest,
     WalletProfileSessionResponse,
     WalletReportDetailResponse,
@@ -27,7 +28,7 @@ WALLET_TOKEN_RESPONSES = {
 WALLET_SESSION_RESPONSES = {
     **documented_errors(429, 500),
     400: documented_error(400, "Wallet profile signature is expired or invalid."),
-    403: documented_error(403, "Wallet profile signature does not match the requested wallet."),
+    403: documented_error(403, "Wallet profile signature does not match the requested wallet, or the nonce is unknown, expired, or already used."),
     503: documented_error(503, "Wallet signature verification is not configured or unavailable."),
 }
 
@@ -265,6 +266,21 @@ def create_wallets_router(deps: SimpleNamespace) -> APIRouter:
             "recent_payments_page": meta,
         }
 
+    @migrated.get(
+        "/api/v1/wallets/{address}/nonce",
+        response_model=WalletProfileNonceResponse,
+        response_model_exclude_unset=True,
+        tags=["Wallet & entitlements"],
+        summary="Issue a wallet profile nonce",
+        description="""Issue a single-use, address-bound nonce for the wallet profile session signature.
+
+**Authentication:** Public. The nonce grants nothing on its own; the caller must sign it with the address's private key.
+**Behavior & Edge Cases:** The nonce expires after 5 minutes and is consumed by `POST /api/v1/wallets/{address}/session`. Submitting an unknown, expired, already-used, or cross-address nonce fails session creation with 403.""",
+        responses=documented_errors(429, 500),
+    )
+    def get_wallet_profile_nonce(address: str):
+        return deps.issue_wallet_profile_nonce(address)
+
     @migrated.post(
         "/api/v1/wallets/{address}/session",
         response_model=WalletProfileSessionResponse,
@@ -273,12 +289,17 @@ def create_wallets_router(deps: SimpleNamespace) -> APIRouter:
         summary="Create a wallet profile session",
         description="""Exchange a signed message for a short-lived wallet session JWT. Called by the frontend upon wallet connection.
         
-**Authentication:** Requires a valid EIP-191/SIWE-like signature over the `nonce` and `issued_at` payload.
-**Behavior & Edge Cases:** Validates the signature against the requested `address`. The resulting JWT is required for viewing full private reports and detailed payment histories.""",
+**Authentication:** Requires a valid EIP-191/SIWE-like signature over the `nonce` and `issued_at` payload. The nonce must be single-use and previously issued by `GET /api/v1/wallets/{address}/nonce` for the same address.
+**Behavior & Edge Cases:** Validates the signature against the requested `address` and burns the nonce. The resulting JWT is required for viewing full private reports and detailed payment histories.""",
         responses=WALLET_SESSION_RESPONSES,
     )
     def create_wallet_profile_session(address: str, payload: WalletProfileSessionRequest):
         token_payload = deps.wallet_profile_token_payload(address, payload)
+        if not deps.consume_wallet_profile_nonce(address, payload.nonce):
+            raise HTTPException(
+                status_code=403,
+                detail="Wallet profile nonce is unknown, expired, or already used. Request a fresh nonce from GET /api/v1/wallets/{address}/nonce.",
+            )
         return {
             "address": deps.normalize_address(address),
             "wallet_token": deps.sign_access_token(

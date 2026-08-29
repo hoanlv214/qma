@@ -8,6 +8,7 @@ and withdrawals via the Arc Gateway.
 
 import math
 import secrets
+import threading
 import time
 import uuid
 from typing import Optional, List
@@ -21,7 +22,7 @@ from backend.app.schemas.sessions import (
     AgentWalletLookupResponse,
     AgentWalletWithdrawResponse,
 )
-from backend.app.core.openapi_responses import documented_errors
+from backend.app.core.openapi_responses import documented_error, documented_errors
 from backend.app.core.security_schemes import (
     qma_internal_secret_header,
     qma_wallet_token_header,
@@ -72,6 +73,23 @@ class ReclaimLeasesResponse(BaseModel):
 router = APIRouter(tags=["Agent sessions"])
 ZERO_USER_ID = "00000000-0000-0000-0000-000000000000"
 
+# Serializes withdraw versus session start/resume per owner wallet so a
+# session cannot be queued between the withdraw status check and the relayer
+# transfer. The API currently runs as a single uvicorn process, so an
+# in-process lock closes the window; replace with a DB-level lock if the API
+# ever scales to multiple instances.
+_owner_ops_guard = threading.Lock()
+_owner_ops_locks: dict = {}
+
+
+def owner_ops_lock(owner_wallet: str) -> threading.Lock:
+    with _owner_ops_guard:
+        lock = _owner_ops_locks.get(owner_wallet)
+        if lock is None:
+            lock = threading.Lock()
+            _owner_ops_locks[owner_wallet] = lock
+        return lock
+
 def get_storage(deps):
     if not hasattr(deps, "storage_backend"):
         raise HTTPException(status_code=500, detail="Storage backend not configured")
@@ -106,6 +124,37 @@ def create_sessions_router(deps) -> APIRouter:
         if not owner_wallet:
             raise HTTPException(status_code=403, detail="Session is not bound to a wallet owner.")
         return owner_wallet
+
+    # The agent_wallets registry keeps one Circle Agent Wallet per owner
+    # independent of session rows, so the binding (and any USDC the wallet
+    # holds) survives session deletion. Reads and writes degrade gracefully
+    # while the 20260824 registry migration is not yet applied: missing-table
+    # errors fall back to the legacy agent_sessions.runtime_state binding.
+    def load_owner_agent_wallet_row(storage, owner_wallet: str) -> Optional[dict]:
+        try:
+            rows = storage._request(
+                "GET", "agent_wallets",
+                params={"owner_wallet": f"eq.{owner_wallet}", "limit": "1"},
+            )
+        except Exception:
+            return None
+        if rows and rows[0].get("agent_wallet_id") and rows[0].get("agent_wallet_address"):
+            return rows[0]
+        return None
+
+    def upsert_owner_agent_wallet_row(storage, owner_wallet: str, agent_wallet_id: str, agent_wallet_address: str) -> None:
+        try:
+            storage._upsert(
+                "agent_wallets",
+                [{
+                    "owner_wallet": owner_wallet,
+                    "agent_wallet_id": agent_wallet_id,
+                    "agent_wallet_address": agent_wallet_address,
+                }],
+                conflict="owner_wallet",
+            )
+        except Exception:
+            pass
 
     def authorize_session(
         session: dict,
@@ -163,6 +212,85 @@ def create_sessions_router(deps) -> APIRouter:
             storage._request("PATCH", "agent_sessions", params={"id": f"eq.{session_id}"}, json_body=row)
         return load_session(storage, session_id)
 
+    _BALANCE_KEY_WORDS = ("balance", "available", "amount", "total", "value")
+
+    def _positive_balance_value(payload) -> bool:
+        if isinstance(payload, dict):
+            for key, value in payload.items():
+                if any(word in str(key).lower() for word in _BALANCE_KEY_WORDS):
+                    try:
+                        if float(value) > 0:
+                            return True
+                    except (TypeError, ValueError):
+                        pass
+                if _positive_balance_value(value):
+                    return True
+        elif isinstance(payload, list):
+            return any(_positive_balance_value(item) for item in payload)
+        return False
+
+    def agent_wallet_may_hold_funds(agent_wallet_id: str, agent_wallet_address: str) -> bool:
+        """True when the Agent Wallet may still hold USDC (fail-safe on errors).
+
+        A conservative read: any positive balance-like number in either the
+        EOA or the Gateway prepaid balance payload counts, and unreachable
+        balance endpoints are treated as "funds may remain" so deletion is
+        blocked rather than risking a stranded wallet.
+        """
+        import requests
+        headers = {}
+        if ARC_GATEWAY_INTERNAL_SECRET:
+            headers["x-qma-internal-secret"] = ARC_GATEWAY_INTERNAL_SECRET
+        base = ARC_GATEWAY_BASE_URL.rstrip("/")
+        try:
+            eoa = requests.get(f"{base}/api/wallet/{agent_wallet_id}/balance", headers=headers, timeout=10)
+            prepaid = requests.get(f"{base}/api/balance/{agent_wallet_address}", headers=headers, timeout=10)
+        except Exception:
+            return True
+        if not (eoa.ok and prepaid.ok):
+            return True
+        try:
+            return _positive_balance_value(eoa.json()) or _positive_balance_value(prepaid.json())
+        except Exception:
+            return True
+
+    def guard_delete_preserves_last_wallet_binding(storage, session: dict, owner_wallet: str) -> None:
+        """Blocks deleting the last session carrying the owner's Agent Wallet binding.
+
+        Legacy sessions keep agent_wallet_id/address only in
+        agent_sessions.runtime_state; if the last row carrying them is deleted
+        while no agent_wallets registry row exists, the wallet (and any
+        remaining USDC) becomes unreachable — new sessions provision a fresh
+        wallet. A registry row makes the binding survive deletion, so deletes
+        are allowed once the wallet is registered.
+        """
+        runtime_state = session.get("runtime_state") or {}
+        wallet_id = runtime_state.get("agent_wallet_id")
+        wallet_address = runtime_state.get("agent_wallet_address")
+        if not (wallet_id and wallet_address):
+            return
+        registry_row = load_owner_agent_wallet_row(storage, owner_wallet)
+        if registry_row and registry_row.get("agent_wallet_id") == wallet_id:
+            return
+        try:
+            others = storage._request("GET", "agent_sessions", params={
+                "runtime_state->>owner_wallet": f"eq.{owner_wallet}",
+                "limit": "100",
+            })
+        except Exception:
+            others = []
+        for other in others:
+            if other.get("id") == session.get("id"):
+                continue
+            state = other.get("runtime_state") or {}
+            if state.get("agent_wallet_id") == wallet_id and state.get("agent_wallet_address"):
+                return
+        if agent_wallet_may_hold_funds(wallet_id, wallet_address):
+            raise HTTPException(
+                status_code=409,
+                detail="This is the last session bound to your Agent Wallet, which may still hold USDC. Withdraw your balance before deleting it.",
+            )
+
     # =========================================================================
     # 1. Static / Non-parameterized Session Endpoints (Must be registered FIRST)
     # =========================================================================
@@ -202,7 +330,14 @@ def create_sessions_router(deps) -> APIRouter:
         agent_wallet_address = None
         agent_wallet_id = None
 
-        if existing_sessions:
+        # Reuse the owner's existing Agent Wallet when one has already been
+        # provisioned: registry first (survives session deletion), then any
+        # surviving session's runtime_state binding.
+        registry_row = load_owner_agent_wallet_row(storage, owner_wallet)
+        if registry_row:
+            agent_wallet_id = registry_row["agent_wallet_id"]
+            agent_wallet_address = registry_row["agent_wallet_address"]
+        elif existing_sessions:
             for s in existing_sessions:
                 rstate = s.get("runtime_state") or {}
                 if rstate.get("agent_wallet_address") and rstate.get("agent_wallet_id"):
@@ -235,6 +370,7 @@ def create_sessions_router(deps) -> APIRouter:
 
         runtime_state["agent_wallet_address"] = agent_wallet_address
         runtime_state["agent_wallet_id"] = agent_wallet_id
+        upsert_owner_agent_wallet_row(storage, owner_wallet, agent_wallet_id, agent_wallet_address)
             
         row = {
             "id": session_id,
@@ -366,67 +502,87 @@ def create_sessions_router(deps) -> APIRouter:
         """Withdraws USDC to the verified owner wallet when none of its sessions are active."""
         storage = get_storage(deps)
         owner_wallet_lower = require_wallet_owner(req.owner_wallet, qma_wallet_token)
-        
-        # 1. Retrieve all user sessions to check their active state (Race condition lock)
-        params = {
-            "runtime_state->>owner_wallet": f"eq.{owner_wallet_lower}",
-            "limit": "100"
-        }
-        try:
-            sessions = storage._request("GET", "agent_sessions", params=params)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to query database: {e}")
-            
-        # Check for any active sessions (queued or running)
-        active_sessions = [s for s in sessions if s.get("status") in ("queued", "running")]
-        if active_sessions:
-            raise HTTPException(
-                status_code=400,
-                detail="Cannot withdraw funds while a session is active. Please stop the session first."
-            )
-            
-        # 2. Locate the corresponding agent_wallet_id for the user
-        agent_wallet_id = None
-        if sessions:
-            for s in sessions:
-                rstate = s.get("runtime_state") or {}
-                if rstate.get("agent_wallet_id"):
-                    agent_wallet_id = rstate.get("agent_wallet_id")
-                    break
-                    
-        if not agent_wallet_id:
-            raise HTTPException(
-                status_code=404,
-                detail="No Agent Wallet found for this owner wallet."
-            )
-            
-        # 3. Contact the Gateway to execute the withdraw request
-        import requests
-        headers = {}
-        if ARC_GATEWAY_INTERNAL_SECRET:
-            headers["x-qma-internal-secret"] = ARC_GATEWAY_INTERNAL_SECRET
-            
-        try:
-            resp = requests.post(
-                f"{ARC_GATEWAY_BASE_URL.rstrip('/')}/api/wallet/withdraw",
-                headers=headers,
-                json={
-                    "walletId": agent_wallet_id,
-                    "destinationAddress": owner_wallet_lower,
-                    "amountUsdc": f"{req.amount_usdc:.6f}",
-                },
-                timeout=30
-            )
-            if not resp.ok:
+
+        with owner_ops_lock(owner_wallet_lower):
+            # 1. Retrieve all user sessions to check their active state.
+            #    The owner lock held here also covers start/resume, closing the
+            #    check-then-act race with a session being queued mid-withdraw.
+            params = {
+                "runtime_state->>owner_wallet": f"eq.{owner_wallet_lower}",
+                "limit": "100"
+            }
+            try:
+                sessions = storage._request("GET", "agent_sessions", params=params)
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Failed to query database: {e}")
+
+            # Check for any active sessions (queued or running)
+            active_sessions = [s for s in sessions if s.get("status") in ("queued", "running")]
+            if active_sessions:
                 raise HTTPException(
-                    status_code=resp.status_code,
-                    detail=f"Failed to execute withdraw on relayer: {resp.text[:300]}"
+                    status_code=400,
+                    detail="Cannot withdraw funds while a session is active. Please stop the session first."
                 )
-            return resp.json()
-        except Exception as e:
-            if isinstance(e, HTTPException):
-                raise e
-            raise HTTPException(status_code=500, detail=f"Error contacting withdraw relayer: {e}")
+
+            # 2. Locate the owner's Agent Wallet: registry first (survives
+            #    session deletion), then any session's runtime_state binding.
+            agent_wallet_id = None
+            registry_row = load_owner_agent_wallet_row(storage, owner_wallet_lower)
+            if registry_row:
+                agent_wallet_id = registry_row["agent_wallet_id"]
+            elif sessions:
+                for s in sessions:
+                    rstate = s.get("runtime_state") or {}
+                    if rstate.get("agent_wallet_id"):
+                        agent_wallet_id = rstate.get("agent_wallet_id")
+                        break
+
+            if not agent_wallet_id:
+                raise HTTPException(
+                    status_code=404,
+                    detail="No Agent Wallet found for this owner wallet."
+                )
+
+            # Stable idempotency key for the relayer: retries of the same
+            # withdrawal (owner + wallet + amount) within the same 10-minute
+            # bucket reuse the key, so Circle returns the original transfer
+            # instead of executing a second one after a timed-out response.
+            # Intentional repeat withdrawals of the same amount must wait for
+            # the next bucket.
+            idempotency_key = str(uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                "qma:agent-wallet-withdraw:"
+                f"{owner_wallet_lower}:{agent_wallet_id}:{req.amount_usdc:.6f}:{int(time.time() // 600)}",
+            ))
+
+            # 3. Contact the Gateway to execute the withdraw request
+            import requests
+            headers = {}
+            if ARC_GATEWAY_INTERNAL_SECRET:
+                headers["x-qma-internal-secret"] = ARC_GATEWAY_INTERNAL_SECRET
+
+            try:
+                resp = requests.post(
+                    f"{ARC_GATEWAY_BASE_URL.rstrip('/')}/api/wallet/withdraw",
+                    headers=headers,
+                    json={
+                        "walletId": agent_wallet_id,
+                        "destinationAddress": owner_wallet_lower,
+                        "amountUsdc": f"{req.amount_usdc:.6f}",
+                        "idempotencyKey": idempotency_key,
+                    },
+                    timeout=30
+                )
+                if not resp.ok:
+                    raise HTTPException(
+                        status_code=resp.status_code,
+                        detail=f"Failed to execute withdraw on relayer: {resp.text[:300]}"
+                    )
+                return resp.json()
+            except Exception as e:
+                if isinstance(e, HTTPException):
+                    raise e
+                raise HTTPException(status_code=500, detail=f"Error contacting withdraw relayer: {e}")
 
     @migrated.get(
         "/api/v1/sessions/owner/{owner_wallet}/wallet",
@@ -455,10 +611,15 @@ def create_sessions_router(deps) -> APIRouter:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to query database: {e}")
             
+        # 1. Resolve the Agent Wallet: registry first (survives session
+        #    deletion), then any session's runtime_state binding.
         agent_wallet_address = None
         agent_wallet_id = None
-        
-        if sessions:
+        registry_row = load_owner_agent_wallet_row(storage, owner_wallet_lower)
+        if registry_row:
+            agent_wallet_id = registry_row["agent_wallet_id"]
+            agent_wallet_address = registry_row["agent_wallet_address"]
+        else:
             for s in sessions:
                 rstate = s.get("runtime_state") or {}
                 if rstate.get("agent_wallet_address") and rstate.get("agent_wallet_id"):
@@ -604,31 +765,44 @@ def create_sessions_router(deps) -> APIRouter:
         tags=["Agent sessions"],
         response_model=AgentSessionDeleteResponse,
         summary="Delete a wallet-owned Agent Session",
-        responses=documented_errors(403, 404, 429, 500),
+        responses={
+            **documented_errors(403, 404, 429, 500),
+            409: documented_error(
+                409,
+                "This is the last session bound to the owner's Agent Wallet, which may still hold USDC. Withdraw the balance first.",
+            ),
+        },
     )
     def delete_session(
         session_id: str,
         qma_wallet_token: Optional[str] = Security(qma_wallet_token_header),
     ):
-        """Deletes a session after verifying the wallet bound to that session."""
+        """Deletes a session after verifying the wallet bound to that session.
+
+        Refuses with 409 when this is the last session carrying the owner's
+        Agent Wallet binding and that wallet may still hold USDC, because the
+        wallet would otherwise become unreachable.
+        """
         storage = get_storage(deps)
         session = load_session(storage, session_id)
-        require_wallet_owner(session_owner(session), qma_wallet_token)
-        try:
-            # PostgREST DELETE
-            headers = dict(storage.headers)
-            import requests
-            resp = requests.delete(
-                f"{storage.rest_url}/agent_sessions?id=eq.{session_id}",
-                headers=headers,
-                timeout=storage.timeout
-            )
-            if not resp.ok:
-                raise RuntimeError(f"Failed to delete: {resp.text}")
-        except Exception as e:
-            if "returned 40" in str(e):
-                raise HTTPException(status_code=400, detail=str(e))
-            raise HTTPException(status_code=500, detail=str(e))
+        owner_wallet = require_wallet_owner(session_owner(session), qma_wallet_token)
+        with owner_ops_lock(owner_wallet):
+            guard_delete_preserves_last_wallet_binding(storage, session, owner_wallet)
+            try:
+                # PostgREST DELETE
+                headers = dict(storage.headers)
+                import requests
+                resp = requests.delete(
+                    f"{storage.rest_url}/agent_sessions?id=eq.{session_id}",
+                    headers=headers,
+                    timeout=storage.timeout
+                )
+                if not resp.ok:
+                    raise RuntimeError(f"Failed to delete: {resp.text}")
+            except Exception as e:
+                if "returned 40" in str(e):
+                    raise HTTPException(status_code=400, detail=str(e))
+                raise HTTPException(status_code=500, detail=str(e))
 
         return {"status": "deleted", "id": session_id}
 
@@ -740,8 +914,10 @@ def create_sessions_router(deps) -> APIRouter:
         """Queues a wallet-owned draft or stopped session for worker execution."""
         storage = get_storage(deps)
         session = load_session(storage, session_id)
-        require_wallet_owner(session_owner(session), qma_wallet_token)
-        return persist_session_update(storage, session_id, AgentSessionUpdate(status="queued"))
+        owner_wallet = session_owner(session)
+        require_wallet_owner(owner_wallet, qma_wallet_token)
+        with owner_ops_lock(owner_wallet):
+            return persist_session_update(storage, session_id, AgentSessionUpdate(status="queued"))
 
     @migrated.post(
         "/api/v1/sessions/{session_id}/stop",
@@ -789,7 +965,9 @@ def create_sessions_router(deps) -> APIRouter:
         """Moves a stopped wallet-owned session back to the worker queue."""
         storage = get_storage(deps)
         session = load_session(storage, session_id)
-        require_wallet_owner(session_owner(session), qma_wallet_token)
-        return persist_session_update(storage, session_id, AgentSessionUpdate(status="queued"))
+        owner_wallet = session_owner(session)
+        require_wallet_owner(owner_wallet, qma_wallet_token)
+        with owner_ops_lock(owner_wallet):
+            return persist_session_update(storage, session_id, AgentSessionUpdate(status="queued"))
 
     return migrated

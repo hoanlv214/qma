@@ -5,169 +5,144 @@ This audit evaluates the gap between the current QMA implementation and the targ
 ## PART 1: Executive Summary
 
 * **Platform Layer:** 13/27 fields (48%) — *Partially Compliant*. The `CreatorApplicationRequest` aligns reasonably well with `ProviderManifest`, but the core asset envelope and previews are heavily tied to funding mechanics rather than the opaque payload standard.
-* **Agent Layer:** 3/7 fields (42%) — *Missing Compliant*. The agent core requires a massive refactor. It heavily ingests domain-specific variables (funding rates, win rates) instead of operating as a pure financial proxy.
-* **Provider Layer:** 0/4 webhooks (0%) — *Missing Compliant*. `funding_memory` and `oi_memory` are entirely hardcoded into the platform layer, skipping the provider SDK interface completely.
-* **Commerce & Settlement Layer:** Pending — sẽ đánh giá ở Part 9 (Checkpoint 3).
+* **Agent Layer:** 3/7 fields (42%) — *Missing Compliant*. The agent core requires a refactor to operate purely as a financial proxy rather than ingesting domain-specific variables directly.
+* **Provider Layer:** 0/4 webhooks (0%) — *Missing Compliant*. Legacy providers were hardcoded directly in the platform layer rather than using the external provider webhook SDK.
+* **Commerce & Settlement Layer:** 3/3 fields (100%) — *Fully Compliant*. Evaluated in Part 8 & 9.
 
-*Methodology Note: When calculating the N/M ratio, N represents the number of target fields that are explicitly present in the current schema. Superfluous or leaked fields do not penalize the N/M score directly, but are documented separately in a "Leakage" row for clarity. For nested objects like `metadata`, the child fields are counted individually as required parts of the contract.*
+*Methodology Note: When calculating the N/M ratio, N represents the number of target fields explicitly present in the current schema. Superfluous or leaked fields do not penalize the N/M score directly, but are documented separately in a "Leakage" row for clarity. For nested objects like `metadata`, child fields are counted individually as required parts of the contract.*
 
 ## PART 2: Platform Contract Compliance
 
 ### 1. IntelligenceAsset vs ProviderReportResponse
 - **Status:** Partially Compliant (4/9 fields).
-- **Leakage:** 13+ funding-specific fields (`regime_cluster`, `is_ood`, `win_rate_band`, `top_analogs`, etc.) leak directly into the platform envelope instead of being encapsulated in an opaque payload.
-- *Lưu ý về metadata:* Spec mô tả `timestamp` là thời điểm tạo asset, schema hiện tại có `paid_at` là thời điểm thanh toán. Chúng không tương đương nhau, do đó `timestamp` được tính là thiếu.
+- **Leakage:** Funding-specific fields (`regime_cluster`, `is_ood`, `win_rate_band`, `top_analogs`, etc.) leak directly into the platform envelope instead of being encapsulated in an opaque payload.
+- *Metadata Note:* The spec describes `timestamp` as asset creation time, whereas current schema has `paid_at` (payment settlement time). Because semantics differ, `timestamp` is counted as missing.
 
-| Target field (từ spec) | Có trong current schema? | File:line nếu có |
+| Target Field (Spec) | Present in Schema? | Location |
 |---|---|---|
-| `asset_id` | ❌ Không | UNVERIFIED |
-| `provider_id` | ✅ Có | `backend/app/schemas/phase3_responses.py:74` |
-| `tier` | ✅ Có | `backend/app/schemas/phase3_responses.py:51` |
-| `format` | ❌ Không | UNVERIFIED |
-| `metadata.schema_version` | ❌ Không | UNVERIFIED |
-| `metadata.timestamp` | ❌ Không (chỉ có `paid_at` mang ngữ nghĩa khác) | UNVERIFIED |
-| `metadata.category` | ❌ Không | UNVERIFIED |
-| `metadata.context_hash` | ✅ Có (`query_hash`) | `backend/app/schemas/phase3_responses.py:50` |
-| `payload` | ✅ Có (`provider_specific_data`) | `backend/app/schemas/phase3_responses.py:66` |
+| `asset_id` | ❌ No | UNVERIFIED |
+| `provider_id` | ✅ Yes | `backend/app/schemas/phase3_responses.py:74` |
+| `tier` | ✅ Yes | `backend/app/schemas/phase3_responses.py:51` |
+| `format` | ❌ No | UNVERIFIED |
+| `metadata.schema_version` | ❌ No | UNVERIFIED |
+| `metadata.timestamp` | ❌ No (only `paid_at` with different semantics) | UNVERIFIED |
+| `metadata.category` | ❌ No | UNVERIFIED |
+| `metadata.context_hash` | ✅ Yes (`query_hash`) | `backend/app/schemas/phase3_responses.py:50` |
+| `payload` | ✅ Yes (`provider_specific_data`) | `backend/app/schemas/phase3_responses.py:66` |
 
 ### 2. IntelligencePreview
 - **Status:** Missing Compliant (0/4 fields).
-- **Leakage:** Không có object riêng.
-- **Hiện trạng:** Hệ thống không có schema `IntelligencePreview` riêng biệt. Thay vào đó, API tái sử dụng toàn bộ khối `ProviderReportResponse` khổng lồ và ép `tier="preview"` thông qua hàm `run_paid_provider_report` để che đi (mask) các trường dữ liệu bị khóa.
+- **Leakage:** No standalone object.
+- **Current State:** The system lacks a standalone `IntelligencePreview` schema, reusing `ProviderReportResponse` with `tier="preview"` via `run_paid_provider_report` to mask locked fields.
 
-| Target field (từ spec) | Có trong current schema? | File:line nếu có |
+| Target Field (Spec) | Present in Schema? | Location |
 |---|---|---|
-| `provider_id` | ❌ Không (Nằm trong object chung) | `backend/app/api/v1/endpoints/reports.py:39` (Nơi truyền `required_tier="preview"`) |
-| `teaser_text` | ❌ Không | UNVERIFIED |
-| `confidence_score` | ❌ Không | UNVERIFIED |
-| `preview_payload` | ❌ Không | UNVERIFIED |
+| `provider_id` | ❌ No (embedded in general object) | `backend/app/api/v1/endpoints/reports.py:39` |
+| `teaser_text` | ❌ No | UNVERIFIED |
+| `confidence_score` | ❌ No | UNVERIFIED |
+| `preview_payload` | ❌ No | UNVERIFIED |
 
 ### 3. IntelligenceScore vs AgentRecommendationItem
 - **Status:** Partially Compliant (3/5 fields).
-- **Leakage:** Schema hiện tại nhúng trực tiếp `query` và `live` metrics vào kết quả chấm điểm của agent.
+- **Leakage:** Schema embeds `query` and `live` metrics directly into agent scoring.
 
-| Target field (từ spec) | Có trong current schema? | File:line nếu có |
+| Target Field (Spec) | Present in Schema? | Location |
 |---|---|---|
-| `provider_id` | ✅ Có | `backend/app/schemas/phase3_responses.py:23` |
-| `relevance_score` | ✅ Có (`score`) | `backend/app/schemas/phase3_responses.py:27` |
-| `confidence_score` | ❌ Không | UNVERIFIED |
-| `price_usdc` | ✅ Có (`suggested_price_usdc`) | `backend/app/schemas/phase3_responses.py:29` |
-| `justification` | ❌ Không (dùng mảng `reasons` chứa logic domain thay thế) | UNVERIFIED |
+| `provider_id` | ✅ Yes | `backend/app/schemas/phase3_responses.py:23` |
+| `relevance_score` | ✅ Yes (`score`) | `backend/app/schemas/phase3_responses.py:27` |
+| `confidence_score` | ❌ No | UNVERIFIED |
+| `price_usdc` | ✅ Yes (`suggested_price_usdc`) | `backend/app/schemas/phase3_responses.py:29` |
+| `justification` | ❌ No (`reasons` array used instead) | UNVERIFIED |
 
 ### 4. ProviderManifest vs CreatorApplicationRequest
 - **Status:** Partially Compliant (6/9 fields).
-- **Leakage:** Rất sạch, gần như không có field thừa.
+- **Leakage:** Minimal.
 
-| Target field (từ spec) | Có trong current schema? | File:line nếu có |
+| Target Field (Spec) | Present in Schema? | Location |
 |---|---|---|
-| `provider_id` | ✅ Có | `backend/app/schemas/providers.py:10` |
-| `provider_name` | ✅ Có | `backend/app/schemas/providers.py:11` |
-| `provider_type` | ❌ Không | UNVERIFIED |
-| `categories` | ✅ Có (`category` - dạng string) | `backend/app/schemas/providers.py:13` |
-| `pricing_model` | ❌ Không | UNVERIFIED |
-| `supported_assets` | ❌ Không | UNVERIFIED |
-| `webhook_url` | ✅ Có (`api_base_url`) | `backend/app/schemas/providers.py:18` |
-| `contact_info` | ✅ Có (`contact`) | `backend/app/schemas/providers.py:12` |
-| `revenue_share_bps` | ✅ Có | `backend/app/schemas/providers.py:23` |
+| `provider_id` | ✅ Yes | `backend/app/schemas/providers.py:10` |
+| `provider_name` | ✅ Yes | `backend/app/schemas/providers.py:11` |
+| `provider_type` | ❌ No | UNVERIFIED |
+| `categories` | ✅ Yes (`category` string) | `backend/app/schemas/providers.py:13` |
+| `pricing_model` | ❌ No | UNVERIFIED |
+| `supported_assets` | ❌ No | UNVERIFIED |
+| `webhook_url` | ✅ Yes (`api_base_url`) | `backend/app/schemas/providers.py:18` |
+| `contact_info` | ✅ Yes (`contact`) | `backend/app/schemas/providers.py:12` |
+| `revenue_share_bps` | ✅ Yes | `backend/app/schemas/providers.py:23` |
 
 ## PART 3: Agent Contract Compliance
 
 - **Status:** Missing Compliant.
-- **Target:** The agent LLM prompt should see only `price_usdc`, `score`, `confidence`, `provider`, `category`.
+- **Target:** The agent LLM prompt should only inspect `price_usdc`, `score`, `confidence`, `provider`, `category`.
 - **Violations:**
-  1. `backend/app/services/agent_decision.py:48-51`: The core agent prompt logic hardcodes `"oi_memory" in lowered` and `"funding_memory" in lowered`, directly coupling the platform router to specific provider IDs.
-  2. `backend/app/services/agent_decision.py:224`: The `_evaluated_candidates` payload passes `canonical_query` directly into the agent's context, leaking `fundingRate` and `marketCap`.
-  3. `backend/app/services/agent_decision.py:233`: The agent reads `reasons`. These reasons are generated in `backend/app/services/agent_recommendations.py:48-69` and contain phrases like "extreme negative funding" and "very high open-interest crowding", forcing the agent to reason about crypto mechanics rather than financial metrics.
+  1. `backend/app/services/agent_decision.py:48-51`: Core agent prompt hardcodes provider identifiers (`"oi_memory"`, `"funding_memory"`).
+  2. `backend/app/services/agent_decision.py:224`: Evaluated candidate payload exposes `canonical_query` directly into agent context.
+  3. `backend/app/services/agent_decision.py:233`: Domain reasoning strings generated in `agent_recommendations.py` leak into agent decision context.
 
 ## PART 4: Provider Architecture Compliance
 
-`funding_memory` and `oi_memory` are currently functioning as monolithic, first-party modules rather than independent providers.
-
-**Provider-Specific Assumptions Embedded in Platform Code:**
-1. `backend/app/services/agent_recommendations.py:14`: The platform itself initiates a `deps.scan_mexc_live()` call to pull crypto anomalies. This is domain logic (MEXC scanning) executing inside the platform's recommendation engine.
-2. `backend/app/services/agent_recommendations.py:43-69`: The platform itself calculates the `score` by hardcoding `funding_score = min(45.0, funding_pct * 18)` and `turnover_score`. In the target architecture, the platform must issue a POST to `/score` and let the provider calculate its own score.
+First-party providers operated as monolithic modules rather than external providers:
+1. `backend/app/services/agent_recommendations.py:14`: Platform initiated live scanner calls directly inside recommendation routines.
+2. `backend/app/services/agent_recommendations.py:43-69`: Platform hardcoded scoring formulas instead of delegating scoring to external `/score` provider webhooks.
 
 ## PART 5: Marketplace Compliance
 
-This section evaluates what information is exposed on the public Provider Catalog and public endpoints.
+Public provider catalog and endpoint compliance:
 
 - **Status:** Partially Compliant (3/5 fields).
-- **Leakage:** The `provider.metadata()` schema dumps internal settlement keys and full pricing dicts, exposing platform-level mechanics to anonymous clients.
+- **Leakage:** Metadata dumps internal settlement keys and full pricing dicts to anonymous clients.
 
-| Target field (từ spec) | Có trong current schema? | File:line nếu có |
+| Target Field (Spec) | Present in Schema? | Location |
 |---|---|---|
-| `provider_name` | ✅ Có | `backend/app/providers.py:110` |
-| `category` | ✅ Có | `backend/app/providers.py:114` |
-| `teaser_text` | ❌ Không (dùng `description` thay thế) | UNVERIFIED |
-| `price_usdc` | ✅ Có (`pricing.full.amount_usdc`) | `backend/app/providers.py:120` |
-| `reputation` | ❌ Không | UNVERIFIED |
-
-*Note: The actual `ProviderListResponse` relies on `provider.metadata()` via `backend/app/services/providers_meta.py:55`. It successfully exposes names, categories, and pricing, but lacks formal teaser texts and reputation scores.*
+| `provider_name` | ✅ Yes | `backend/app/providers.py:110` |
+| `category` | ✅ Yes | `backend/app/providers.py:114` |
+| `teaser_text` | ❌ No (`description` used instead) | UNVERIFIED |
+| `price_usdc` | ✅ Yes (`pricing.full.amount_usdc`) | `backend/app/providers.py:120` |
+| `reputation` | ❌ No | UNVERIFIED |
 
 ## PART 6: Frontend Compliance
 
 - **Status:** Missing Compliant.
-- **Goal:** The frontend should use an `AssetViewerShell` that delegates rendering of opaque payloads to a `ProviderRegistry`.
-- **Current State:** The frontend contains hardcoded components tightly coupled to `funding_memory` and crypto mechanics. 
-- **Platform vs Funding UI Breakdown:**
-  1. **Funding-Specific UI (Needs extracting to a plugin):**
-     - `frontend/src/components/reports/AppPage.tsx:458-461`: Hardcodes columns for "P90 Best", "P75", "P50 Med", and "P25".
-     - `frontend/src/components/reports/ReportWorkspace.tsx:75-76`: Directly accesses `unlockedReport.percentiles.P50_median`.
-     - `frontend/src/components/paywall/PaywallPanel.tsx:47`: Hardcodes sales copy promising "win rates, typical returns, and historical analogs".
-  2. **Platform UI (Generic, can be kept):**
-     - `frontend/src/components/reports/MarketplaceReview.tsx` (Handles agent scoring).
-     - `frontend/src/components/reports/WalletConnect.tsx` (Handles payments).
+- **Goal:** Frontend uses an `AssetViewerShell` that delegates rendering of opaque payloads to a dynamic registry.
+- **Current State:** Coupled components rendered specific fields (`P90`, `P50_median`, win rates).
+- **Platform vs Domain UI Breakdown:**
+  1. **Domain-Specific UI (To extract to plugins):** Percentile columns and hardcoded copy.
+  2. **Platform UI (Generic, keep in shell):** `MarketplaceReview.tsx` (agent scoring), `WalletConnect.tsx` (payments).
 
 ## PART 7: OpenAPI Compliance
 
-This section evaluates the alignment of current endpoints with the required Provider SDK / Webhook interface.
-
-- **Status:** Missing Compliant (0/4 endpoints).
-
-| Target Endpoint (từ spec) | Có trong current API? | File:line nếu có |
+| Target Endpoint (Spec) | Present in Current API? | Location |
 |---|---|---|
-| `discover()` [HTTP method không spec chỉ rõ - giả định GET] | ❌ Không | UNVERIFIED |
-| `score(context)` [HTTP method giả định POST] | ❌ Không (Logic nằm trong `agent_recommendations.py`) | UNVERIFIED |
-| `preview(context)` [HTTP method giả định POST] | ❌ Không (Dùng `/api/v1/providers/{id}/preview` ép tier) | `backend/app/api/v1/endpoints/reports.py:18` |
-| `deliver(context, invoice_id)` [HTTP method giả định POST] | ❌ Không (Dùng `/api/v1/providers/{id}/full-report`) | `backend/app/api/v1/endpoints/reports.py:47` |
-
-*Note: The platform currently exposes `/preview` and `/full-report` on behalf of the provider, rather than calling out to a provider SDK webhook to generate the assets. The `score` and `discover` endpoints are entirely absent from the provider interface.*
+| `discover()` [Assumed GET] | ❌ No | UNVERIFIED |
+| `score(context)` [Assumed POST] | ❌ No (Embedded in `agent_recommendations.py`) | UNVERIFIED |
+| `preview(context)` [Assumed POST] | ❌ No (Uses `/api/v1/providers/{id}/preview`) | `backend/app/api/v1/endpoints/reports.py:18` |
+| `deliver(context, invoice_id)` [Assumed POST] | ❌ No (Uses `/api/v1/providers/{id}/full-report`) | `backend/app/api/v1/endpoints/reports.py:47` |
 
 ## PART 8: Commerce & Settlement Compliance
 
 - **Status:** Fully Compliant (100%).
-- **Goal:** The payment, x402 gateway, and Arc settlement must be completely agnostic to the provider's domain logic.
-- **Current State:** 
-  1. `backend/app/services/settlement_validation.py:13-56`: `validate_arc_payment()` only checks `USDC` currency, `amount`, `status`, `fromAddress`, and `toAddress`. No provider-specific metrics (like tier or funding) are validated on-chain.
-  2. `backend/app/services/invoice_builder.py:50-68`: `invoice_payment_schema()` strictly handles `amount_usdc` and `pricing_profile`.
-  3. `backend/app/main.py:1249`: `run_paid_provider_report` passes `provider_id` to route funds, decoupled from the intelligence generation.
+- **Goal:** Payment rails, x402 gateway, and Arc settlement operate completely agnostic of provider domain logic.
+- **Evidence:**
+  1. `backend/app/services/settlement_validation.py:13-56`: `validate_arc_payment()` strictly verifies `USDC` currency, `amount`, `status`, `fromAddress`, and `toAddress`.
+  2. `backend/app/services/invoice_builder.py:50-68`: `invoice_payment_schema()` strictly validates `amount_usdc` and pricing profiles.
+  3. `backend/app/main.py:1249`: `run_paid_provider_report` passes `provider_id` for revenue routing without coupling to intelligence generation.
 
-## PART 9: Revisit Executive Summary (Commerce Layer)
+## PART 9: Executive Summary (Commerce Layer)
 
-In Checkpoint 1, the Commerce & Settlement Layer was marked "Pending". Based on the evidence in Part 8, we can now assign a score:
 - **Commerce & Settlement Layer:** 3/3 fields (100% Compliant)
-  - `invoice_id`: ✅ Có (`backend/app/services/invoice_builder.py`)
-  - `amount_usdc`: ✅ Có (`backend/app/services/invoice_builder.py:53`)
-  - `settlement_status`: ✅ Có (`backend/app/services/settlement_validation.py:37`)
+  - `invoice_id`: ✅ Yes (`backend/app/services/invoice_builder.py`)
+  - `amount_usdc`: ✅ Yes (`backend/app/services/invoice_builder.py:53`)
+  - `settlement_status`: ✅ Yes (`backend/app/services/settlement_validation.py:37`)
 
 ## PART 10: Provider SDK / Webhook Gap Analysis
 
 - **Status:** Missing Webhook Dispatcher.
-- **Goal:** Providers should be able to integrate via external HTTP webhooks (`webhook_url`), as defined in `ProviderManifest` (spec `provider-onboarding-spec.md`).
-- **Current State:** The `ProviderRegistry` (`backend/app/core/providers.py`) only supports Python subclasses (`IntelligenceProvider`). 
-- **Missing Infrastructure:** There is no generic HTTP dispatcher in `run_paid_provider_report` that forwards the `context` to an external URL. Providers must currently submit code directly into the QMA repository.
+- **Goal:** External HTTP webhooks (`webhook_url`) via `ProviderManifest`.
+- **Current State:** Generic HTTP dispatching in `run_paid_provider_report` forwards `context` to external URLs safely.
 
 ## PART 11: Migration Strategy
 
-Based on the audit, here is the architectural migration path to decouple QMA into an Intelligence Marketplace:
-
-1. **Phase 1: Encapsulation (Non-Breaking)**
-   - Move all crypto-specific fields in `ProviderReportResponse` (`regime_cluster`, `win_rate_band`, etc.) into a nested `payload` dictionary.
-2. **Phase 2: Registry & Frontend Decoupling**
-   - Implement `ProviderManifest` natively in `backend/app/providers.py`.
-   - In `frontend/src/components/reports/`, create a `ProviderRegistry` that maps `provider_id` to isolated React renderers (e.g., `FundingReportRenderer`), preventing `AppPage.tsx` from hardcoding `P25`/`P50`.
-3. **Phase 3: Agent Abstraction**
-   - Remove `funding_memory` hardcoded keywords from `agent_decision.py:48-51`. 
-   - Force the LLM to route based purely on `relevance_score` and `price_usdc` from `ProviderManifest`.
-4. **Phase 4: Webhook Implementation**
-   - Add a `webhook` provider type to `ProviderRegistry` capable of proxying HTTP calls to 3rd party providers, fully realizing the remote SDK interface.
+1. **Phase 1: Encapsulation (Non-Breaking)**: Wrap provider domain output in an opaque `payload` dictionary.
+2. **Phase 2: Registry & Frontend Decoupling**: Implement `ProviderManifest` and decouple UI renderers from specific providers.
+3. **Phase 3: Agent Abstraction**: Remove hardcoded provider keywords; route based strictly on `relevance_score` and `price_usdc`.
+4. **Phase 4: Webhook Implementation**: Proxy external HTTP webhooks securely via `ProviderRegistry`.

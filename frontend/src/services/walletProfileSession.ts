@@ -65,8 +65,14 @@ export async function requestWalletProfileSession(account: string) {
     throw new Error("Connected wallet does not match this private profile.");
   }
 
-  const issuedAt = Math.floor(Date.now() / 1000);
-  const nonce = `${issuedAt}-${Math.random().toString(36).slice(2)}`;
+  const nonceData = await requestJson<{ nonce?: string; issued_at?: number }>(
+    `/api/v1/wallets/${normalized}/nonce`,
+  );
+  const nonce = String(nonceData?.nonce || "");
+  if (!nonce) throw new Error("Failed to obtain a wallet profile nonce. Retry wallet verification.");
+  // Server-issued nonce + server issued_at: single-use (blocks signature
+  // replay) and immune to browser clock skew in the ±300s freshness check.
+  const issuedAt = Number(nonceData?.issued_at) || Math.floor(Date.now() / 1000);
   const message = walletProfileMessage(normalized, nonce, issuedAt);
   const signature = await provider.request<string>({
     method: "personal_sign",

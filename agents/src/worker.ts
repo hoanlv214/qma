@@ -8,8 +8,6 @@
  */
 
 import { QmaAgent } from "./index.js";
-import { createCircleAgentWalletSigner } from "./wallets/circleSigner.js";
-import { privateKeyToAccount } from "viem/accounts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as http from "node:http";
@@ -326,91 +324,48 @@ async function runWorkerLoop() {
                   };
                 }
               };
-            } else if (process.env.AGENT_PRIVATE_KEY) {
-              const account = privateKeyToAccount(process.env.AGENT_PRIVATE_KEY as any);
-              signer = {
-                walletAddress: account.address,
-                async signLeg(resourceUrl: string) {
-                  const resp = await fetch(resourceUrl);
-                  if (resp.status !== 402) {
-                    throw new Error(`Expected x402 402 challenge, got ${resp.status}: ${await resp.text()}`);
-                  }
-                  const requiredHeader = resp.headers.get("PAYMENT-REQUIRED") || resp.headers.get("payment-required");
-                  if (!requiredHeader) {
-                    throw new Error("Arc Gateway did not return PAYMENT-REQUIRED header.");
-                  }
-                  const challenge = JSON.parse(Buffer.from(requiredHeader, "base64").toString("utf8"));
-                  const accepted = challenge.accepts[0];
-
-                  const now = Math.floor(Date.now() / 1000);
-                  const validAfter = now - 600;
-                  const validBefore = now + Math.max(Number(accepted.maxTimeoutSeconds || 0), 7 * 24 * 3600 + 600);
-                  const crypto = await import("node:crypto");
-                  const nonce = "0x" + Array.from(crypto.randomBytes(32)).map((b: any) => b.toString(16).padStart(2, "0")).join("");
-
-                  const typedData = {
-                    types: {
-                      EIP712Domain: [
-                        { name: "name", type: "string" },
-                        { name: "version", type: "string" },
-                        { name: "chainId", type: "uint256" },
-                        { name: "verifyingContract", type: "address" },
-                      ],
-                      TransferWithAuthorization: [
-                        { name: "from", type: "address" },
-                        { name: "to", type: "address" },
-                        { name: "value", type: "uint256" },
-                        { name: "validAfter", type: "uint256" },
-                        { name: "validBefore", type: "uint256" },
-                        { name: "nonce", type: "bytes32" },
-                      ],
-                    },
-                    primaryType: "TransferWithAuthorization" as const,
-                    domain: {
-                      name: "GatewayWalletBatched",
-                      version: "1",
-                      chainId: 5042002,
-                      verifyingContract: accepted.extra.verifyingContract,
-                    },
-                    message: {
-                      from: account.address,
-                      to: accepted.payTo,
-                      value: BigInt(accepted.amount),
-                      validAfter: BigInt(validAfter),
-                      validBefore: BigInt(validBefore),
-                      nonce,
-                    },
-                  };
-
-                  const signature = await account.signTypedData(typedData as any);
-                  return {
-                    paymentHeader: Buffer.from(JSON.stringify({
-                      x402Version: 2,
-                      payload: {
-                        signature,
-                        authorization: {
-                          from: account.address,
-                          to: accepted.payTo,
-                          value: accepted.amount,
-                          validAfter: String(validAfter),
-                          validBefore: String(validBefore),
-                          nonce,
-                        },
-                      },
-                      accepted,
-                      resource: challenge.resource,
-                    })).toString("base64")
-                  };
-                }
-              };
             } else {
-              signer = createCircleAgentWalletSigner({
-                address: process.env.AGENT_WALLET_ADDRESS || "0x4859d0d0babdcc8c4d8d2d116258fd0e5f7ff67d",
-                chain: "ARC-TESTNET"
-              });
+              // Hosted sessions must pay only from their own provisioned Agent
+              // Wallet. Earlier builds silently fell back to a platform wallet
+              // (AGENT_PRIVATE_KEY / a hardcoded address), spending operator
+              // funds for sessions that lost their wallet binding. Fail the
+              // tick instead so the session surfaces the error to its owner.
+              throw new Error(
+                "Session has no Agent Wallet binding (runtime_state.agent_wallet_id / agent_wallet_address missing). " +
+                "Refusing to pay from a platform wallet. Delete and recreate this session to provision a fresh Agent Wallet.",
+              );
             }
 
             const agent = new QmaAgent({ signer, apiUrl: API_BASE_URL });
+
+            // Gateway balance payloads have drifted between micro-USDC base
+            // units and decimal strings across service versions; probe the
+            // known fields and normalize anything that looks like base units.
+            function gatewayBalanceUsdc(data: any): number {
+              const candidates = [
+                data?.balance,
+                data?.available,
+                data?.amount,
+                data?.total,
+                data?.balances?.[0]?.amount,
+                data?.balances?.[0]?.balance,
+                data?.sources?.[0]?.amount,
+                data?.sources?.[0]?.balance,
+                data?.data?.balance,
+                data?.data?.available,
+                data?.data?.amount,
+                data?.data?.total,
+                data?.data?.balances?.[0]?.amount,
+                data?.data?.balances?.[0]?.balance,
+              ];
+              for (const candidate of candidates) {
+                if (candidate === undefined || candidate === null) continue;
+                const raw = Number(candidate);
+                if (!Number.isFinite(raw)) continue;
+                return raw > 1000 ? raw / 1_000_000 : raw;
+              }
+              return 0;
+            }
 
             async function ensureAgentGatewayBalance(requiredBudget: number) {
               if (!agentWalletAddress || !agentWalletId) return;
@@ -419,30 +374,7 @@ async function runWorkerLoop() {
               try {
                 const gwBalRes = await fetch(`${ARC_GATEWAY_URL.replace(/\/$/, "")}/api/balance/${agentWalletAddress}`);
                 if (gwBalRes.ok) {
-                  const gwData = await gwBalRes.json();
-                  const candidates = [
-                    gwData?.balance,
-                    gwData?.available,
-                    gwData?.amount,
-                    gwData?.total,
-                    gwData?.balances?.[0]?.amount,
-                    gwData?.balances?.[0]?.balance,
-                    gwData?.sources?.[0]?.amount,
-                    gwData?.sources?.[0]?.balance,
-                    gwData?.data?.balance,
-                    gwData?.data?.available,
-                    gwData?.data?.amount,
-                    gwData?.data?.total,
-                    gwData?.data?.balances?.[0]?.amount,
-                    gwData?.data?.balances?.[0]?.balance,
-                  ];
-                  for (const candidate of candidates) {
-                    if (candidate === undefined || candidate === null) continue;
-                    const raw = Number(candidate);
-                    if (!Number.isFinite(raw)) continue;
-                    gwBalance = raw > 1000 ? raw / 1_000_000 : raw;
-                    break;
-                  }
+                  gwBalance = gatewayBalanceUsdc(await gwBalRes.json());
                 }
               } catch (e) {
                 console.error("[Worker] Error checking Gateway balance:", e);
@@ -495,23 +427,7 @@ async function runWorkerLoop() {
                 try {
                   const checkRes = await fetch(`${ARC_GATEWAY_URL.replace(/\/$/, "")}/api/balance/${agentWalletAddress}`);
                   if (checkRes.ok) {
-                    const checkData = await checkRes.json();
-                    let currentGwBal = 0;
-                    const candidates = [
-                      checkData?.balance,
-                      checkData?.available,
-                      checkData?.amount,
-                      checkData?.total,
-                      checkData?.balances?.[0]?.amount,
-                      checkData?.balances?.[0]?.balance,
-                    ];
-                    for (const candidate of candidates) {
-                      if (candidate === undefined || candidate === null) continue;
-                      const raw = Number(candidate);
-                      if (!Number.isFinite(raw)) continue;
-                      currentGwBal = raw > 1000 ? raw / 1_000_000 : raw;
-                      break;
-                    }
+                    const currentGwBal = gatewayBalanceUsdc(await checkRes.json());
                     if (currentGwBal >= requiredBudget) {
                       return;
                     }

@@ -1326,19 +1326,19 @@ This path preserves the highest percentage of current code, avoids inventing a n
 
 # Second-pass conclusion
 
-Nếu marketplace bị dừng, refactor tối thiểu không phải viết lại payment stack. Cần:
+If the marketplace is deprecated, a minimal refactor does not require rewriting the payment stack. Requirements:
 
-1. Loại bỏ discovery, catalog, creator onboarding, Funding/OI providers và report UI.
-2. Tổng quát hóa identity của thứ được mua từ `provider + symbol + tier + report` thành `service + input + offer`.
-3. Tổng quát hóa output từ `report` thành `deliverable`.
-4. Tách entitlement khỏi cấu trúc `paid report`.
-5. Giữ nguyên invoice, split payment, settlement, wallet, policy và session runtime.
+1. Remove discovery, catalog, creator onboarding, Funding/OI providers, and report UI.
+2. Generalize the identity of purchased items from `provider + symbol + tier + report` to `service + input + offer`.
+3. Generalize output from `report` to `deliverable`.
+4. Decouple entitlements from the `paid report` structure.
+5. Retain invoice, split payment, settlement, wallet, policy, and session runtime.
 
-Kết quả sẽ là một **headless Agent Commerce Runtime**, không phải marketplace hay plugin platform.
+The outcome would be a **headless Agent Commerce Runtime**, rather than a marketplace or plugin platform.
 
 ---
 
-## A. Dependency graph hiện tại
+## A. Current Dependency Graph
 
 ```mermaid
 flowchart TD

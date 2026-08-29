@@ -126,6 +126,8 @@ from backend.app.services.payment_ledger import (
     payment_event_tier,
 )
 from backend.app.services.wallet_profiles import (
+    consume_wallet_profile_nonce,
+    issue_wallet_profile_nonce,
     public_entitlement_row,
     public_payment_row,
     verify_wallet_profile_token as verify_wallet_profile_token_service,
@@ -1657,6 +1659,8 @@ app.include_router(create_wallets_router(SimpleNamespace(
     wallet_profile_message=wallet_profile_message,
     wallet_profile_token_payload=wallet_profile_token_payload,
     wallet_profile_token_ttl_seconds=WALLET_PROFILE_TOKEN_TTL_SECONDS,
+    issue_wallet_profile_nonce=issue_wallet_profile_nonce,
+    consume_wallet_profile_nonce=consume_wallet_profile_nonce,
 )))
 
 app.include_router(create_payments_router(SimpleNamespace(
