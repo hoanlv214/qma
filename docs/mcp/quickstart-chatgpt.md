@@ -2,10 +2,11 @@
 
 ## Steps
 
-1. **ChatGPT → Settings → Connectors → Create / Add custom connector** (developer mode).
-   - Name: `QMA`
-   - Server URL: `https://qma-api-7o9v.onrender.com/mcp`
-   - Authentication: OAuth (ChatGPT follows QMA's OAuth 2.1 metadata automatically)
+1. **Open the QMA connect page** (`https://<frontend>/connect`) and press
+   **"Connect with ChatGPT (copies URL)"** — it copies the MCP server URL to
+   your clipboard and opens ChatGPT's Connectors settings. In the
+   *Create connector* dialog, paste the URL when asked (ChatGPT does not
+   support URL pre-fill), name it `QMA`, and pick **OAuth** authentication.
 
 2. **ChatGPT opens the QMA consent page in your browser.** Connect your wallet
    extension, sign the one-time proof message, set spend caps, approve.

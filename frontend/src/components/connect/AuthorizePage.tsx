@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { requestJson } from "../../services/api";
+import { requestJson, API_BASE_URL } from "../../services/api";
 import { requestWalletProfileSession } from "../../services/walletProfileSession";
 import { getInjectedWallet } from "../../services/wallet";
+
+// Deep links are opened by cloud AI apps, so they must point at a publicly
+// reachable MCP URL. In dev (API_BASE_URL empty → vite proxy) fall back to
+// the local backend; cloud Claude/ChatGPT cannot reach localhost.
+const MCP_ENDPOINT = API_BASE_URL ? `${API_BASE_URL}/mcp` : "http://localhost:8000/mcp";
+const CLAUDE_DEEP_LINK = `https://claude.ai/new?modal=add-custom-connector&connectorName=QMA&connectorUrl=${encodeURIComponent(MCP_ENDPOINT)}`;
+const CHATGPT_DEEP_LINK = "https://chatgpt.com/plugins#settings/Connectors?create-connector=true&redirectAfter=%2Fplugins";
 
 interface OAuthParams {
   clientId: string;
@@ -39,6 +46,7 @@ export function AuthorizePage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [issuedCode, setIssuedCode] = useState("");
+  const [copiedUrl, setCopiedUrl] = useState(false);
   const [connections, setConnections] = useState<ConnectionRow[]>([]);
   const [connectionsOwner, setConnectionsOwner] = useState("");
 
@@ -143,9 +151,38 @@ export function AuthorizePage() {
       <div style={panelStyle}>
         <h1 style={{ marginTop: 0 }}>AI agent connections</h1>
         <p style={{ opacity: 0.75 }}>
-          This page authorizes MCP clients (Claude, ChatGPT, custom agents) to spend from your
-          QMA Agent Wallet within caps you set. Open it from the connector flow inside your AI app,
-          or connect your wallet below to review and revoke existing connections.
+          Connect QMA market memory to your AI app. Picking an app below opens its
+          connector dialog with QMA pre-filled — you only confirm inside the app,
+          sign the wallet proof here, and set spend caps.
+        </p>
+
+        <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
+          <a
+            href={CLAUDE_DEEP_LINK}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display: "block", textAlign: "center", padding: "12px 16px", borderRadius: 10, fontWeight: 600, background: "#d97757", color: "#fff", textDecoration: "none" }}
+          >
+            Connect with Claude →
+          </a>
+          <button
+            onClick={async () => {
+              try { await navigator.clipboard.writeText(MCP_ENDPOINT); setCopiedUrl(true); } catch { setError("Copy failed — paste manually: " + MCP_ENDPOINT); }
+              window.open(CHATGPT_DEEP_LINK, "_blank", "noopener");
+            }}
+            style={{ padding: "12px 16px", borderRadius: 10, fontWeight: 600, cursor: "pointer" }}
+          >
+            {copiedUrl ? "URL copied — Connect with ChatGPT →" : "Connect with ChatGPT (copies URL) →"}
+          </button>
+        </div>
+        {copiedUrl && (
+          <p style={{ opacity: 0.6, fontSize: 12, marginTop: 8 }}>
+            In ChatGPT's "Create connector" dialog, paste: <code style={{ wordBreak: "break-all" }}>{MCP_ENDPOINT}</code>
+          </p>
+        )}
+
+        <p style={{ opacity: 0.6, fontSize: 13, marginTop: 22 }}>
+          Or connect your wallet below to review and revoke existing connections.
         </p>
         <button onClick={() => { getInjectedWallet()?.request<string[]>({ method: "eth_requestAccounts" }).then((accs) => {
           const active = accs?.[0] ? String(accs[0]).toLowerCase() : "";

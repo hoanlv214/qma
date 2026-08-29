@@ -7,10 +7,12 @@
 
 ## Steps
 
-1. **Open Claude → Settings → Connectors → Add custom connector.**
-   - Name: `QMA`
-   - URL: `https://qma-api-7o9v.onrender.com/mcp`
-   - (Direct deep link: `https://claude.ai/new?modal=add-custom-connector&connectorName=QMA&connectorUrl=https%3A%2F%2Fqma-api-7o9v.onrender.com%2Fmcp`)
+1. **Open the QMA connect page** (`https://<frontend>/connect`) and press
+   **"Connect with Claude"** — it opens Claude's *Add custom connector* dialog
+   with the name and URL pre-filled; press Continue/Connect there.
+   (Manual path: Claude → Settings → Connectors → Add custom connector →
+   Name `QMA`, URL `https://qma-api-7o9v.onrender.com/mcp`, or the deep link
+   `https://claude.ai/new?modal=add-custom-connector&connectorName=QMA&connectorUrl=https%3A%2F%2Fqma-api-7o9v.onrender.com%2Fmcp`.)
 
 2. **Claude opens the QMA consent page in your browser.** Connect your wallet
    (Rabby/OKX/MetaMask) and sign the one-time message when prompted. This
