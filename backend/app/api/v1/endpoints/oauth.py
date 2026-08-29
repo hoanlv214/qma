@@ -10,8 +10,8 @@ client then redeems the code at ``token``.
 from types import SimpleNamespace
 from typing import List, Optional
 
-from fastapi import APIRouter, Body, HTTPException, Security
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Body, HTTPException, Request, Security
+from pydantic import BaseModel, Field, ValidationError
 
 from backend.app.core.security_schemes import qma_wallet_token_header
 from backend.app.core.openapi_responses import documented_error, documented_errors
@@ -90,6 +90,13 @@ class OAuthRevokeResponse(ResponseModel):
     status: str
 
 
+class OAuthProtectedResourceResponse(ResponseModel):
+    resource: str
+    authorization_servers: List[str]
+    scopes_supported: List[str]
+    bearer_methods_supported: List[str]
+
+
 def create_oauth_router(deps: SimpleNamespace) -> APIRouter:
     migrated = APIRouter(tags=["MCP"])
 
@@ -128,6 +135,41 @@ def create_oauth_router(deps: SimpleNamespace) -> APIRouter:
             "token_endpoint_auth_methods_supported": ["none"],
             "scopes_supported": [mcp_oauth.MCP_OAUTH_SCOPE],
         }
+
+    def _protected_resource_metadata() -> dict:
+        # RFC 9728: tells MCP clients which authorization server protects /mcp.
+        return {
+            "resource": f"{api_base}/mcp",
+            "authorization_servers": [api_base],
+            "scopes_supported": [mcp_oauth.MCP_OAUTH_SCOPE],
+            "bearer_methods_supported": ["header"],
+        }
+
+    @migrated.get(
+        "/.well-known/oauth-protected-resource/mcp",
+        response_model=OAuthProtectedResourceResponse,
+        response_model_exclude_unset=True,
+        summary="RFC 9728 protected-resource metadata for the /mcp endpoint",
+        description="""Discovered by MCP clients (Claude, ChatGPT) to find the authorization server protecting `/mcp`.
+
+**Authentication:** Public.""",
+        responses=documented_errors(429, 500),
+    )
+    def oauth_protected_resource_mcp():
+        return _protected_resource_metadata()
+
+    @migrated.get(
+        "/.well-known/oauth-protected-resource",
+        response_model=OAuthProtectedResourceResponse,
+        response_model_exclude_unset=True,
+        summary="RFC 9728 protected-resource metadata (root fallback)",
+        description="""Root fallback of the protected-resource metadata probed by MCP clients before the path-specific discovery.
+
+**Authentication:** Public.""",
+        responses=documented_errors(429, 500),
+    )
+    def oauth_protected_resource_root():
+        return _protected_resource_metadata()
 
     @migrated.post(
         "/api/v1/oauth/register",
@@ -187,10 +229,29 @@ def create_oauth_router(deps: SimpleNamespace) -> APIRouter:
         summary="Exchange an authorization code for an MCP access token",
         description="""Redeems a single-use authorization code with PKCE verification.
 
-**Authentication:** Authorization code + PKCE verifier (public client, no secret).""",
+**Authentication:** Authorization code + PKCE verifier (public client, no secret).
+**Request format:** `application/x-www-form-urlencoded` (RFC 6749, what Claude/ChatGPT send) or JSON.""",
         responses=OAUTH_RESPONSES,
     )
-    def oauth_token(payload: OAuthTokenRequest):
+    async def oauth_token(request: Request):
+        # RFC 6749 §4.1.3: token requests are form-encoded. Claude/ChatGPT
+        # send form data, so accept both forms and JSON here.
+        content_type = (request.headers.get("content-type") or "").lower()
+        if "application/x-www-form-urlencoded" in content_type:
+            form = await request.form()
+            fields = {key: value for key, value in form.multi_items()}
+        else:
+            try:
+                fields = await request.json()
+            except Exception:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Send the token request as application/x-www-form-urlencoded or JSON.",
+                )
+        try:
+            payload = OAuthTokenRequest(**fields)
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid token request: {exc.errors(include_url=False)[:3]}")
         if payload.grant_type != "authorization_code":
             raise HTTPException(status_code=400, detail="Only grant_type=authorization_code is supported.")
         grant = mcp_oauth.redeem_auth_code(storage, payload.client_id, payload.code, payload.code_verifier)

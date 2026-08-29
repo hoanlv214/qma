@@ -161,6 +161,12 @@ def test_full_connector_flow_issues_mcp_token(client):
     assert metadata["authorization_endpoint"] == "http://frontend.test/connect"
     assert metadata["token_endpoint"] == "https://api.test/api/v1/oauth/token"
 
+    # RFC 9728 discovery: MCP clients probe these before the flow.
+    for probe_path in ("/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-protected-resource"):
+        protected = client.get(probe_path)
+        assert protected.status_code == 200, probe_path
+        assert protected.json()["authorization_servers"] == ["https://api.test"]
+
     approved = approve(client, registration)
     assert approved.status_code == 200
     assert approved.json()["expires_in"] == mcp_oauth.AUTH_CODE_TTL_SECONDS
@@ -175,6 +181,26 @@ def test_full_connector_flow_issues_mcp_token(client):
     assert payload["wallet"] == OWNER
     assert payload["client_id"] == registration["client_id"]
     assert payload["caps"]["budget_usdc"] == 5.0
+
+
+def test_token_exchange_accepts_form_encoded_like_claude(client):
+    registration = register(client)
+    code = approve(client, registration).json()["code"]
+
+    # RFC 6749 §4.1.3: real OAuth clients send the token request as
+    # application/x-www-form-urlencoded. Claude does; this must not 422.
+    form_response = client.post("/api/v1/oauth/token", data={
+        "grant_type": "authorization_code",
+        "code": code,
+        "client_id": registration["client_id"],
+        "code_verifier": CODE_VERIFIER,
+        "redirect_uri": CALLBACK,
+    })
+    assert form_response.status_code == 200, form_response.text
+    assert form_response.json()["scope"] == "mcp"
+
+    payload = mcp_oauth.verify_mcp_access_token(form_response.json()["access_token"])
+    assert payload["wallet"] == OWNER
 
 
 def test_approve_rejects_unknown_client_and_unregistered_redirect(client):

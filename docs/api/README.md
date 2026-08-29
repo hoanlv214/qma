@@ -80,6 +80,8 @@ The Access column must match the operation's `x-qma-access` value in
 | Method | Path | Access | Summary |
 | --- | --- | --- | --- |
 | GET | `/.well-known/oauth-authorization-server` | `public` | RFC 8414 OAuth 2.1 metadata for MCP clients |
+| GET | `/.well-known/oauth-protected-resource` | `public` | RFC 9728 protected-resource metadata (root fallback) |
+| GET | `/.well-known/oauth-protected-resource/mcp` | `public` | RFC 9728 protected-resource metadata for the /mcp endpoint |
 | GET | `/api/v1/admin/public-config` | `public` | Read public admin capability hints |
 | POST | `/api/v1/agent/decision` | `public` | Create a bounded purchase decision |
 | GET | `/api/v1/agent/recommendations` | `public` | Rank purchase candidates for an agent |
