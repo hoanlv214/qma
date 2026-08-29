@@ -28,6 +28,9 @@ export interface SessionPolicy {
   allowedProviders: string[];
   allowedTiers: AgentTier[];
   minimumScore: number;
+  // When non-empty, only candidates for these symbols are buyable; a tick
+  // with no matching candidate fails fast instead of buying another symbol.
+  requiredSymbols: string[];
   avoidOwnedReports: boolean;
   symbolCooldownSeconds: number;
   failedCandidateCooldownSeconds: number;
@@ -50,6 +53,7 @@ export interface SessionPolicyInput {
   allowedProviders?: string[];
   allowedTiers?: AgentTier[];
   minimumScore?: number;
+  requiredSymbols?: string[];
   avoidOwnedReports?: boolean;
   symbolCooldownSeconds?: number;
   failedCandidateCooldownSeconds?: number;
@@ -97,6 +101,7 @@ export function validateSessionPolicy(policy: SessionPolicy): string[] {
   if (!policy.allowedProviders.length) errors.push("at least one allowed provider is required");
   if (!policy.allowedTiers.length) errors.push("at least one allowed tier is required");
   if (policy.allowedTiers.some((tier) => tier !== "preview" && tier !== "full")) errors.push("allowed tiers must be preview or full");
+  if (policy.requiredSymbols.some((symbol) => !/^[A-Z0-9]{2,20}$/.test(symbol))) errors.push("required symbols must be 2-20 alphanumeric characters");
   if (policy.executionMode !== "dry_run" && policy.executionMode !== "live") errors.push("execution mode must be dry_run or live");
   return errors;
 }
@@ -116,6 +121,7 @@ export function normalizeSessionPolicy(input: SessionPolicyInput): SessionPolicy
     allowedProviders: [...new Set(input.allowedProviders?.filter(Boolean) || ["funding_memory", "oi_memory"])],
     allowedTiers: [...new Set(input.allowedTiers || ["preview", "full"])] as AgentTier[],
     minimumScore: input.minimumScore ?? 0,
+    requiredSymbols: [...new Set((input.requiredSymbols || []).map((symbol) => String(symbol).trim().toUpperCase()).filter(Boolean))],
     avoidOwnedReports: input.avoidOwnedReports ?? true,
     symbolCooldownSeconds: input.symbolCooldownSeconds ?? 600,
     failedCandidateCooldownSeconds: input.failedCandidateCooldownSeconds ?? 300,

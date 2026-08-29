@@ -37,10 +37,19 @@ function defaultSleep(seconds: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-function chooseCandidate(state: SessionState, policy: SessionPolicy, candidates: SessionCandidate[]): { candidate?: SessionCandidate; reason: string } {
+function chooseCandidate(state: SessionState, policy: SessionPolicy, candidates: SessionCandidate[]): { candidate?: SessionCandidate; reason: string; symbolMiss?: boolean } {
   const now = (Date.now() / 1000);
+  const requiredSymbols = policy.requiredSymbols || [];
   const ownedEntitlements = new Set(state.purchasedEntitlements.map((item) => `${item.provider_id}:${item.symbol.toUpperCase()}:${item.tier}`));
-  const eligible = candidates.filter((candidate) => {
+  // Hard symbol constraint (set by MCP purchases): never buy a different
+  // symbol than requested — a tick with no matching candidate fails instead.
+  const symbolMatched = requiredSymbols.length
+    ? candidates.filter((candidate) => requiredSymbols.includes(candidate.symbol.toUpperCase()))
+    : candidates;
+  if (requiredSymbols.length && !symbolMatched.length) {
+    return { reason: `no live candidate for required symbol(s): ${requiredSymbols.join(", ")}`, symbolMiss: true };
+  }
+  const eligible = symbolMatched.filter((candidate) => {
     if (!policy.allowedProviders.includes(candidate.provider_id)) return false;
     if (!policy.allowedTiers.includes(candidate.tier)) return false;
     if (candidate.score < policy.minimumScore) return false;
@@ -124,6 +133,14 @@ export async function runSessionTick(
     });
 
     if (!decision.candidate) {
+      if (decision.symbolMiss) {
+        // Requested symbol is not in the live candidate set: fail fast rather
+        // than waiting or buying a different symbol.
+        finishSession(state, "failed", decision.reason);
+        deps.onStateChange?.(state);
+        deps.onEvent?.({ event: "session_finished", session_id: state.sessionId, stop_reason: state.stopReason });
+        return { finished: true, state, nextRunInSec: null, report: sessionReport(state, policy) };
+      }
       const rejected = Array.isArray(observation.metadata?.rejected_candidates) ? observation.metadata.rejected_candidates : [];
       rejected.slice(0, 25).forEach((item) => {
         if (item && typeof item === "object") {

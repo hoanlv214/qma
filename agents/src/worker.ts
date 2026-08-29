@@ -468,6 +468,13 @@ async function runWorkerLoop() {
               parsedMaxPurchases = parseInt(qtyMatch[1], 10);
             }
 
+            // Structured tasks from the MCP connector ("... for SYMBOL: query")
+            // carry a hard symbol constraint: the planner may never substitute
+            // a different (higher-ranked) symbol. Free-text web sessions do
+            // not match the pattern and keep the old autonomous behavior.
+            const symbolMatch = (session.task || "").match(/\bfor\s+([A-Za-z0-9]{2,20})\s*:/);
+            const requiredSymbols = symbolMatch ? [symbolMatch[1]] : [];
+
             // Auto-deposit only based on remaining session budget
             const currentSpent = Number(runtimeState.spentUsdc || 0);
             const remainingBudget = Math.max(0, Number(session.budget_usdc || 0) - currentSpent);
@@ -488,6 +495,7 @@ async function runWorkerLoop() {
               sessionBudgetUsdc: session.budget_usdc,
               maxPricePerReportUsdc: Math.min(5, session.budget_usdc),
               maxPurchases: parsedMaxPurchases,
+              requiredSymbols,
               pollIntervalSeconds: 5,
               executionMode: "live",
               initialState,

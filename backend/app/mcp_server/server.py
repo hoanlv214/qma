@@ -263,7 +263,9 @@ def create_mcp_http_app(deps):
             return "completed", final_state, None
         mcp_oauth.record_spend_once(
             storage, client_id, entitlement_id,
-            float(final_state.get("lastPurchaseUsdc") or 0),
+            # spentUsdc is the worker runtime_state key (cumulative; for a
+            # single-purchase session it equals this purchase amount).
+            float(final_state.get("spentUsdc") or 0),
         )
         return final_status, final_state, {
             "entitlement_id": entitlement_id,

@@ -289,7 +289,7 @@ def test_purchase_tool_runs_session_and_returns_report(client):
             return 200, {"status": "queued"}
         if path == "/api/v1/sessions/sess-1" and method == "GET":
             return 200, {"id": "sess-1", "status": "completed",
-                         "runtime_state": {"status": "completed", "lastPurchaseUsdc": 0.01}}
+                         "runtime_state": {"status": "completed", "spentUsdc": 0.01}}
         if path == "/api/v1/entitlements/wallet/0x1111111111111111111111111111111111111111":
             return 200, {"entitlements": [{"entitlement_id": "ent-1", "symbol": "BTCUSDT"}]}
         if path == "/api/v1/wallets/0x1111111111111111111111111111111111111111/reports/ent-1":
@@ -356,7 +356,7 @@ def test_purchase_returns_pending_then_collect_tool_fetches_report(client, monke
             session_calls["n"] += 1
             if session_calls["n"] >= 2:
                 return 200, {"id": "sess-3", "status": "completed",
-                             "runtime_state": {"status": "completed", "lastPurchaseUsdc": 0.01}}
+                             "runtime_state": {"status": "completed", "spentUsdc": 0.01}}
             return 200, {"id": "sess-3", "status": "running", "runtime_state": {}}
         if path == "/api/v1/entitlements/wallet/0x1111111111111111111111111111111111111111":
             return 200, {"entitlements": [{"entitlement_id": "ent-9", "symbol": "BTCUSDT"}]}
@@ -378,7 +378,7 @@ def test_collect_falls_back_to_newest_entitlement_on_symbol_mismatch(client, mon
     def handler(method, path, json, headers):
         if path == "/api/v1/sessions/sess-9" and method == "GET":
             return 200, {"id": "sess-9", "status": "completed",
-                         "runtime_state": {"status": "completed", "lastPurchaseUsdc": 0.01}}
+                         "runtime_state": {"status": "completed", "spentUsdc": 0.01}}
         if path == "/api/v1/entitlements/wallet/0x1111111111111111111111111111111111111111":
             # Planner resolved 1000HNT while the caller asked for HNT.
             return 200, {"entitlements": [{"entitlement_id": "ent-hnt", "symbol": "1000HNT"}]}
@@ -401,7 +401,7 @@ def test_collect_records_spend_exactly_once(client, monkeypatch):
     def handler(method, path, json, headers):
         if path == "/api/v1/sessions/sess-5" and method == "GET":
             return 200, {"id": "sess-5", "status": "completed",
-                         "runtime_state": {"status": "completed", "lastPurchaseUsdc": 0.05}}
+                         "runtime_state": {"status": "completed", "spentUsdc": 0.05}}
         if path == "/api/v1/entitlements/wallet/0x1111111111111111111111111111111111111111":
             return 200, {"entitlements": [{"entitlement_id": "ent-5", "symbol": "BTCUSDT"}]}
         if path == "/api/v1/wallets/0x1111111111111111111111111111111111111111/reports/ent-5":
