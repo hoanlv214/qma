@@ -80,21 +80,31 @@ worker uses, with identical safeguards.
 1. Checks connection caps server-side (`budget − spent ≥ price`); otherwise
    returns `{"error": "budget_exceeded", …}` without spending.
 2. Creates + starts a durable session with `budget_usdc = min(price_cap, remaining)`.
-3. Polls up to ~150s. On success returns the purchased report JSON
-   (`entitlement` includes `report`) and records spend in `mcp_spend_ledger`.
-4. On failure returns `{"error": "purchase_not_completed", "last_error": …,
-   "session_id": …}` — the session keeps running server-side; retry
-   `qma_check_budget` shortly.
+3. Waits up to **40 seconds** (cloud AI clients cut tool calls around 60s):
+   - Report ready → returns the purchased report JSON and records spend in
+     `mcp_spend_ledger`.
+   - Still running → returns `{"status": "pending", "session_id": …}` — the
+     purchase keeps executing server-side; collect with `qma_get_purchase`.
+   - Failed/stopped → `{"error": "purchase_failed", "last_error": …}`.
 
 **Refunds/double-spend:** invoice idempotency is `(invoice_id, leg_id)`; the
 executor hard-stops on `payment_outcome_uncertain`. Unclassified outcomes
 never silently retry.
 
+---
+
+## `qma_get_purchase` — FREE
+
+Collects a pending purchase. Input: `session_id` (from the pending result),
+optional `symbol`. Waits up to 30s and returns the report JSON when the
+session completes, or `{"status": "pending"}` to try again in ~1 minute.
+
 **Example prompt for a chat host**
 
 > "Scan QMA anomalies. For the most extreme funding anomaly, buy a preview
 > analog report and summarize: what happened historically, base rate, and
-> what it implies for the next 48h."
+> what it implies for the next 48h. If the purchase is pending, collect it
+> with the session id."
 
 ---
 
