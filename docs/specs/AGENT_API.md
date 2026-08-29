@@ -78,6 +78,13 @@ runtime-state updates, and status checks. Browser/client code must never
 receive this secret. Owner updates cannot directly forge worker status or
 runtime state.
 
+Agent Wallet bindings are persisted in the `agent_wallets` registry (one
+Circle Agent Wallet per owner wallet, migration
+`scripts/migrations/20260824_agent_wallets.sql`) so the binding — and any
+USDC the wallet holds — survives session deletion. Lookup order is registry
+first, then the legacy `agent_sessions.runtime_state` binding; DELETE is only
+blocked with 409 when a funded binding exists in neither place.
+
 ## Buyer sequence
 
 ```mermaid

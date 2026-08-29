@@ -40,5 +40,6 @@ __v0_jsx-dev-runtime.ts
 .DS_Store
 .agents/
 .codex/
+.zcode/
 skills-lock.json
 .codegraph
