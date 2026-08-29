@@ -369,7 +369,7 @@ def test_purchase_returns_pending_then_collect_tool_fetches_report(client, monke
     assert collected["entitlement"]["report"]["analogs"] == [7]
 
 
-def test_collect_falls_back_to_newest_entitlement_on_symbol_mismatch(client, monkeypatch):
+def test_collect_never_returns_wrong_symbol_report(client, monkeypatch):
     from backend.app.mcp_server import server as mcp_server_module
 
     monkeypatch.setattr(mcp_server_module, "COLLECT_TIMEOUT_SECONDS", 0.6)
@@ -380,16 +380,15 @@ def test_collect_falls_back_to_newest_entitlement_on_symbol_mismatch(client, mon
             return 200, {"id": "sess-9", "status": "completed",
                          "runtime_state": {"status": "completed", "spentUsdc": 0.01}}
         if path == "/api/v1/entitlements/wallet/0x1111111111111111111111111111111111111111":
-            # Planner resolved 1000HNT while the caller asked for HNT.
-            return 200, {"entitlements": [{"entitlement_id": "ent-hnt", "symbol": "1000HNT"}]}
-        if path == "/api/v1/wallets/0x1111111111111111111111111111111111111111/reports/ent-hnt":
-            return 200, {"address": OWNER, "entitlement": {"entitlement_id": "ent-hnt", "report": {"analogs": [42]}}}
+            # The newest entitlement is a DIFFERENT symbol than requested:
+            # serving it would silently hand back the wrong report.
+            return 200, {"entitlements": [{"entitlement_id": "ent-vanry", "symbol": "VANRY"}]}
         return None
 
     client.scripted_api.set_default(handler)
     collected = tool_text(tool_call(client, "qma_get_purchase", {"session_id": "sess-9", "symbol": "HNT"}))
-    assert collected["entitlement"]["report"]["analogs"] == [42]
-    assert collected["note"].startswith("Matched the newest entitlement")
+    assert collected["error"] == "report_not_found"
+    assert "entitlement" not in collected
 
 
 def test_collect_records_spend_exactly_once(client, monkeypatch):

@@ -246,14 +246,15 @@ def create_mcp_http_app(deps):
         )
         rows = (entitlements or {}).get("entitlements") or []
         matched = [row for row in rows if str(row.get("symbol") or "").upper() == symbol_upper]
-        matched_by = "symbol"
-        if not matched and rows:
-            # The planner may resolve a different trading symbol than the one
-            # the caller asked for (e.g. "HNT" -> "1000HNT"). Fall back to the
-            # newest entitlement rather than reporting a completed buy as lost.
-            matched = [rows[0]]
-            matched_by = "newest_fallback"
         if not matched:
+            # Never serve a different symbol's report as the purchase result:
+            # a completed session either bought the required symbol (worker
+            # enforces it) or the entitlement has not landed yet.
+            newest_symbol = str((rows[0] or {}).get("symbol") or "") if rows else ""
+            logger.warning(
+                "MCP purchase completed without matching entitlement: session=%s requested=%s newest=%s",
+                session_id, symbol_upper, newest_symbol,
+            )
             return "completed", final_state, None
         entitlement_id = matched[0].get("entitlement_id")
         status, report = await deps.call_api(
@@ -269,7 +270,6 @@ def create_mcp_http_app(deps):
         )
         return final_status, final_state, {
             "entitlement_id": entitlement_id,
-            "matched_by": matched_by,
             "report": report,
         }
 
@@ -290,13 +290,7 @@ def create_mcp_http_app(deps):
             connection["wallet"], session_id.strip(), symbol_upper, deadline,
         )
         if report_or_none is not None:
-            payload_out = report_or_none["report"]
-            if report_or_none.get("matched_by") == "newest_fallback":
-                payload_out = {
-                    "note": "Matched the newest entitlement (planner resolved a different symbol than requested).",
-                    **payload_out,
-                }
-            return payload_out
+            return report_or_none["report"]
         if final_status == "completed":
             return {
                 "error": "report_not_found",
