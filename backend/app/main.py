@@ -281,7 +281,24 @@ OPENAPI_TAGS = [
     },
 ]
 
+# The hosted MCP app is mounted at the bottom of this module; its streamable
+# session manager must run inside the app lifespan (mounts don't propagate
+# lifespan events to sub-apps). The holder is filled before uvicorn serves.
+_mcp_session_manager_holder: dict = {}
+
+
+async def _qma_lifespan(app):
+    from contextlib import asynccontextmanager
+    manager = _mcp_session_manager_holder.get("manager")
+    if manager is not None:
+        async with manager.run():
+            yield
+    else:
+        yield
+
+
 app = FastAPI(
+    lifespan=_qma_lifespan,
     title="QMA Intelligence & Payments API",
     description=(
         "# QMA Intelligence & Payments API\n\n"
@@ -1710,4 +1727,28 @@ app.include_router(create_oauth_router(SimpleNamespace(
     mcp_connect_base_url=MCP_CONNECT_BASE_URL,
     mcp_api_base_url=MCP_API_BASE_URL,
 )))
+
+
+async def mcp_call_api(method: str, path: str, *, json=None, headers=None):
+    """In-process HTTP call into this app for MCP tools (no network hop)."""
+    import httpx
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://internal") as client:
+        response = await client.request(method, path, json=json, headers=headers)
+        try:
+            data = response.json()
+        except Exception:
+            data = {"raw": response.text[:2000]}
+        return response.status_code, data
+
+
+from backend.app.mcp_server.server import create_mcp_http_app
+
+_mcp_asgi_app, _mcp_session_manager = create_mcp_http_app(SimpleNamespace(
+    storage_backend=storage_backend,
+    access_token_secret=ACCESS_TOKEN_SECRET,
+    call_api=mcp_call_api,
+))
+_mcp_session_manager_holder["manager"] = _mcp_session_manager
+app.mount("/mcp", _mcp_asgi_app)
+
 
