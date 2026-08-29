@@ -42,4 +42,4 @@ __v0_jsx-dev-runtime.ts
 .codex/
 .zcode/
 skills-lock.json
-.codegraph
+.codegraphmcp-server/dist/
