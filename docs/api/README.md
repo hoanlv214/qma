@@ -60,6 +60,10 @@ Audience schemas are filtered using these extensions, not by tags alone.
 4. Use it only for the same wallet address. The token controls private wallet
    reports and owner-facing Agent Session operations.
 
+The same wallet proof also backs the OAuth 2.1 connector flow for the hosted
+MCP server (`POST /api/v1/oauth/approve`); see
+[docs/mcp/README.md](../mcp/README.md).
+
 ### Admin and internal credentials
 
 - `x-qma-admin-token` is an operator credential and must not be shipped to

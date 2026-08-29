@@ -14,6 +14,7 @@ contracts belong under `docs/`.
 | React frontend | [`../frontend/README.md`](../frontend/README.md) | routes, state/services, API base, browser agent flow |
 | Typed agent package | [`../agents/README.md`](../agents/README.md) | contracts, policy, session loop, bounds, signer boundary |
 | External CLI buyer | [`../examples/README.md`](../examples/README.md) | commands and live/dry-run buyer execution |
+| MCP server / AI connectors | [`mcp/README.md`](mcp/README.md) | hosted MCP endpoint, OAuth connector flow, tools, local stdio bridge |
 | Agent HTTP contract | [`specs/AGENT_API.md`](specs/AGENT_API.md) | decision endpoint and purchase sequence |
 | Autonomous session | [`architecture/AUTONOMOUS_AGENT.md`](architecture/AUTONOMOUS_AGENT.md) | bounded session policy, accounting, stop conditions |
 | Payment lifecycle | [`../PAYMENT_FLOW.md`](../PAYMENT_FLOW.md) | invoice, x402, split legs, verify, entitlement, unlock |
