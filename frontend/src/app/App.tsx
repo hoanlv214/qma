@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { LandingPage } from "../components/landing/LandingPage";
 import { AppPage } from "../components/reports/AppPage";
+import { AuthorizePage } from "../components/connect/AuthorizePage";
 import { MarketplaceReview } from "../components/marketplace/MarketplaceReview";
 import { ProfileOrdersPage } from "../components/profile/ProfileOrdersPage";
 import { TractionPage } from "../components/traction/TractionPage";
@@ -37,7 +38,7 @@ export function App() {
       document.body.classList.add("body");
     } else if (route === "marketplace") {
       document.body.classList.add("marketplace-body");
-    } else if (route === "profile") {
+    } else if (route === "profile" || route === "connect") {
       document.body.classList.add("profile-body");
     } else if (route === "traction") {
       document.body.classList.add("traction-body");
@@ -51,6 +52,7 @@ export function App() {
       <AgentWalletProvider enabled={["app", "marketplace", "profile", "traction"].includes(route)}>
         {route === "landing" && <LandingPage onNavigate={navigate} />}
         {route === "app" && <AppPage onNavigate={navigate} />}
+        {route === "connect" && <AuthorizePage />}
         {route === "marketplace" && <MarketplaceReview onNavigate={navigate} />}
         {route === "profile" && <ProfileOrdersPage onNavigate={navigate} />}
         {route === "traction" && <TractionPage onNavigate={navigate} />}
