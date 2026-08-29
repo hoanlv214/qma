@@ -225,11 +225,11 @@ def test_rejects_missing_and_invalid_bearer(client):
     assert bad.status_code == 401
 
 
-def test_tools_list_exposes_three_tools(client):
+def test_tools_list_exposes_four_tools(client):
     listed = rpc(client, "tools/list")
     assert listed.status_code == 200
     names = {tool["name"] for tool in listed.json()["result"]["tools"]}
-    assert names == {"qma_scan_anomalies", "qma_check_budget", "qma_query_market_memory"}
+    assert names == {"qma_scan_anomalies", "qma_check_budget", "qma_query_market_memory", "qma_get_purchase"}
 
 
 def test_scan_tool_calls_public_anomalies_endpoint(client):
@@ -320,9 +320,53 @@ def test_purchase_tool_surfaces_failed_session(client):
     data = tool_text(tool_call(client, "qma_query_market_memory", {
         "symbol": "ETHUSDT", "query": "OI divergence without price move",
     }))
-    assert data["error"] == "purchase_not_completed"
+    assert data["error"] == "purchase_failed"
     assert data["session_status"] == "failed"
     assert data["last_error"] == "Insufficient funds"
+
+
+def test_purchase_returns_pending_then_collect_tool_fetches_report(client, monkeypatch):
+    from backend.app.mcp_server import server as mcp_server_module
+
+    monkeypatch.setattr(mcp_server_module, "PURCHASE_TIMEOUT_SECONDS", 0.6)
+    monkeypatch.setattr(mcp_server_module, "POLL_INTERVAL_SECONDS", 0.05)
+    monkeypatch.setattr(mcp_server_module, "COLLECT_TIMEOUT_SECONDS", 0.6)
+
+    def always_running(method, path, json, headers):
+        if (method, path) == ("POST", "/api/v1/sessions"):
+            return 200, {"id": "sess-3"}
+        if path == "/api/v1/sessions/sess-3/start":
+            return 200, {"status": "queued"}
+        if path == "/api/v1/sessions/sess-3" and method == "GET":
+            return 200, {"id": "sess-3", "status": "queued", "runtime_state": {}}
+        return None
+
+    client.scripted_api.set_default(always_running)
+    pending = tool_text(tool_call(client, "qma_query_market_memory", {
+        "symbol": "BTCUSDT", "query": "slow purchase",
+    }))
+    assert pending["status"] == "pending"
+    assert pending["session_id"] == "sess-3"
+
+    # Once the session completes, the collect tool returns the report.
+    session_calls = {"n": 0}
+
+    def completes_later(method, path, json, headers):
+        if path == "/api/v1/sessions/sess-3" and method == "GET":
+            session_calls["n"] += 1
+            if session_calls["n"] >= 2:
+                return 200, {"id": "sess-3", "status": "completed",
+                             "runtime_state": {"status": "completed", "lastPurchaseUsdc": 0.01}}
+            return 200, {"id": "sess-3", "status": "running", "runtime_state": {}}
+        if path == "/api/v1/entitlements/wallet/0x1111111111111111111111111111111111111111":
+            return 200, {"entitlements": [{"entitlement_id": "ent-9", "symbol": "BTCUSDT"}]}
+        if path == "/api/v1/wallets/0x1111111111111111111111111111111111111111/reports/ent-9":
+            return 200, {"address": OWNER, "entitlement": {"entitlement_id": "ent-9", "report": {"analogs": [7]}}}
+        return None
+
+    client.scripted_api.set_default(completes_later)
+    collected = tool_text(tool_call(client, "qma_get_purchase", {"session_id": "sess-3", "symbol": "BTCUSDT"}))
+    assert collected["entitlement"]["report"]["analogs"] == [7]
 
 
 def test_revoked_connection_is_rejected(client):

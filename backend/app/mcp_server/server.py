@@ -19,7 +19,10 @@ import paid_intelligence_kit as paid_kit
 from backend.app.services import mcp_oauth
 
 MCP_TOKEN_SCOPE_TTL_SECONDS = 600
-PURCHASE_TIMEOUT_SECONDS = 150
+# Buy tool blocks briefly (cloud AI clients cut tool calls around ~60s);
+# pending purchases are collected via qma_get_purchase.
+PURCHASE_TIMEOUT_SECONDS = 40
+COLLECT_TIMEOUT_SECONDS = 30
 POLL_INTERVAL_SECONDS = 3.0
 REPORT_CHAR_LIMIT = 60_000
 
@@ -179,48 +182,112 @@ def create_mcp_http_app(deps):
         if status != 200:
             return {"error": "session_start_failed", "status": status, "detail": started, "session_id": session_id}
 
+        # Short bounded wait: cloud AI clients cut tool calls around ~60s, so
+        # never block longer. If the durable session needs more time, return
+        # pending + session_id and let the caller follow up with
+        # qma_get_purchase — the purchase keeps running server-side either way.
         deadline = time.time() + PURCHASE_TIMEOUT_SECONDS
-        final_state: Dict[str, Any] = {}
+        final_status, final_state, report_or_none = await _await_session(
+            deps, headers, connection["wallet"], session_id, symbol.strip().upper(), deadline,
+        )
+        if report_or_none is not None:
+            mcp_oauth.record_spend(
+                storage, connection["client_id"],
+                report_or_none["entitlement_id"],
+                float(final_state.get("lastPurchaseUsdc") or price_cap),
+            )
+            return report_or_none["report"]
+        if final_status == "completed":
+            return {
+                "error": "report_not_found",
+                "session_id": session_id,
+                "hint": "Purchase completed but no matching entitlement was found yet; retry qma_get_purchase shortly.",
+            }
+        if final_status in ("failed", "stopped"):
+            return {
+                "error": "purchase_failed",
+                "session_status": final_status,
+                "last_error": final_state.get("lastError"),
+                "session_id": session_id,
+                "hint": "Check qma_check_budget; if funds are sufficient, retry the purchase.",
+            }
+        return {
+            "status": "pending",
+            "session_status": final_status,
+            "session_id": session_id,
+            "symbol": symbol.strip().upper(),
+            "hint": "The purchase session is running server-side. Call qma_get_purchase with this session_id to collect the report.",
+        }
+
+    async def _await_session(
+        deps, headers, wallet: str, session_id: str, symbol_upper: str, deadline: float,
+    ):
+        """Poll a purchase session until done or deadline.
+
+        Returns (final_status, final_runtime_state, report_or_none) where
+        report_or_none is None unless the session completed AND the report
+        was fetched successfully.
+        """
         final_status = "running"
+        final_state: Dict[str, Any] = {}
         while time.time() < deadline:
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
             status, current = await deps.call_api("GET", f"/api/v1/sessions/{session_id}", headers=headers)
             if status != 200:
-                return {"error": "session_poll_failed", "status": status, "session_id": session_id}
+                return "poll_failed", {}, None
             final_status = str(current.get("status") or "")
             final_state = current.get("runtime_state") or {}
             if final_status in ("completed", "failed", "stopped"):
                 break
 
         if final_status != "completed":
+            return final_status, final_state, None
+
+        status, entitlements = await deps.call_api(
+            "GET", f"/api/v1/entitlements/wallet/{wallet}", headers=headers,
+        )
+        rows = (entitlements or {}).get("entitlements") or []
+        rows = [row for row in rows if str(row.get("symbol") or "").upper() == symbol_upper]
+        if not rows:
+            return "completed", final_state, None
+        entitlement_id = rows[0].get("entitlement_id")
+        status, report = await deps.call_api(
+            "GET", f"/api/v1/wallets/{wallet}/reports/{entitlement_id}", headers=headers,
+        )
+        if status != 200:
+            return "completed", final_state, None
+        return final_status, final_state, {"entitlement_id": entitlement_id, "report": report}
+
+    @mcp.tool(
+        title="Collect a pending purchase",
+        description="Collect the report from a purchase session that returned status=pending. Pass the session_id from that result; polls briefly and returns the report when ready.",
+    )
+    async def qma_get_purchase(
+        session_id: str,
+        symbol: str = "",
+    ) -> dict:
+        connection = await require_connection()
+        headers = _wallet_profile_headers(access_token_secret, connection["wallet"])
+        deadline = time.time() + COLLECT_TIMEOUT_SECONDS
+        symbol_upper = symbol.strip().upper()
+        final_status, final_state, report_or_none = await _await_session(
+            deps, headers, connection["wallet"], session_id.strip(), symbol_upper, deadline,
+        )
+        if report_or_none is not None:
+            return report_or_none["report"]
+        if final_status in ("failed", "stopped", "poll_failed"):
             return {
-                "error": "purchase_not_completed",
+                "error": "purchase_failed",
                 "session_status": final_status,
                 "last_error": final_state.get("lastError"),
                 "session_id": session_id,
-                "hint": "The durable session keeps running server-side; retry qma_check_budget shortly.",
             }
-
-        status, entitlements = await deps.call_api(
-            "GET", f"/api/v1/entitlements/wallet/{connection['wallet']}", headers=headers,
-        )
-        rows = (entitlements or {}).get("entitlements") or []
-        rows = [row for row in rows if str(row.get("symbol") or "").upper() == symbol.strip().upper()]
-        if not rows:
-            return {
-                "error": "report_not_found",
-                "session_id": session_id,
-                "hint": "Purchase completed but no matching entitlement was found yet; retry shortly.",
-            }
-        entitlement_id = rows[0].get("entitlement_id")
-        status, report = await deps.call_api(
-            "GET", f"/api/v1/wallets/{connection['wallet']}/reports/{entitlement_id}", headers=headers,
-        )
-        if status != 200:
-            return {"error": "report_fetch_failed", "status": status, "entitlement_id": entitlement_id}
-
-        mcp_oauth.record_spend(storage, connection["client_id"], entitlement_id, float(final_state.get("lastPurchaseUsdc") or price_cap))
-        return report
+        return {
+            "status": "pending",
+            "session_status": final_status,
+            "session_id": session_id,
+            "hint": "Still running. Call qma_get_purchase again in ~1 minute, or qma_check_budget to see spend.",
+        }
 
     streamable_app = mcp.streamable_http_app()
 
