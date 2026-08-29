@@ -1749,6 +1749,9 @@ _mcp_asgi_app, _mcp_session_manager = create_mcp_http_app(SimpleNamespace(
     call_api=mcp_call_api,
 ))
 _mcp_session_manager_holder["manager"] = _mcp_session_manager
-app.mount("/mcp", _mcp_asgi_app)
+# Mounted at "/" (must stay LAST): its internal route matches POST /mcp
+# exactly. A Mount("/mcp") would 307 /mcp → /mcp/ and connector clients
+# strip Authorization on redirect, breaking the connector flow.
+app.mount("/", _mcp_asgi_app)
 
 

@@ -170,7 +170,9 @@ def make_client(storage=None, api=None):
         call_api=api,
     ))
     _lifespan_holder["manager"] = session_manager
-    app.mount("/mcp", asgi_app)
+    # Same as production main.py: root mount so POST /mcp matches exactly
+    # (a Mount("/mcp") would 307 to /mcp/ and lose the Authorization header).
+    app.mount("/", asgi_app)
     client = TestClient(app)
     client.access_token = access_token
     client.oauth_storage = storage

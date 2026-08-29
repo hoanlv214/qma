@@ -56,9 +56,12 @@ def create_mcp_http_app(deps):
     access_token_secret = deps.access_token_secret
 
     mcp = FastMCP("QMA Market Memory", stateless_http=True, json_response=True)
-    # The app is mounted at /mcp on the main FastAPI instance; keep the
-    # streamable route at the mount root instead of FastMCP's /mcp default.
-    mcp.settings.streamable_http_path = "/"
+    # The returned Starlette app exposes its streamable route at "/mcp" (the
+    # FastMCP default). The caller mounts this app at "/" AFTER all FastAPI
+    # routes: a Mount("/mcp") would force a 307 /mcp → /mcp/ (Starlette mount
+    # regex requires a trailing slash) and connector clients drop the
+    # Authorization header on redirect. Mounting at root + exact child route
+    # answers POST /mcp directly.
     # FastMCP's DNS-rebinding protection allowlists only localhost hosts,
     # which would reject production Host headers (e.g. the Render domain).
     # Access control here is the Bearer middleware below, so disable it.
