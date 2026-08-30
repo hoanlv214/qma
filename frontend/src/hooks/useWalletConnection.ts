@@ -23,10 +23,26 @@ export function useWalletConnection({
   const { address: wallet, setAddress, disconnect: disconnectWallet } = useWalletStore();
 
   useEffect(() => {
+    // Silently check if the browser wallet is already connected/authorized
+    if (window.ethereum?.request) {
+      window.ethereum
+        .request({ method: "eth_accounts" })
+        .then((accounts: any) => {
+          if (Array.isArray(accounts) && accounts[0]) {
+            setAddress(String(accounts[0]).toLowerCase());
+          }
+        })
+        .catch(() => {
+          // Silent fallback: keep existing localStorage address
+        });
+    }
+
     const handleAccountsChanged = (accounts: any) => {
-      clearAllWalletProfileSessions();
-      const next = accounts && accounts[0] ? String(accounts[0]) : "";
-      setAddress(next);
+      const next = accounts && accounts[0] ? String(accounts[0]).toLowerCase() : "";
+      if (next !== wallet?.toLowerCase()) {
+        clearAllWalletProfileSessions();
+        setAddress(next);
+      }
     };
 
     if (window.ethereum?.on) {
@@ -38,7 +54,7 @@ export function useWalletConnection({
         window.ethereum.removeListener("accountsChanged", handleAccountsChanged);
       }
     };
-  }, []);
+  }, [setAddress, wallet]);
 
   const sameAddress = (a?: string, b?: string) => {
     return Boolean(a && b && String(a).toLowerCase() === String(b).toLowerCase());
@@ -74,7 +90,7 @@ export function useWalletConnection({
     }
     try {
       const accounts = (await window.ethereum.request({ method: "eth_requestAccounts" })) as any;
-      const next = accounts && accounts[0] ? String(accounts[0]) : "";
+      const next = accounts && accounts[0] ? String(accounts[0]).toLowerCase() : "";
       setAddress(next);
       if (next) {
         showToast("Wallet connected.", "success");

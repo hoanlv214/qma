@@ -17,14 +17,18 @@ authority for prices, invoices, settlement, entitlements, and access tokens.
 | React application | [qma-three.vercel.app](https://qma-three.vercel.app) |
 | Rebuild API | [qma-api-rebuild.onrender.com](https://qma-api-rebuild.onrender.com) |
 | Arc Gateway sidecar | [qma-arc-gateway-rebuild.onrender.com](https://qma-arc-gateway-rebuild.onrender.com) |
+| AI Connectors (Claude & ChatGPT) | [Connect AI Agent](/connect) (OAuth 2.1 PKCE) |
 | API documentation | `/docs` on the active API deployment |
 | CLI autonomous session | `qma agent run` |
 | Marketplace | `/marketplace` on the React application |
 | Metrics | `/api/v1/metrics?payment_page_size=1&payer_page_size=1` |
+| Master Database Schema | [`scripts/schema.sql`](scripts/schema.sql) · [Database Docs](docs/database.md) |
+| Modern Package Management | [`docs/package-managers.md`](docs/package-managers.md) (`bun` & `uv`) |
+| Environments (Local/Stage/Prod) | [`docs/environments.md`](docs/environments.md) |
 
 The rebuild services are Arc Testnet targets. Verify the deployment branch and
 environment configuration before treating a live URL as current; see
-[docs/infrastructure/DEPLOYMENT_SETUP.md](docs/infrastructure/DEPLOYMENT_SETUP.md).
+[docs/infrastructure/DEPLOYMENT_SETUP.md](docs/infrastructure/DEPLOYMENT_SETUP.md) and [docs/environments.md](docs/environments.md).
 
 ## CLI Installation & Usage
 

@@ -12,22 +12,32 @@ export function walletProfileTokenCacheKey(account: string) {
 
 export function clearWalletProfileSession(account: string) {
   if (!account) return;
-  sessionStorage.removeItem(walletProfileTokenCacheKey(account));
+  const key = walletProfileTokenCacheKey(account);
+  sessionStorage.removeItem(key);
+  localStorage.removeItem(key);
 }
 
 export function clearAllWalletProfileSessions() {
-  const keys: string[] = [];
+  const sessionKeys: string[] = [];
   for (let i = 0; i < sessionStorage.length; i += 1) {
     const key = sessionStorage.key(i);
-    if (key && key.startsWith("qma_wallet_profile_token_")) keys.push(key);
+    if (key && key.startsWith("qma_wallet_profile_token_")) sessionKeys.push(key);
   }
-  keys.forEach((key) => sessionStorage.removeItem(key));
+  sessionKeys.forEach((key) => sessionStorage.removeItem(key));
+
+  const localKeys: string[] = [];
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith("qma_wallet_profile_token_")) localKeys.push(key);
+  }
+  localKeys.forEach((key) => localStorage.removeItem(key));
 }
 
 export function getCachedWalletProfileToken(account: string) {
   if (!account) return "";
   const normalized = account.toLowerCase();
-  const raw = sessionStorage.getItem(walletProfileTokenCacheKey(normalized));
+  const key = walletProfileTokenCacheKey(normalized);
+  const raw = sessionStorage.getItem(key) || localStorage.getItem(key);
   if (!raw) return "";
   try {
     const cached = JSON.parse(raw) as WalletProfileCache;
@@ -92,10 +102,13 @@ export async function requestWalletProfileSession(account: string) {
   if (!token) return "";
 
   const expiresInMs = Math.max(30, Number(data.expires_in || 3600)) * 1000;
-  sessionStorage.setItem(walletProfileTokenCacheKey(normalized), JSON.stringify({
+  const payload = JSON.stringify({
     token,
     expiresAt: Date.now() + expiresInMs,
-  }));
+  });
+  const key = walletProfileTokenCacheKey(normalized);
+  sessionStorage.setItem(key, payload);
+  localStorage.setItem(key, payload);
   return token;
 }
 

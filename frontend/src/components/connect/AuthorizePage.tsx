@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { requestJson, API_BASE_URL } from "../../services/api";
-import { requestWalletProfileSession } from "../../services/walletProfileSession";
+import {
+  getCachedWalletProfileToken,
+  requestWalletProfileSession,
+} from "../../services/walletProfileSession";
 import { getInjectedWallet } from "../../services/wallet";
 
 // Deep links are opened by cloud AI apps, so they must point at a publicly
@@ -41,7 +44,7 @@ function readOAuthParams(): OAuthParams | null {
 
 export function AuthorizePage() {
   const [oauthParams] = useState<OAuthParams | null>(() => readOAuthParams());
-  const [account, setAccount] = useState("");
+  const [account, setAccount] = useState<string>(() => localStorage.getItem("qma_connected_wallet") || "");
   const [maxPriceUsdc, setMaxPriceUsdc] = useState("0.05");
   const [budgetUsdc, setBudgetUsdc] = useState("5");
   const [busy, setBusy] = useState(false);
@@ -53,7 +56,8 @@ export function AuthorizePage() {
 
   const loadConnections = useCallback(async (wallet: string) => {
     try {
-      const token = await requestWalletProfileSession(wallet);
+      const cached = getCachedWalletProfileToken(wallet);
+      const token = cached || (await requestWalletProfileSession(wallet));
       if (!token) return;
       const data = await requestJson<{ connections?: ConnectionRow[] }>(
         `/api/v1/oauth/connections?owner_wallet=${wallet.toLowerCase()}`,
@@ -65,6 +69,33 @@ export function AuthorizePage() {
       setConnections([]);
     }
   }, []);
+
+  // Auto-inherit connected wallet on mount without popping up unnecessary dialogs
+  useEffect(() => {
+    const saved = localStorage.getItem("qma_connected_wallet");
+    if (saved) {
+      const normalized = saved.toLowerCase();
+      setAccount(normalized);
+      if (getCachedWalletProfileToken(normalized)) {
+        void loadConnections(normalized);
+      }
+    }
+
+    const provider = getInjectedWallet();
+    if (provider?.request) {
+      provider
+        .request<string[]>({ method: "eth_accounts" })
+        .then((accs) => {
+          const active = accs?.[0] ? String(accs[0]).toLowerCase() : "";
+          if (active) {
+            setAccount(active);
+            localStorage.setItem("qma_connected_wallet", active);
+            void loadConnections(active);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [loadConnections]);
 
   useEffect(() => {
     if (!oauthParams) return;
@@ -78,12 +109,18 @@ export function AuthorizePage() {
     try {
       const provider = getInjectedWallet();
       if (!provider) throw new Error("No wallet extension found. Install Rabby, OKX Wallet, or MetaMask first.");
-      const accounts = await provider.request<string[]>({ method: "eth_requestAccounts" });
-      const active = accounts?.[0] ? String(accounts[0]).toLowerCase() : "";
-      if (!active) throw new Error("Connect a wallet to continue.");
-      setAccount(active);
+      
+      let active = account;
+      if (!active) {
+        const accounts = await provider.request<string[]>({ method: "eth_requestAccounts" });
+        active = accounts?.[0] ? String(accounts[0]).toLowerCase() : "";
+        if (!active) throw new Error("Connect a wallet to continue.");
+        setAccount(active);
+        localStorage.setItem("qma_connected_wallet", active);
+      }
 
-      const walletToken = await requestWalletProfileSession(active);
+      // Reuse cached valid session token if present, otherwise trigger one-time signature
+      const walletToken = getCachedWalletProfileToken(active) || (await requestWalletProfileSession(active));
       if (!walletToken) throw new Error("Wallet signature was cancelled.");
 
       const data = await requestJson<{ code?: string }>(
@@ -122,7 +159,7 @@ export function AuthorizePage() {
 
   const revoke = async (clientId: string) => {
     try {
-      const token = await requestWalletProfileSession(connectionsOwner);
+      const token = getCachedWalletProfileToken(connectionsOwner) || (await requestWalletProfileSession(connectionsOwner));
       await requestJson(
         `/api/v1/oauth/revoke?owner_wallet=${connectionsOwner}`,
         {
@@ -188,7 +225,11 @@ export function AuthorizePage() {
         <button onClick={() => {
           getInjectedWallet()?.request<string[]>({ method: "eth_requestAccounts" }).then((accs) => {
             const active = accs?.[0] ? String(accs[0]).toLowerCase() : "";
-            if (active) { setAccount(active); void loadConnections(active); }
+            if (active) {
+              setAccount(active);
+              localStorage.setItem("qma_connected_wallet", active);
+              void loadConnections(active);
+            }
           });
         }} disabled={busy}>
           {account ? `Connected: ${account.slice(0, 10)}…${account.slice(-6)}` : "Connect wallet to manage connections"}
@@ -224,6 +265,12 @@ export function AuthorizePage() {
         you can revoke anytime and withdraw remaining funds.
       </p>
 
+      {account && (
+        <div style={{ padding: "10px 14px", borderRadius: 8, background: "rgba(255,255,255,0.06)", fontSize: 13, marginTop: 14 }}>
+          Connected Wallet: <strong style={{ fontFamily: "monospace" }}>{account.slice(0, 8)}…{account.slice(-6)}</strong>
+        </div>
+      )}
+
       <label style={{ display: "block", marginTop: 14, fontSize: 13, opacity: 0.8 }}>
         Max spend per report (USDC)
         <input
@@ -252,7 +299,11 @@ export function AuthorizePage() {
           disabled={busy}
           style={{ marginTop: 20, width: "100%", padding: "12px 16px", borderRadius: 10, fontWeight: 600, cursor: busy ? "wait" : "pointer" }}
         >
-          {busy ? "Waiting for signature…" : "Connect wallet & authorize"}
+          {busy
+            ? "Authorizing…"
+            : account
+              ? `Authorize as ${account.slice(0, 6)}…${account.slice(-4)}`
+              : "Connect wallet & authorize"}
         </button>
       )}
       {error && <p style={{ color: "#ff6b6b" }}>{error}</p>}
