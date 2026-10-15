@@ -33,8 +33,8 @@ Keep the raw Render/Vercel URLs available for debugging, but use the Cloudflare 
 3. Add records:
 
 ```text
-CNAME qma      -> qma.vercel.app              Proxied
-CNAME api      -> qma-api.onrender.com              Proxied
+CNAME qma      -> qma-three.vercel.app        Proxied
+CNAME api      -> qma-three.vercel.app        Proxied
 CNAME gateway  -> qma-arc-gateway.onrender.com      Proxied
 ```
 

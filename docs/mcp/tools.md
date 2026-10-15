@@ -1,6 +1,6 @@
 # QMA MCP Tools Reference
 
-All tools are served by the hosted MCP server at `https://qma-api.onrender.com/mcp`
+All tools are served by the hosted MCP server at `https://qma-three.vercel.app/mcp`
 (Streamable HTTP, JSON responses). Authentication: `Authorization: Bearer <mcp connection token>`.
 
 ---

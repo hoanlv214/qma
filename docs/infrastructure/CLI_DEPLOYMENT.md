@@ -82,8 +82,8 @@ python scripts/vercel_sync.py --token <VERCEL_TOKEN> --project qma --sync-env
 ```
 
 The script automatically syncs:
-- `VITE_QMA_API_BASE_URL` -> `https://qma-api.onrender.com`
-- `VITE_QMA_MCP_PUBLIC_URL` -> `https://qma-api.onrender.com`
+- `VITE_QMA_API_BASE_URL` -> `https://qma-three.vercel.app`
+- `VITE_QMA_MCP_PUBLIC_URL` -> `https://qma-three.vercel.app`
 - `VITE_GENLAYER_CONTRACT_ADDRESS` -> `0x1e5B4d7Be22A3f7F4Ecb616bA65123cB03B7cc13`
 - `VITE_GENLAYER_STUDIO_URL` -> `https://studio-next.genlayer.com`
 - `VITE_GENLAYER_EXPLORER_URL` -> `https://explorer-studio-dev.genlayer.com`

@@ -7,7 +7,7 @@
 [![live: qma.vercel.app](https://img.shields.io/badge/live-qma.vercel.app-1aa251)](https://qma.vercel.app)
 [![brand: Intelligence · Decisions · Receipts](https://img.shields.io/badge/QMA-Intelligence_%C2%B7_Decisions_%C2%B7_Receipts-6366F1)](https://qma.vercel.app)
 [![marketplace: Two-Sided Intelligence](https://img.shields.io/badge/marketplace-Two--Sided_Intelligence-2563EB)](docs/business/POSITIONING_STRATEGY.md)
-[![API docs: onrender](https://img.shields.io/badge/API-qma--api.onrender.com-6E56CF)](https://qma-api.onrender.com/docs)
+[![API docs: proxy](https://img.shields.io/badge/API-qma--three.vercel.app-6E56CF)](https://qma-three.vercel.app/docs)
 [![settles on Arc testnet](https://img.shields.io/badge/settles_on-Arc_testnet-1f1f1f)](https://testnet.arcscan.app)
 [![payments: Circle x402 & StableFX](https://img.shields.io/badge/payments-Circle_x402_%26_StableFX-2775CA)](https://docs.arc.network)
 [![yield: USYC ERC-4626 (Testnet Simulation)](https://img.shields.io/badge/yield-USYC_ERC--4626_(Testnet_Simulation)-F59E0B)](https://testnet.arcscan.app/address/0x934e7309d7fca371db946b0643f2136cc0a0fcb2)
@@ -18,7 +18,7 @@
 
 🔗 Live Marketplace: **[qma.vercel.app](https://qma.vercel.app)** — interactive Signal Explorer & Treasury Radar  
 &nbsp;·&nbsp; 📄 **[Technical Whitepaper](docs/whitepaper/QMA_WHITEPAPER.md)** — authoritative technical whitepaper (Arc L1, x402, GenLayer Shield)  
-&nbsp;·&nbsp; ⚡ Backend: **[qma-api.onrender.com](https://qma-api.onrender.com)** — live API & OpenAPI docs at `/docs`  
+&nbsp;·&nbsp; ⚡ Backend: **[qma-three.vercel.app](https://qma-three.vercel.app)** — live API & OpenAPI docs at `/docs`  
 &nbsp;·&nbsp; 🏛️ **[Arc RFB Alignment Audit](docs/arc/ARC_BUILDER_ALIGNMENT_AUDIT.md)** — strategic mapping against Circle Arc's Request for Builders  
 &nbsp;·&nbsp; 📖 Strategy: **[Positioning & Business Strategy](docs/business/POSITIONING_STRATEGY.md)** — two-sided business constitution  
 &nbsp;·&nbsp; 🧾 **[Policy vs Model research note](docs/research/POLICY_VS_MODEL.md)** — where the guardrails overruled the model, with hashes  
@@ -147,7 +147,7 @@ Corporate treasury is about real capital, so claims must declare their boundarie
 | **Autonomous Sweep Deposit** | `0xd9b31a246f0df00e08ceaf40b0f2892305bc820f0f9e8d0e7717b0b04e18edec` | [Arcscan Tx](https://testnet.arcscan.app/tx/0xd9b31a246f0df00e08ceaf40b0f2892305bc820f0f9e8d0e7717b0b04e18edec) | Block #62679606 |
 | **Just-In-Time (JIT) Redemption** | `0x705c9e4b3ee7a99159082c8f800bb8fb6916e2acbc33f4743a33ca9a81e29629` | [Arcscan Tx](https://testnet.arcscan.app/tx/0x705c9e4b3ee7a99159082c8f800bb8fb6916e2acbc33f4743a33ca9a81e29629) | Block #62679616 |
 | **GenLayer Shield Contract** | `0x2143EA5800c08356d3b2de3bFacE1c2431F7eD69` | [GenLayer Studio](https://studio.genlayer.com) | `[Studio Testnet]` |
-| **Live Backend API** | `https://qma-api.onrender.com` | [OpenAPI Docs](https://qma-api.onrender.com/docs) | 24/7 Deployed |
+| **Live Backend API** | `https://qma-three.vercel.app` | [OpenAPI Docs](https://qma-three.vercel.app/docs) | Live Proxy |
 | **Test Suite** | Unit, integration & docs regressions | [Local Test Suite](tests/) | Passing (Mock-heavy) |
 
 ---

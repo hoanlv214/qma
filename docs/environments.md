@@ -9,8 +9,8 @@ This guide defines the configuration parameters, environment variables, and netw
 | Dimension | Local (`dev`) | Staging (`staging`) | Production (`prod`) |
 |---|---|---|---|
 | **Frontend URL** | `http://localhost:5173` | `https://staging.qma.market` (or Vercel Preview) | `https://app.qma.market` |
-| **Backend API** | `http://localhost:8000` | `https://qma-api-staging.onrender.com` | `https://api.qma.market` |
-| **MCP Endpoint** | `http://localhost:8000/mcp` (or Dev Tunnel) | `https://qma-api-staging.onrender.com/mcp` | `https://api.qma.market/mcp` |
+| **Backend API** | `http://localhost:8000` | `https://qma-three.vercel.app` (Vercel Proxy) | `https://api.qma.market` |
+| **MCP Endpoint** | `http://localhost:8000/mcp` (or Dev Tunnel) | `https://qma-three.vercel.app/mcp` | `https://api.qma.market/mcp` |
 | **Arc Gateway Relay** | `http://localhost:3001` | `https://gateway-staging.qma.market` | `https://gateway.qma.market` |
 | **Blockchain Network** | Arc Testnet (`5042002`) / Local node | Arc Testnet (`5042002`) | Arc Mainnet / Base / Circle Gateway |
 | **USDC Contract** | `0x3600000000000000000000000000000000000000` | `0x3600000000000000000000000000000000000000` | Circle Mainnet USDC Token ID / Contract |
@@ -52,14 +52,14 @@ PORT=8000
 SUPABASE_URL=https://qma-staging.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOi...
 SUPABASE_SCHEMA=public
-ARC_GATEWAY_URL=https://gateway-staging.onrender.com
-MCP_API_BASE_URL=https://qma-api-staging.onrender.com
+ARC_GATEWAY_URL=http://localhost:3000
+MCP_API_BASE_URL=https://qma-three.vercel.app
 MCP_CONNECT_BASE_URL=https://staging.qma.market
 SELLER_WALLET=0xStagingTreasuryWalletAddress
 PAYMENT_NETWORK_NAME="Arc Testnet"
 
 # Frontend
-VITE_API_BASE_URL=https://qma-api-staging.onrender.com
+VITE_API_BASE_URL=https://qma-three.vercel.app
 ```
 
 ---

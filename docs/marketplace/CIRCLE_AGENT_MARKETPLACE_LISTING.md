@@ -14,10 +14,10 @@ This document is the official submission and verification package for registerin
 | **Category** | `crypto market data / quantitative intelligence` |
 | **Payment Rail** | Circle Gateway Nanopayments (`x402`, scheme: `exact`) |
 | **Settlement Currency** | `USDC` (Native Gas on Arc) |
-| **Public API Base URL** | `https://qma-api.onrender.com` |
+| **Public API Base URL** | `https://qma-three.vercel.app` |
 | **Application UI** | `https://qma.vercel.app` |
 | **API Documentation** | `https://qma.vercel.app/docs` (Interactive Scalar OpenAPI) |
-| **Health Check URL** | `https://qma-api.onrender.com/healthz` |
+| **Health Check URL** | `https://qma-three.vercel.app/healthz` |
 | **Support / Contact** | `https://qma.vercel.app/docs` |
 | **Intake URL** | [https://agents.circle.com/services](https://agents.circle.com/services) |
 
@@ -92,7 +92,7 @@ Verification follows the strict `accept-agent-payments` skill protocol:
 
 ### Step 1: Unpaid Probe (Must return HTTP 402)
 ```bash
-curl -i -X POST "https://qma-api.onrender.com/api/v1/providers/funding_memory/preview" \
+curl -i -X POST "https://qma-three.vercel.app/api/v1/providers/funding_memory/preview" \
   -H "Content-Type: application/json" \
   -d '{"symbol": "BTC"}'
 ```
@@ -103,14 +103,14 @@ curl -i -X POST "https://qma-api.onrender.com/api/v1/providers/funding_memory/pr
 
 ### Step 2: Circle CLI Inspection
 ```bash
-circle services inspect "https://qma-api.onrender.com/.well-known/circle-service.json" --output json
+circle services inspect "https://qma-three.vercel.app/.well-known/circle-service.json" --output json
 ```
 **Expected Output:**
 - Returns price (`0.002 USDC`), supported chains (`arc-testnet`, `base-sepolia`, etc.), seller address, and x402 scheme (`GatewayWalletBatched`).
 
 ### Step 3: Payment Estimation (Zero funds moved)
 ```bash
-circle services pay "https://qma-api.onrender.com/api/v1/providers/funding_memory/preview" \
+circle services pay "https://qma-three.vercel.app/api/v1/providers/funding_memory/preview" \
   -X POST \
   --address <buyer-wallet-address> \
   --chain arc-testnet \
@@ -120,7 +120,7 @@ circle services pay "https://qma-api.onrender.com/api/v1/providers/funding_memor
 
 ### Step 4: Paid Query Execution (Returns HTTP 200 with payload)
 ```bash
-circle services pay "https://qma-api.onrender.com/api/v1/providers/funding_memory/preview" \
+circle services pay "https://qma-three.vercel.app/api/v1/providers/funding_memory/preview" \
   -X POST \
   --address <buyer-wallet-address> \
   --chain arc-testnet \

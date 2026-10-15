@@ -58,13 +58,13 @@ and `state/agentWalletStore.tsx`.
 1. `VITE_QMA_API_BASE_URL` when supplied;
 2. empty string on local hostnames, so Vite can proxy/same-origin with a local
    FastAPI server;
-3. the production fallback `https://qma-api.onrender.com` when no API is
+3. the production fallback `https://qma-three.vercel.app` (Vercel proxy) when no API is
    configured.
 
-For the rebuild preview deployment, set:
+For deployment, set:
 
 ```env
-VITE_QMA_API_BASE_URL=https://qma-api-rebuild.onrender.com
+VITE_QMA_API_BASE_URL=https://qma-three.vercel.app
 VITE_QMA_ENV=preview
 VITE_QMA_SYNTHETIC_RUN=false
 ```
