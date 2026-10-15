@@ -29,6 +29,7 @@ from backend.app.services.spend_guard import (
 )
 from backend.app.services import swap_executor as se
 from backend.app.services import swap_router as sr
+from backend.app.core.static_config import APP
 
 
 TEST_KEY = "0x" + "22" * 32
@@ -183,7 +184,7 @@ def test_concurrent_workers_approaching_daily_spend_cap():
 
 def test_spend_guard_durable_reservation_survives_restart(monkeypatch):
     """Reservations logged to the durable event ledger survive restart seeding."""
-    monkeypatch.setenv("QMA_SPEND_GUARD_LEDGER", "1")
+    monkeypatch.setitem(APP["treasury"], "spendGuardLedger", True)
     events_log = []
 
     class MockStorage:
@@ -1179,7 +1180,7 @@ sys.exit(0)
 
 def test_circuit_breaker_and_pinned_reservation_durability_across_restarts(monkeypatch):
     """Durability Verification: Pinned reservations and tripped circuit breakers survive process restarts."""
-    monkeypatch.setenv("QMA_SPEND_GUARD_LEDGER", "1")
+    monkeypatch.setitem(APP["treasury"], "spendGuardLedger", True)
     payer = "0x" + "bb" * 20
     now = time.time()
     res_id = "res_persist_test_01"
@@ -1474,7 +1475,7 @@ def test_crash_window_replacement_collision_trips_breaker_across_restarts(tmp_pa
                 }
             ]
 
-    monkeypatch.setenv("QMA_SPEND_GUARD_LEDGER", "1")
+    monkeypatch.setitem(APP["treasury"], "spendGuardLedger", True)
     from backend.app.core import state
     state.storage_backend = MockStorage()
 

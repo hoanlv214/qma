@@ -1,12 +1,17 @@
 import os
 import tempfile
 
+os.environ["QMA_NETWORK_MODE"] = "testnet"          # suite asserts testnet profile values from config/networks.json
 os.environ["QMA_STORAGE_BACKEND"] = "json"          # forces Priority 2 in create_storage_backend
-os.environ["QMA_SPEND_GUARD_LEDGER"] = "0"          # unit tests never exercise the durable spend ledger
-os.environ["QMA_STABLEFX_LIVE_RATE"] = "0"          # unit tests never hit the live Hermes FX feed
-os.environ["QMA_EARN_ONCHAIN_METRICS"] = "0"        # unit tests never read vault metrics over RPC
-os.environ["QMA_EARN_SNAPSHOT_SAMPLER"] = "0"       # unit tests never start the background sampler
-os.environ["QMA_SIGNAL_VERIFIABILITY_GATE"] = "0"  # unit tests never run the sale-time evidence gate
+
+from backend.app.core.static_config import APP  # noqa: E402 — pure loader, imports nothing from backend
+
+APP["treasury"]["spendGuardLedger"] = False         # unit tests never exercise the durable spend ledger
+APP["stablefx"]["liveRate"] = False                 # unit tests never hit the live Hermes FX feed
+APP["earn"]["onchainMetrics"] = False               # unit tests never read vault metrics over RPC
+APP["earn"]["snapshotSampler"] = False              # unit tests never start the background sampler
+APP["providers"]["signalVerifiabilityGate"] = False # unit tests never run the sale-time evidence gate
+APP["llm"].update({"provider": "openai", "model": "", "useLaya": False})  # no real LLM calls by default
 for _k in ("DATABASE_URL", "POSTGRES_URL", "QMA_DATABASE_URL"):
     os.environ.pop(_k, None)                        # cannot fall through to Postgres
 _ISOLATION_DIR = tempfile.mkdtemp(prefix="qma_test_data_")
@@ -22,6 +27,15 @@ import backend.app.main as app_module
 # Ensure any env vars re-loaded by backend.app.core.config.load_local_env() are purged
 for _k in ("DATABASE_URL", "POSTGRES_URL", "QMA_DATABASE_URL"):
     os.environ.pop(_k, None)
+
+
+@pytest.fixture(autouse=True)
+def _purge_database_env_in_tests():
+    for _k in ("DATABASE_URL", "POSTGRES_URL", "QMA_DATABASE_URL"):
+        os.environ.pop(_k, None)
+    yield
+    for _k in ("DATABASE_URL", "POSTGRES_URL", "QMA_DATABASE_URL"):
+        os.environ.pop(_k, None)
 
 
 def pytest_configure(config):

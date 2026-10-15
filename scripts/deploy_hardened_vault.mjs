@@ -17,26 +17,37 @@ if (!pk) {
   process.exit(1);
 }
 
-const ARC_TESTNET_CHAIN = {
-  id: 5042002,
-  name: 'Arc Testnet',
-  nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
-  rpcUrls: { default: { http: ['https://rpc.testnet.arc.network'] } },
-  blockExplorers: { default: { name: 'Arcscan', url: 'https://testnet.arcscan.app' } },
-};
+const isMainnet = process.argv.includes('--mainnet') || (process.env.QMA_NETWORK_MODE || '').toLowerCase() === 'mainnet';
+
+const TARGET_CHAIN = isMainnet
+  ? {
+      id: 5042,
+      name: 'Arc Mainnet',
+      nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
+      rpcUrls: { default: { http: [process.env.QMA_ARC_RPC_URL || 'https://rpc.mainnet.arc.io'] } },
+      blockExplorers: { default: { name: 'Explorer', url: process.env.QMA_ARC_EXPLORER || 'https://explorer.arc.io' } },
+    }
+  : {
+      id: 5042002,
+      name: 'Arc Testnet',
+      nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
+      rpcUrls: { default: { http: [process.env.QMA_ARC_RPC_URL || 'https://rpc.testnet.arc.network'] } },
+      blockExplorers: { default: { name: 'Arcscan', url: process.env.QMA_ARC_EXPLORER || 'https://testnet.arcscan.app' } },
+    };
 
 const account = privateKeyToAccount(pk);
-console.log('🏛️ QMA TREASURY ENGINE — HARDENED USYC VAULT DEPLOYMENT & ON-CHAIN TEST');
+console.log(`🏛️ QMA TREASURY ENGINE — HARDENED USYC VAULT DEPLOYMENT (${TARGET_CHAIN.name})`);
 console.log('Deployer / Agent Account:', account.address);
+console.log('Target RPC:', TARGET_CHAIN.rpcUrls.default.http[0]);
 
 const publicClient = createPublicClient({
-  chain: ARC_TESTNET_CHAIN,
+  chain: TARGET_CHAIN,
   transport: http(),
 });
 
 const walletClient = createWalletClient({
   account,
-  chain: ARC_TESTNET_CHAIN,
+  chain: TARGET_CHAIN,
   transport: http(),
 });
 
@@ -214,15 +225,16 @@ async function main() {
   console.log(`- Final Total Managed Assets: ${formatUnits(totalAssetsFinal, 6)} USDC`);
 
   // Save deployment metadata
+  const explorerBase = TARGET_CHAIN.blockExplorers.default.url;
   const deploymentInfo = {
     contractName: 'USYCVaultFixed',
     address: vaultAddress,
-    chain: 'Arc Testnet',
-    chainId: 5042002,
+    chain: TARGET_CHAIN.name,
+    chainId: TARGET_CHAIN.id,
     deployer: account.address,
     underlyingAsset: ARC_USDC,
     txHash: deployHash,
-    arcscanUrl: `https://testnet.arcscan.app/address/${vaultAddress}`,
+    arcscanUrl: `${explorerBase}/address/${vaultAddress}`,
     deployedAt: new Date().toISOString(),
     tests: {
       setDepositCapTx: capTx,
@@ -231,9 +243,12 @@ async function main() {
     },
   };
 
-  fs.writeFileSync('contracts/deployed_vault_arc_testnet.json', JSON.stringify(deploymentInfo, null, 2));
+  const outFile = isMainnet
+    ? 'contracts/deployed_vault_arc_mainnet.json'
+    : 'contracts/deployed_vault_arc_testnet.json';
+  fs.writeFileSync(outFile, JSON.stringify(deploymentInfo, null, 2));
   console.log('\n🎉 ALL ON-CHAIN VERIFICATIONS PASSED SUCCESSFULLY!');
-  console.log('Deployment info written to contracts/deployed_vault_arc_testnet.json');
+  console.log(`Deployment info written to ${outFile}`);
 }
 
 main().catch(err => {

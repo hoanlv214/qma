@@ -18,6 +18,7 @@ from backend.app.services.usyc_treasury import (
     SELECTOR_REDEEM,
     SELECTOR_TOTAL_ASSETS,
 )
+from backend.app.core.static_config import APP
 
 
 class CircleSwapAndEarnTests(unittest.TestCase):
@@ -85,8 +86,8 @@ class CircleSwapAndEarnTests(unittest.TestCase):
         service = USYCTreasuryService()
         pos = service.query_onchain_position("0x23e7c029a287a83d80b2e084e008211658dda11d")
 
-        self.assertEqual(pos["network"], "Arc Testnet")
-        self.assertEqual(pos["chain_id"], 5042002)
+        self.assertIn(pos["network"], ("Arc Testnet", "Arc Mainnet"))
+        self.assertIn(pos["chain_id"], (5042002, 5042))
         self.assertEqual(pos["standard"], "ERC-4626 Tokenized Vault")
         self.assertEqual(pos["earn_protocol"], "Circle Earn / Hashnote USYC")
         self.assertEqual(pos["current_apy_percent"], 5.0)
@@ -153,7 +154,7 @@ class StableFxLiveRateTests(unittest.TestCase):
         return resp
 
     @patch("backend.app.services.stablefx_service.requests.get")
-    @patch.dict(os.environ, {"QMA_STABLEFX_LIVE_RATE": "1"})
+    @patch.dict(APP["stablefx"], {"liveRate": True})
     def test_quote_uses_live_pyth_rate(self, mock_get):
         self._reset_cache()
         usd_per_eur = 1.0855
@@ -174,7 +175,7 @@ class StableFxLiveRateTests(unittest.TestCase):
         self.assertEqual(mock_get.call_count, 1)
 
     @patch("backend.app.services.stablefx_service.requests.get")
-    @patch.dict(os.environ, {"QMA_STABLEFX_LIVE_RATE": "1"})
+    @patch.dict(APP["stablefx"], {"liveRate": True})
     def test_quote_falls_back_on_out_of_bounds_rate(self, mock_get):
         self._reset_cache()
         mock_get.return_value = self._hermes_response(0.50)  # nonsense EUR/USD
@@ -184,7 +185,7 @@ class StableFxLiveRateTests(unittest.TestCase):
         self.assertGreater(quote["to_amount"], 0)
 
     @patch("backend.app.services.stablefx_service.requests.get")
-    @patch.dict(os.environ, {"QMA_STABLEFX_LIVE_RATE": "1"})
+    @patch.dict(APP["stablefx"], {"liveRate": True})
     def test_quote_falls_back_on_stale_publish_time(self, mock_get):
         self._reset_cache()
         stale = self._hermes_response(1.0855, publish_time=int(self.now) - 3600)
@@ -193,7 +194,7 @@ class StableFxLiveRateTests(unittest.TestCase):
         self.assertEqual(quote["rate_source"], self.sfx.FX_RATE_SOURCE_SYNTHETIC)
 
     @patch("backend.app.services.stablefx_service.requests.get")
-    @patch.dict(os.environ, {"QMA_STABLEFX_LIVE_RATE": "1"})
+    @patch.dict(APP["stablefx"], {"liveRate": True})
     def test_quote_falls_back_when_hermes_unreachable(self, mock_get):
         self._reset_cache()
         mock_get.side_effect = RuntimeError("hermes down")
@@ -201,7 +202,7 @@ class StableFxLiveRateTests(unittest.TestCase):
         self.assertEqual(quote["rate_source"], self.sfx.FX_RATE_SOURCE_SYNTHETIC)
         self.assertIn("baseline", quote["rate_note"])
 
-    @patch.dict(os.environ, {"QMA_STABLEFX_LIVE_RATE": "0"})
+    @patch.dict(APP["stablefx"], {"liveRate": False})
     def test_kill_switch_skips_live_fetch(self):
         self._reset_cache()
         quote = get_stablefx_quote("EURC", "USDC", 10.0)

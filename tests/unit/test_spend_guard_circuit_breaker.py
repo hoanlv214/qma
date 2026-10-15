@@ -11,6 +11,7 @@ from backend.app.services.spend_guard import (
     SpendLimitExceededError,
     CircuitBreakerTrippedError,
 )
+from backend.app.core.static_config import APP
 
 
 def test_spend_limit_guard_per_tx_cap():
@@ -92,7 +93,7 @@ def test_spend_guard_persists_events_to_storage(monkeypatch):
     from backend.app.services import spend_guard as spend_guard_module
 
     fake_storage = _FakeSpendGuardStorage()
-    monkeypatch.setenv("QMA_SPEND_GUARD_LEDGER", "1")
+    monkeypatch.setitem(APP["treasury"], "spendGuardLedger", True)
     monkeypatch.setattr(
         spend_guard_module.SpendLimitGuard, "_get_storage", staticmethod(lambda: fake_storage)
     )
@@ -126,7 +127,7 @@ def test_spend_guard_daily_cap_survives_restart(monkeypatch):
     from backend.app.services import spend_guard as spend_guard_module
 
     fake_storage = _FakeSpendGuardStorage()
-    monkeypatch.setenv("QMA_SPEND_GUARD_LEDGER", "1")
+    monkeypatch.setitem(APP["treasury"], "spendGuardLedger", True)
     monkeypatch.setattr(
         spend_guard_module.SpendLimitGuard, "_get_storage", staticmethod(lambda: fake_storage)
     )
@@ -155,7 +156,7 @@ def test_spend_guard_survives_storage_outage(monkeypatch):
         def load_spend_guard_events(self, since_epoch: float) -> list:
             raise RuntimeError("ledger down")
 
-    monkeypatch.setenv("QMA_SPEND_GUARD_LEDGER", "1")
+    monkeypatch.setitem(APP["treasury"], "spendGuardLedger", True)
     monkeypatch.setattr(
         spend_guard_module.SpendLimitGuard, "_get_storage", staticmethod(lambda: _BrokenStorage())
     )

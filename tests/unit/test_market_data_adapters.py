@@ -211,6 +211,40 @@ class MarketDataAdaptersTests(unittest.TestCase):
         self.assertEqual(sol_item["verifiable_exchange"], "MEXC")
         self.assertEqual(sol_item["evidence_url"], "https://contract.mexc.com/api/v1/contract/funding_rate/SOL_USDT")
 
+    def test_bidirectional_funding_anomalies_and_ranking(self):
+        class MockAdapter:
+            def __init__(self, source_id, exchange_name, anomalies):
+                self.source_id = source_id
+                self.exchange_name = exchange_name
+                self.anomalies = anomalies
+
+            def scan_anomalies(self):
+                return self.anomalies
+
+        # Test both extreme positive (+0.0075 = +0.75%) and negative (-0.0060) funding rates
+        mock_bybit = MockAdapter("bybit", "BYBIT", [
+            {"symbol": "MEME_PUMP", "exchange": "BYBIT", "fundingRate": 0.0075, "volume24h": 50000000},
+            {"symbol": "SHORT_TRAP", "exchange": "BYBIT", "fundingRate": -0.0060, "volume24h": 30000000},
+            {"symbol": "NEUTRAL_COIN", "exchange": "BYBIT", "fundingRate": 0.0001, "volume24h": 10000000},
+        ])
+
+        aggregator = MultiExchangeAggregator(
+            adapters=[mock_bybit],
+            anomaly_limit=10,
+        )
+        ranked = aggregator.scan_anomalies()
+
+        self.assertEqual(len(ranked), 3)
+        # Extreme positive funding rate (+0.0075) ranks first because abs(0.0075) > abs(-0.0060)
+        self.assertEqual(ranked[0]["symbol"], "MEME_PUMP")
+        self.assertEqual(ranked[0]["fundingRate"], 0.0075)
+
+        self.assertEqual(ranked[1]["symbol"], "SHORT_TRAP")
+        self.assertEqual(ranked[1]["fundingRate"], -0.0060)
+
+        self.assertEqual(ranked[2]["symbol"], "NEUTRAL_COIN")
+        self.assertEqual(ranked[2]["fundingRate"], 0.0001)
+
 
 if __name__ == "__main__":
     unittest.main()

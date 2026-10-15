@@ -46,16 +46,10 @@ def make_app(entitlements=None, recommendations=None):
 class AgentDecisionApiTests(unittest.TestCase):
     def setUp(self):
         self.previous_key = os.environ.pop("OPENAI_API_KEY", None)
-        self.previous_laya = os.environ.pop("QMA_USE_LAYA", None)
-        self.previous_provider = os.environ.pop("QMA_LLM_PROVIDER", None)
 
     def tearDown(self):
         if self.previous_key is not None:
             os.environ["OPENAI_API_KEY"] = self.previous_key
-        if self.previous_laya is not None:
-            os.environ["QMA_USE_LAYA"] = self.previous_laya
-        if self.previous_provider is not None:
-            os.environ["QMA_LLM_PROVIDER"] = self.previous_provider
 
     def test_endpoint_returns_validated_purchase_decision(self):
         response = TestClient(make_app()).post(
@@ -323,10 +317,9 @@ class AgentDecisionApiTests(unittest.TestCase):
             def json(self):
                 return {"choices": [{"message": {"content": '{"action":"purchase","candidate_id":"apd","requested_tier":"preview","budget_usdc":0.01,"max_price_usdc":0.005,"reason":"server-configured pick","rejected_candidate_ids":[]}'}}]}
 
+        # Server-side provider/model come from config/app.json (pinned to openai/default by conftest).
         server_environment = {
             "OPENAI_API_KEY": "test-openai",
-            "QMA_LLM_PROVIDER": "openai",
-            "QMA_LLM_MODEL": "gpt-4o-mini",
         }
         with patch.dict(os.environ, server_environment, clear=True):
             with patch("backend.app.services.agent_decision.requests.post", return_value=FakeResponse()) as mock_post:

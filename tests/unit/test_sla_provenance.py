@@ -13,6 +13,7 @@ from backend.app.services import agent_recommendations
 import hashlib
 
 from backend.app.services import market_epoch
+from backend.app.core.static_config import APP
 
 
 @pytest.fixture(autouse=True)
@@ -54,7 +55,7 @@ def _fake_deps(anomalies):
 
 
 def test_recommendations_carry_sla_and_drop_unverifiable(monkeypatch):
-    monkeypatch.setenv("QMA_SIGNAL_VERIFIABILITY_GATE", "1")
+    monkeypatch.setitem(APP["providers"], "signalVerifiabilityGate", True)
     anomalies = [
         {"symbol": "LAB", "fundingRate": -0.0005, "volume24h": 1e6, "marketCap": 1e8, "circRatio": 0.7, "fromATH": -30},
         {"symbol": "BADCOIN", "fundingRate": -0.0005, "volume24h": 1e6, "marketCap": 1e8, "circRatio": 0.7, "fromATH": -30},
@@ -79,7 +80,7 @@ def test_recommendations_carry_sla_and_drop_unverifiable(monkeypatch):
 
 
 def test_recommendations_mark_preverified_when_epoch_valid(monkeypatch):
-    monkeypatch.setenv("QMA_SIGNAL_VERIFIABILITY_GATE", "1")
+    monkeypatch.setitem(APP["providers"], "signalVerifiabilityGate", True)
     anomalies = [
         {"symbol": "LAB", "fundingRate": -0.0005, "volume24h": 1e6, "marketCap": 1e8, "circRatio": 0.7, "fromATH": -30},
     ]

@@ -6,13 +6,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from backend.app.services.agent_decision import _llm_decision
+from backend.app.core.static_config import APP
 
 
 def test_anthropic_provider_dispatch(monkeypatch):
     """Test that setting QMA_LLM_PROVIDER=anthropic correctly calls Anthropic Messages API."""
-    monkeypatch.setenv("QMA_LLM_PROVIDER", "anthropic")
+    monkeypatch.setitem(APP["llm"], "provider", "anthropic")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-claude-key")
-    monkeypatch.setenv("QMA_LLM_MODEL", "claude-3-5-sonnet-20241022")
+    monkeypatch.setitem(APP["llm"], "model", "claude-3-5-sonnet-20241022")
 
     mock_resp = MagicMock()
     mock_resp.status_code = 200
@@ -65,7 +66,7 @@ def test_anthropic_provider_dispatch(monkeypatch):
 
 def test_anthropic_markdown_stripping(monkeypatch):
     """Test that markdown code block wrapping from Claude is cleanly stripped."""
-    monkeypatch.setenv("QMA_LLM_PROVIDER", "anthropic")
+    monkeypatch.setitem(APP["llm"], "provider", "anthropic")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-claude-key")
 
     mock_resp = MagicMock()

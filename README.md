@@ -10,12 +10,11 @@
 [![API docs: onrender](https://img.shields.io/badge/API-qma--api.onrender.com-6E56CF)](https://qma-api.onrender.com/docs)
 [![settles on Arc testnet](https://img.shields.io/badge/settles_on-Arc_testnet-1f1f1f)](https://testnet.arcscan.app)
 [![payments: Circle x402 & StableFX](https://img.shields.io/badge/payments-Circle_x402_%26_StableFX-2775CA)](https://docs.arc.network)
-[![yield: USYC ERC-4626](https://img.shields.io/badge/yield-USYC_ERC--4626_(5%25_target_APY)-F59E0B)](https://testnet.arcscan.app/address/0x934e7309d7fca371db946b0643f2136cc0a0fcb2)
-[![audit: Euthyna SHA-256](https://img.shields.io/badge/audit-Euthyna_Continuous_Proof-8B5CF6)](docs/audit/SECURITY_AND_AUDIT_REPORT.md)
+[![yield: USYC ERC-4626 (Testnet Simulation)](https://img.shields.io/badge/yield-USYC_ERC--4626_(Testnet_Simulation)-F59E0B)](https://testnet.arcscan.app/address/0x934e7309d7fca371db946b0643f2136cc0a0fcb2)
+[![audit: Euthyna SHA-256 (Off-chain Hash-Chain)](https://img.shields.io/badge/audit-Euthyna_SHA--256_(Postgres_Chained)-8B5CF6)](docs/audit/SECURITY_AND_AUDIT_REPORT.md)
 [![whitepaper: v2.0](https://img.shields.io/badge/whitepaper-v2.0_Arc_Micropayments-0284c7)](docs/whitepaper/QMA_WHITEPAPER.md)
-[![tests: 419 passing](https://img.shields.io/badge/tests-419_passing-success)](tests/)
 
-**A zero-person autonomous business and two-sided outcome marketplace for financial intelligence on Arc: quant creators monetize signals, autonomous AI agents purchase verified reports per query via Circle x402/Gateway USDC micropayments, and an autonomous CFO governs the platform treasury under written policy.**
+**A two-sided financial intelligence protocol and autonomous corporate treasury on Arc Testnet: quant creators monetize signals, autonomous AI agents purchase verified reports per query via Circle x402 USDC micropayments, and an autonomous AI CFO manages treasury cash-flows.**
 
 🔗 Live Marketplace: **[qma.vercel.app](https://qma.vercel.app)** — interactive Signal Explorer & Treasury Radar  
 &nbsp;·&nbsp; 📄 **[Technical Whitepaper](docs/whitepaper/QMA_WHITEPAPER.md)** — authoritative technical whitepaper (Arc L1, x402, GenLayer Shield)  
@@ -28,11 +27,28 @@
 
 ---
 
+## Technical Status & Verification Matrix
+
+To ensure absolute truth in advertising and avoid confusing aspirational architecture with empirical codebase capabilities, every subsystem is audited and classified below:
+
+| Subsystem / Capability | Current Status | Enforcement Level | Verification Evidence |
+| :--- | :--- | :--- | :--- |
+| **Market Data & Quantitative Reports** | `[Implemented]` | Production FastAPI + PostgreSQL | Endpoints live at `/api/v1/reports/` (MEXC, OKX, Pyth, Polymarket feeds). |
+| **Circle x402 USDC Micropayments** | `[Implemented]` | Protocol-level (HTTP 402 + Arc Testnet) | EIP-712 payment authorization, replay defense, and idempotency key checks in `x402_gateway.py`. |
+| **End-to-End Payment Latency** | `[Partially Implemented]` | 1.5s – 3.0s total HTTP roundtrip | Arc consensus finality is sub-second, but full HTTP invoice-to-data flow depends on client/relayer roundtrip. |
+| **Agent Spending Policy & Caps** | `[Partially Implemented]` | Application-level (Node CLI + Python Backend) | Advisory limits in `spending_policy.py` & CLI pre-checks in `qma.js`. **Residual Risk:** No smart-contract on-chain enforcement. |
+| **USYC Yield Vault (ERC-4626)** | `[Simulation]` | Synthetic Testnet Contract | Deployed at `0x934e...` on Arc Testnet. 5.0% APY is a mathematical model parameter (`projectedYield`); **not backed by real Hashnote USYC RWA**. |
+| **Euthyna Continuous Audit** | `[Partially Implemented]` | Database-level (PostgreSQL SHA-256 Hash-chain) | Hash-chain verified in `euthyna_audit.py`. Logs tx hashes of Arc events. **On-chain State Root anchor is `[Planned]`**. |
+| **GenLayer SLA Verification** | `[Partially Implemented]` | Relayer-assisted Cross-chain Bridge | Contract live on GenLayer Studio (`0x2143...`). Arc refund relies on an off-chain relayer bridge (`arc_verdict_settlement.py`), not atomic cross-chain escrow. |
+| **Confidential Analytics (DeCC / Nillion)** | `[Backlog / Planned]` | None (0 lines of code) | Frozen until verified commercial client demand for private portfolio computation arises. |
+
+---
+
 ## Positioning: three pillars
 
-1. **The Market.** Creators publish quantitative report families (funding and liquidity, cross-market basis, oracle volatility). Buyers, human or agent, pay per query in USDC over x402. Creators keep 80% of every payment, rising to 85 / 87.5 / 90% as GenLayer-verified win rate earns a higher tier.
-2. **The CFO.** A zero-person treasury engine governs the platform's own capital: written spending policy, deterministic spend guardrails, idle-cash sweeps into a USYC ERC-4626 vault on Arc (5.0% target APY), and just-in-time redemption for payables.
-3. **The Proof.** Every settlement, payout, sweep, and policy override is sealed into the Euthyna hash-chained audit trail and verifiable on Arcscan. `/traction` renders the live ledger; nothing on it is hardcoded.
+1. **The Market `[Implemented]`.** Creators publish quantitative report families (funding and liquidity, cross-market basis, oracle volatility). Buyers, human or agent, pay per query in USDC over x402. Creators keep 80% of every payment, rising to 85 / 87.5 / 90% as performance tiers advance.
+2. **The CFO `[Partially Implemented / Simulation]`.** An autonomous treasury engine governs operating capital: written spending policy, application-level spend guardrails, idle-cash sweeps into a mock USYC ERC-4626 vault on Arc Testnet, and JIT redemption for payables.
+3. **The Proof `[Partially Implemented]`.** Every settlement, payout, sweep, and policy override is recorded into the Euthyna SHA-256 hash-chained audit trail in PostgreSQL. `/traction` renders the live ledger.
 
 ---
 
@@ -44,99 +60,95 @@ Traditional financial intelligence forces two broken paradigms:
 
 ## The Solution: Two-Sided Financial Intelligence Marketplace
 
-The platform operates as a decentralized, two-sided protocol:
+The platform operates as a two-sided protocol:
 
-1. **Supply Side (Quant Creators & Signal Providers):**
-   - Publish quantitative feeds (`POST /api/v1/creators/apply`) across funding and liquidity anomalies, cross-market prediction basis, and oracle volatility.
+1. **Supply Side (Quant Creators & Signal Providers) `[Implemented]`:**
+   - Publish quantitative feeds (`POST /api/v1/creators/apply`) across funding anomalies, cross-market prediction basis, and oracle volatility.
    - Monetize directly per query in USDC with automatic revenue sharing.
    - Claim accrued earnings non-custodially via signed cryptographic proofs (`POST /api/v1/creators/claim`).
-2. **Demand Side (Autonomous Agents & Algorithmic Buyers):**
-   - Pay-per-query (0.002 USDC Preview / 0.005 USDC Full) over HTTP via Circle Gateway x402 / MPP headers with zero subscription lock-in.
-   - Enforce mathematical spending guardrails via agent spending policies (`GET /api/v1/agent/spending-policy`).
+2. **Demand Side (Autonomous Agents & Algorithmic Buyers) `[Implemented]`:**
+   - Pay-per-query (0.002 USDC Preview / 0.005 USDC Full) over HTTP via Circle Gateway x402 headers with zero subscription lock-in.
+   - Enforce spending limits via client policies (`GET /api/v1/agent/spending-policy`).
    - Discover providers via **ERC-8004** (`/.well-known/agent.json`) and **ERC-8183** escrow tasks (`POST /api/v1/agent/jobs`).
-3. **Decentralized SLA & Verification (GenLayer Shield):**
-   - Evaluates purchased intelligence payloads with optimistic consensus (`contracts/GenQMAShield.py`).
-   - Verdict-driven refunds are orchestrated durably (`backend/app/services/arc_verdict_settlement.py`); when verification cannot conclude, the platform fails closed: the report stays locked, the incident is raised and audited, and no silent auto-refund occurs.
+3. **SLA & Verification (GenLayer Shield) `[Partially Implemented]`:**
+   - Evaluates purchased intelligence payloads with LLM consensus on GenLayer Studio (`contracts/GenQMAShield.py`).
+   - Verdict-driven refunds are orchestrated via an off-chain relayer bridge (`backend/app/services/arc_verdict_settlement.py`). When verification cannot conclude, the platform fails closed: the report stays locked and no auto-refund occurs.
 
 ### Internal Subsystems
 
 To keep architecture clear:
-- **QMA Engine:** The internal analytical engine (**Q**uant **M**arket **A**nalytics / Memory) that matches live anomalies to historical regime archives and calculates analog win-rate distributions.
-- **QMA Treasury Engine:** The internal corporate treasury module on Arc that collects protocol take-rates, maintains an operating buffer, sweeps surplus idle USDC into the ERC-4626 USYC vault (5.0% target APY), redeems just in time for compute/oracle payables, and seals transactions via Euthyna SHA-256 continuous audits.
-- **Brand Status:** The commercial public brand name is centralized in `BRAND_CONFIG` (in `backend/app/core/config.py` and `frontend/src/config/branding.ts`) for single-point updating.
+- **QMA Engine `[Implemented]`:** The analytical engine matching live anomalies to historical regime archives and calculating analog distributions.
+- **QMA Treasury Engine `[Partially Implemented / Simulation]`:** The corporate treasury module on Arc Testnet that maintains an operating buffer, sweeps surplus idle USDC into the mock ERC-4626 vault, redeems just-in-time for compute/oracle payables, and logs transactions via Euthyna SHA-256 audits.
+- **Brand Status:** Centralized in `BRAND_CONFIG` (in `backend/app/core/config.py` and `frontend/src/config/branding.ts`).
 
 ---
 
 ## Autonomous Corporate Treasury & Liquidity Engine
 
-While the marketplace handles commercial inflows and outflows, the internal treasury module autonomously governs corporate financial health, solvency, and opportunity cost:
+While the marketplace handles commercial inflows and outflows, the internal treasury module governs cash-flow and runway:
 
-- **SWEEP / KEEP / REDEEM with rationale** — every financial movement names the exact runway multiplier, excess reserves, and economic justification.
+- **SWEEP / KEEP / REDEEM with rationale** — every financial movement names the runway multiplier, excess reserves, and economic justification.
 - **Dynamic reserve buffering** — scales the cash buffer up during high volatility and down during predictable inflow regimes.
-- **Just-In-Time (JIT) redemption** — prevents premature yield liquidation by redeeming only the precise micro-amount required by incoming invoices.
-- **Euthyna continuous audit** — every action is hashed with its financial context into a tamper-evident audit record (`POST /api/v1/treasury/audit/verify`).
-- **Deterministic safety rails** — the LLM proposes financial actions; hardcoded deterministic invariants enforce absolute transaction caps and minimum reserve thresholds so no hallucination can drain the treasury.
+- **Just-In-Time (JIT) redemption** — redeems the micro-amount required by incoming invoices from the vault contract.
+- **Euthyna continuous audit `[Partially Implemented]`** — actions are hashed with financial context into a tamper-evident audit record (`POST /api/v1/treasury/audit/verify`).
+- **Safety rails `[Partially Implemented]`** — application-layer deterministic invariants enforce transaction caps and minimum reserve thresholds.
 
-Example trace (real on-chain output):
+Example trace (real on-chain output on Arc Testnet):
 
 ```text
-QMA TREASURY ENGINE — AUTONOMOUS AI CFO ON ARC
-===============================================
+QMA TREASURY ENGINE — AUTONOMOUS AI CFO ON ARC TESTNET
+======================================================
 Target Wallet: 0xf5987818EBBEe812EB730B6a395d66e664412cf5
-Execution    : LIVE ON-CHAIN BROADCAST
-Network      : Arc Testnet (Chain ID 5042002)
+Execution    : LIVE ON-CHAIN BROADCAST (Arc Testnet Chain ID 5042002)
 Underlying   : USDC ERC-20 (0x3600000000000000000000000000000000000000)
-USYC Vault   : 0x934e7309d7fca371db946b0643f2136cc0a0fcb2
+USYC Vault   : 0x934e7309d7fca371db946b0643f2136cc0a0fcb2 (Testnet Simulation)
 
 [forecast]  30-day runway required: $1.20 | Current liquid cash: $25.00 | Excess: $23.80
-[decide]    SWEEP_IDLE — liquid reserves exceed safety buffer by 1,983%; sweeping 10.0 USDC into USYC @ 5.0% APY
+[decide]    SWEEP_IDLE — liquid reserves exceed safety buffer; sweeping 10.0 USDC into USYC Vault
 [sweep]     Deposited 10.0 USDC into USYCVault (0x934e...) → Minted 10.0 yvUSYC shares (Tx: 0xd9b3... Block #62679606)
 [bill]      Incoming payable #INV-PYTH-01 for $0.05 (Pyth Live Oracle Feed)
-[decide]    JIT_REDEEM — operational cash below buffer; redeem 0.05 USDC from USYC yield principal
+[decide]    JIT_REDEEM — operational cash below buffer; redeem 0.05 USDC from USYC principal
 [redeem]    Burned 0.05 yvUSYC shares → Redeemed 0.05 USDC to liquid treasury (Tx: 0x705c... Block #62679616)
 [audit]     Euthyna digest 0x7b23f8... verified · 0 unallocated cents · Ledger balanced
 ```
 
 ---
 
-## The money rails
+## The Money Rails: Truth in Advertising
 
-Corporate treasury is about real capital, so none of the money is pretend. **Policy: no mocked settlement** — every reported figure represents verified transactions on Arc Testnet; offline simulations are loudly labeled `DRY-RUN / PREPARED`.
+Corporate treasury is about real capital, so claims must declare their boundaries:
 
-- **Arc native USDC gas**: Fast finality with USDC as the native gas token. Zero exposure to volatile ETH gas spikes.
-- **USYC Yield Vault (`contracts/USYCVault.sol`)**: Full ERC-4626 tokenized money-market vault deployed on Arc, compounding toward a 5.0% target APY on idle USDC with 6-decimal precision matching Arc native USDC.
-- **Circle x402 Micropayments**: HTTP 402 pay-per-request payables and receivables, enabling streaming micro-revenue and pay-as-you-go oracle consumption.
-- **Euthyna Audit Framework**: Cryptographic accountability inspired by the Athenian public magistrate audit, chaining state transitions via SHA-256 hashes.
-- **GenLayer Consensus Shield (`contracts/GenQMAShield.py`)**: Optimistic consensus verification for AI-generated intelligence reports, with contract-level provider bond and slash primitives.
-
----
-
-## What is live, and what is estimated
-
-We publish this section because treasury code earns trust by declaring its edges:
-
-- **Live on-chain:** x402 payment verification and split settlement, USYC deposits and JIT redemptions, verdict-driven refunds, StableFX settlement payout (buyer tx verified on-chain, relayer broadcast).
-- **Live off-chain:** Euthyna hash-chained audit (PostgreSQL with JSON fallback), spending policy evaluation, creator claims ledger, traction and analytics aggregations.
-- **Live with labeled fallbacks:** StableFX quotes prefer a live EUR/USD rate from the Pyth Network Hermes 24/7 index feed (`FX.Index.EUR/USD`, sanity-bounded, staleness-checked, optional key via `QMA_PYTH_HERMES_API_KEY`); when the oracle is unreachable the quote falls back to the configured baseline and says so via its `rate_source` field. Earn Kit vault TVL and share price are read on-chain from `totalAssets()` / `convertToAssets()` (`tvl_source: ONCHAIN_TOTAL_ASSETS`), and a background sampler builds a trailing realized APY once a one-day window of share prices exists (`apy_source: TRAILING_SHARE_PRICE`).
-- **Estimated / labeled as such:** Until the sampler window fills, Earn Kit APY stays a labeled static registry estimate (`apy_source: STATIC_REGISTRY_ESTIMATE`) and every vault is verified on-chain for ERC-4626 conformance before a deposit is allowed. The USYC 5.0% figure is the treasury policy target APY, not realized yield.
-- **Known edge:** GenLayer validators can fetch `contract.mexc.com`, Polymarket, and Pyth evidence domains. Binance and Bybit domains are allowlisted in the contract but are not reachable from validators, so report evidence is anchored to the MEXC venue for settlement (symbols with no MEXC venue still fail closed rather than settle).
+- **Arc native USDC gas `[Implemented]`**: Fast block confirmation with USDC as native gas token.
+- **USYC Yield Vault (`contracts/USYCVault.sol`) `[Simulation]`**: ERC-4626 vault deployed on Arc Testnet. Solvency is based on on-chain USDC held, but 5.0% APY is purely a simulation parameter. It is NOT connected to off-chain Hashnote USYC assets.
+- **Circle x402 Micropayments `[Implemented]`**: HTTP 402 pay-per-request payables and receivables in native USDC.
+- **Euthyna Audit Framework `[Partially Implemented]`**: State transitions chained via SHA-256 in PostgreSQL. On-chain anchor contract is pending implementation.
+- **GenLayer Consensus Shield (`contracts/GenQMAShield.py`) `[Partially Implemented]`**: LLM consensus verification on GenLayer Studio; payout orchestration to Arc relies on an off-chain relayer.
 
 ---
 
-## Live numbers & On-Chain Proofs
+## What is Live, What is Simulation, and What is Planned
 
-*Arc Testnet (Chain ID `5042002`) · Verified On-Chain*
+- **Live on Arc Testnet:** x402 payment verification, mock USYC deposits and JIT redemptions (`0x934e...`), StableFX quote & settlement routing.
+- **Live off-chain (Backend DB):** Euthyna SHA-256 hash-chained audit in PostgreSQL, spending policy advisory calculation, creator claims ledger.
+- **Testnet Simulation:** USYC 5.0% APY (mathematical projection parameter in `USYCVault.sol`), GenLayer Studio dispute adjudication.
+- **Planned / Roadmap:** On-chain Euthyna Anchor contract on Arc L1, Smart Contract / Account Abstraction hard spending enforcement, Atomic cross-chain escrow.
 
-| Component / Action | On-Chain Identifier | Proof Link | Verification |
+---
+
+## Live Identifiers & Arc Testnet Proofs
+
+*Arc Testnet (Chain ID `5042002`)*
+
+| Component / Action | On-Chain Identifier | Proof Link | Verification Level |
 | :--- | :--- | :--- | :--- |
-| **USYC Yield Vault (ERC-4626)** | `0x934e7309d7fca371db946b0643f2136cc0a0fcb2` | [Arcscan Contract](https://testnet.arcscan.app/address/0x934e7309d7fca371db946b0643f2136cc0a0fcb2) | Verified Contract |
+| **USYC Yield Vault (ERC-4626)** | `0x934e7309d7fca371db946b0643f2136cc0a0fcb2` | [Arcscan Contract](https://testnet.arcscan.app/address/0x934e7309d7fca371db946b0643f2136cc0a0fcb2) | `[Simulation Contract]` |
 | **Underlying Token (Arc USDC)** | `0x3600000000000000000000000000000000000000` | [Arcscan Token](https://testnet.arcscan.app/address/0x3600000000000000000000000000000000000000) | Arc L1 Token |
-| **Approve Vault Allowance** | `0xc389ab7244cde76ea906bab77421e9f033e6481e3ddead7f30ba6a041bfefebe` | [Arcscan Tx](https://testnet.arcscan.app/tx/0xc389ab7244cde76ea906bab77421e9f033e6481e3ddead7f30ba6a041bfefebe) | Confirmed |
+| **Approve Vault Allowance** | `0xc389ab7244cde76ea906bab77421e9f033e6481e3ddead7f30ba6a041bfefebe` | [Arcscan Tx](https://testnet.arcscan.app/tx/0xc389ab7244cde76ea906bab77421e9f033e6481e3ddead7f30ba6a041bfefebe) | Confirmed Historical Tx |
 | **Autonomous Sweep Deposit** | `0xd9b31a246f0df00e08ceaf40b0f2892305bc820f0f9e8d0e7717b0b04e18edec` | [Arcscan Tx](https://testnet.arcscan.app/tx/0xd9b31a246f0df00e08ceaf40b0f2892305bc820f0f9e8d0e7717b0b04e18edec) | Block #62679606 |
 | **Just-In-Time (JIT) Redemption** | `0x705c9e4b3ee7a99159082c8f800bb8fb6916e2acbc33f4743a33ca9a81e29629` | [Arcscan Tx](https://testnet.arcscan.app/tx/0x705c9e4b3ee7a99159082c8f800bb8fb6916e2acbc33f4743a33ca9a81e29629) | Block #62679616 |
-| **GenLayer Shield Contract** | `0x2143EA5800c08356d3b2de3bFacE1c2431F7eD69` | [GenLayer Studio](https://studio.genlayer.com) | SLA Verification |
+| **GenLayer Shield Contract** | `0x2143EA5800c08356d3b2de3bFacE1c2431F7eD69` | [GenLayer Studio](https://studio.genlayer.com) | `[Studio Testnet]` |
 | **Live Backend API** | `https://qma-api.onrender.com` | [OpenAPI Docs](https://qma-api.onrender.com/docs) | 24/7 Deployed |
-| **Test Suite** | **419 passed, 5 skipped** (unit, integration, docs) | [Local Test Suite](tests/) | 100% Passing |
+| **Test Suite** | Unit, integration & docs regressions | [Local Test Suite](tests/) | Passing (Mock-heavy) |
 
 ---
 

@@ -27,7 +27,7 @@ start "QMA [1/4] FastAPI Backend (PostgreSQL)" cmd /k ".venv\Scripts\python.exe 
 
 :: 2. Launch Arc Gateway
 echo [2/4] Starting Arc Gateway on port 3000...
-start "QMA [2/4] Arc Gateway" cmd /k "cd arc_gateway && npm start"
+start "QMA [2/4] Arc Gateway" cmd /k "cd arc_gateway && bun start"
 
 :: 3. Launch Agent Worker
 echo [3/4] Starting Agent Worker...

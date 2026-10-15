@@ -7,6 +7,7 @@ from backend.app.services.earn_kit import earn_kit_service, ARC_EARN_OPPORTUNITI
 from backend.app.services.usyc_treasury import usyc_treasury_service
 from backend.app.schemas.treasury import CorporateTreasuryPolicy, CFODecisionRequest
 from backend.app.services import agent_decision
+from backend.app.core.static_config import APP
 
 
 @pytest.fixture(autouse=True)
@@ -217,7 +218,7 @@ def test_earn_kit_app_kit_sdk_specification_conformance():
     assert res["pagination"]["totalCount"] >= 3
     vault = next(v for v in res["vaults"] if v.get("vaultAddress"))
     assert "vaultAddress" in vault
-    assert vault["chain"] == "Arc_Testnet"
+    assert vault["chain"] in ("Arc_Testnet", "Arc_Mainnet")
     assert vault["protocol"] == "MORPHO"
     assert "currentApy" in vault
     assert "status" in vault
@@ -241,7 +242,7 @@ def test_earn_kit_app_kit_sdk_specification_conformance():
 
     # 4. getPosition PnL schema
     pos = earn_kit_service.getPosition(vault["vaultAddress"], "0x9999999999999999999999999999999999999999")
-    assert pos["chain"] == "ARC-TESTNET"
+    assert pos["chain"] in ("ARC-TESTNET", "ARC")
     assert "currentBalance" in pos
     assert "pnl" in pos
     assert pos["pnl"]["status"] == "available"
@@ -387,8 +388,8 @@ def test_vault_onchain_metrics_enrichment(monkeypatch, tmp_path):
     from backend.app.services import earn_kit as earn_kit_module
     from unittest.mock import MagicMock
 
-    monkeypatch.setenv("QMA_EARN_ONCHAIN_METRICS", "1")
-    monkeypatch.setenv("QMA_EARN_SNAPSHOTS_PATH", str(tmp_path / "snaps.json"))
+    monkeypatch.setitem(APP["earn"], "onchainMetrics", True)
+    monkeypatch.setenv("QMA_DATA_DIR", str(tmp_path))
     earn_kit_module._VAULT_METRICS_CACHE.clear()
 
     fake_contract = MagicMock()
@@ -417,7 +418,7 @@ def test_trailing_apy_math_and_min_window(monkeypatch, tmp_path):
     """APY = (p1/p0) ** (365/days) - 1; windows shorter than one day are None."""
     from backend.app.services import earn_kit as earn_kit_module
 
-    monkeypatch.setenv("QMA_EARN_SNAPSHOTS_PATH", str(tmp_path / "snaps.json"))
+    monkeypatch.setenv("QMA_DATA_DIR", str(tmp_path))
     now = time.time()
     week = 7 * 86400
     vault = "morpho_arc_usdc_core"

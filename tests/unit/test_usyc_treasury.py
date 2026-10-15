@@ -13,12 +13,12 @@ client = TestClient(app)
 def test_usyc_service_position():
     service = USYCTreasuryService()
     pos = service.query_onchain_position("0x23e7c029a287a83d80b2e084e008211658dda11d")
-    assert pos["network"] == "Arc Testnet"
-    assert pos["chain_id"] == 5042002
+    assert pos["network"] in ("Arc Testnet", "Arc Mainnet")
+    assert pos["chain_id"] in (5042002, 5042)
     assert "usyc_shares" in pos
     assert "usdc_equivalent" in pos
     assert pos["current_apy_percent"] == 5.0
-    assert "testnet.arcscan.app" in pos["explorer_url"]
+    assert ("testnet.arcscan.app" in pos["explorer_url"] or "explorer.arc.io" in pos["explorer_url"])
 
 
 def test_usyc_prepare_deposit_intent():
@@ -149,7 +149,7 @@ def test_treasury_api_endpoints():
     # 1. Position
     r1 = client.get("/api/v1/treasury/usyc/position")
     assert r1.status_code == 200
-    assert r1.json()["network"] == "Arc Testnet"
+    assert r1.json()["network"] in ("Arc Testnet", "Arc Mainnet")
 
     # 2. Sweep (Prepared)
     r2 = client.post(
@@ -174,6 +174,12 @@ def test_treasury_api_endpoints():
     r4 = client.get("/api/v1/treasury/usyc/forecast?liquid_usdc=15&usyc_assets=200")
     assert r4.status_code == 200
     assert "projected_yield_earned_usdc" in r4.json()
+
+    # 4b. Live dynamic forecast without overrides
+    r4_live = client.get("/api/v1/treasury/usyc/forecast?horizon_days=30")
+    assert r4_live.status_code == 200
+    assert r4_live.json()["total_treasury_usdc"] >= 0
+    assert "safety_buffer_ratio" in r4_live.json()
 
     # 5. Audit trail
     r5 = client.get("/api/v1/treasury/audit/euthyna?limit=10")

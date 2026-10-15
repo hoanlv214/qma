@@ -9,11 +9,12 @@ import pytest
 from fastapi import HTTPException
 
 from backend.app import main
+from backend.app.core.static_config import APP
 
 
 @pytest.fixture(autouse=True)
 def clean_evidence_cache(monkeypatch):
-    monkeypatch.setenv("QMA_SIGNAL_VERIFIABILITY_GATE", "1")
+    monkeypatch.setitem(APP["providers"], "signalVerifiabilityGate", True)
     main._EVIDENCE_CHECK_CACHE.clear()
     yield
     main._EVIDENCE_CHECK_CACHE.clear()

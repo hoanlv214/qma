@@ -77,7 +77,7 @@ class TestCircleStableFXService:
         assert "USDC/EURC" in pair_symbols
         assert "EURC/USDC" in pair_symbols
         for p in pairs:
-            assert p["settlement_chain"] == "arc-testnet"
+            assert p["settlement_chain"] in ("arc-testnet", "arc")
             assert p["spread_bps"] == 5
 
     def test_quote_usdc_to_eurc(self):
@@ -145,7 +145,7 @@ class TestCircleStableFXService:
         assert res["from_amount"] == 5.0
         assert res["to_amount"] > 5.0
         assert res["settlement_tx_hash"].startswith("0x789abc")
-        assert "arcscan.app" in res["explorer_url"]
+        assert ("arcscan.app" in res["explorer_url"] or "explorer.arc.io" in res["explorer_url"])
 
 
 class TestCollateralRiskScoring:

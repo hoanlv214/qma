@@ -63,7 +63,7 @@ class X402SellerAndOpenApiTests(unittest.TestCase):
             # Check that accepts[] and networks declare multi-chain compatibility in OpenAPI
             networks = payment_info.get("networks", [])
             self.assertGreaterEqual(len(networks), 2)
-            self.assertIn("eip155:5042002", networks)
+            self.assertTrue(any("5042" in n for n in networks), "Arc network missing")
             accepts_spec = payment_info.get("accepts", [])
             self.assertGreaterEqual(len(accepts_spec), 2)
             self.assertEqual(payment_info.get("rails"), ["x402", "mpp"])
@@ -126,7 +126,7 @@ class X402SellerAndOpenApiTests(unittest.TestCase):
         self.assertGreaterEqual(len(accepts), 2)
 
         networks = {a["network"] for a in accepts}
-        self.assertTrue(any("5042002" in n or "arc" in n for n in networks), "Arc Testnet missing")
+        self.assertTrue(any("5042" in n or "arc" in n for n in networks), "Arc network missing")
         self.assertLess(sum(len(k) + len(v) + 4 for k, v in response.headers.items()), 8192)
 
         # Verify Circle Gateway batching specification compliance

@@ -16,6 +16,7 @@ from backend.app.services.usyc_treasury import (
     parse_and_clamp_cfo_proposal,
 )
 from backend.app.services.euthyna_audit import euthyna_audit_engine
+from backend.app.core.static_config import APP
 
 
 def test_obligations_computation_with_claims(monkeypatch):
@@ -56,7 +57,7 @@ def test_obligations_computation_with_claims(monkeypatch):
 
     monkeypatch.setattr(usyc_treasury, "get_creator_claims_store", lambda: injected_claims)
     monkeypatch.setattr(usyc_treasury, "get_creator_claims_db", lambda: injected_claims)
-    monkeypatch.setenv("QMA_TREASURY_OPS_BILLS_USDC", "5.0")
+    monkeypatch.setitem(APP["treasury"], "opsBillsUsdc", 5.0)
 
     total_obligations, open_claims_usdc, ops_baseline = compute_claim_obligations()
     # requested (6.0) + submitted (3.0) = 9.0 open claims
@@ -96,7 +97,7 @@ def test_explicit_upcoming_bills_override(monkeypatch):
     ]
     monkeypatch.setattr(usyc_treasury, "get_creator_claims_store", lambda: injected_claims)
     monkeypatch.setattr(usyc_treasury, "get_creator_claims_db", lambda: injected_claims)
-    monkeypatch.setenv("QMA_TREASURY_OPS_BILLS_USDC", "5.0")
+    monkeypatch.setitem(APP["treasury"], "opsBillsUsdc", 5.0)
 
     service = USYCTreasuryService()
     service.set_policy(CorporateTreasuryPolicy(
@@ -118,7 +119,7 @@ def test_explicit_upcoming_bills_override(monkeypatch):
 
 def test_llm_stage_off_default_heuristic(monkeypatch):
     """3. LLM stage off (default env) -> decision_source == 'heuristic' and decision equals ladder result (surplus case -> SWEEP_IDLE with ladder's amount)."""
-    monkeypatch.delenv("QMA_CFO_LLM_ENABLED", raising=False)
+    monkeypatch.setitem(APP["treasury"]["cfoLlm"], "enabled", False)
     monkeypatch.delenv("QMA_CFO_LLM_API_KEY", raising=False)
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.setattr(usyc_treasury, "get_creator_claims_store", lambda: [])
@@ -152,7 +153,7 @@ def test_llm_stage_on_monkeypatched_http(monkeypatch):
     - valid proposal within caps -> used, decision_source == 'model', amount == proposal.
     - proposal exceeding max_sweep_per_epoch_usdc -> clamped amount.
     - invalid action / malformed JSON / HTTP raise -> falls back to ladder, decision_source == 'heuristic'."""
-    monkeypatch.setenv("QMA_CFO_LLM_ENABLED", "1")
+    monkeypatch.setitem(APP["treasury"]["cfoLlm"], "enabled", True)
     monkeypatch.setenv("QMA_CFO_LLM_API_KEY", "mock-groq-key")
     monkeypatch.setattr(usyc_treasury, "get_creator_claims_store", lambda: [])
     monkeypatch.setattr(usyc_treasury, "get_creator_claims_db", lambda: [])
@@ -273,7 +274,7 @@ def test_llm_stage_on_monkeypatched_http(monkeypatch):
 
 def test_record_hold_flag(monkeypatch):
     """5. record_hold=False path: HOLD tick produces no new euthyna record (count records before/after via engine)."""
-    monkeypatch.delenv("QMA_CFO_LLM_ENABLED", raising=False)
+    monkeypatch.setitem(APP["treasury"]["cfoLlm"], "enabled", False)
     monkeypatch.setattr(usyc_treasury, "get_creator_claims_store", lambda: [])
     monkeypatch.setattr(usyc_treasury, "get_creator_claims_db", lambda: [])
 
@@ -375,7 +376,7 @@ def test_parse_and_clamp_cfo_proposal_direct():
 
 def test_llm_proposal_solvency_and_liquidity_invariants(monkeypatch):
     """Verify that solvency and liquidity invariants strictly override LLM proposals (SEC-CRIT-02)."""
-    monkeypatch.setenv("QMA_CFO_LLM_ENABLED", "1")
+    monkeypatch.setitem(APP["treasury"]["cfoLlm"], "enabled", True)
     monkeypatch.setenv("QMA_CFO_LLM_API_KEY", "test-cfo-key")
     monkeypatch.setattr(usyc_treasury, "get_creator_claims_store", lambda: [])
     monkeypatch.setattr(usyc_treasury, "get_creator_claims_db", lambda: [])
