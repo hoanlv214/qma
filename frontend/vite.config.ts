@@ -2,63 +2,66 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
+const backendTarget = process.env.VITE_BACKEND_URL || process.env.QMA_BACKEND_URL || "http://localhost:8000";
+const gatewayTarget = process.env.VITE_GATEWAY_URL || process.env.QMA_ARC_GATEWAY_URL || "http://localhost:3000";
+
 export default defineConfig({
   plugins: [react()],
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
-  },
-  publicDir: "public",
-  envDir: "..",
-  envPrefix: ["VITE_", "QMA_"],
-  server: {
-    port: 5173,
-    strictPort: false,
-    fs: {
-      allow: [".."],
-    },
-    proxy: {
-      // Arc Gateway (port 3000) – must come BEFORE the catch-all /api rule
-      "/api/balance": {
-        target: "http://localhost:3000",
-        changeOrigin: true,
+      resolve: {
+        alias: {
+          "@": path.resolve(__dirname, "./src"),
+        },
       },
-      "/api/wallet-status": {
-        target: "http://localhost:3000",
-        changeOrigin: true,
+      publicDir: "public",
+      envDir: "..",
+      envPrefix: ["VITE_", "QMA_"],
+      server: {
+        port: 5173,
+        strictPort: false,
+        fs: {
+          allow: [".."],
+        },
+        proxy: {
+          // Arc Gateway (port 3000) – must come BEFORE the catch-all /api rule
+          "/api/balance": {
+            target: gatewayTarget,
+            changeOrigin: true,
+          },
+          "/api/wallet-status": {
+            target: gatewayTarget,
+            changeOrigin: true,
+          },
+          "/api/deposit-calldata": {
+            target: gatewayTarget,
+            changeOrigin: true,
+          },
+          "/api/withdraw": {
+            target: gatewayTarget,
+            changeOrigin: true,
+          },
+          "/qma-access": {
+            target: gatewayTarget,
+            changeOrigin: true,
+          },
+          "/health": {
+            target: gatewayTarget,
+            changeOrigin: true,
+          },
+          // FastAPI backend – catch-all for all other /api/* routes
+          "/api": {
+            target: backendTarget,
+            changeOrigin: true,
+          },
+          "/openapi.json": {
+            target: backendTarget,
+            changeOrigin: true,
+          },
+          "/openapi/": {
+            target: backendTarget,
+            changeOrigin: true,
+          },
+        },
       },
-      "/api/deposit-calldata": {
-        target: "http://localhost:3000",
-        changeOrigin: true,
-      },
-      "/api/withdraw": {
-        target: "http://localhost:3000",
-        changeOrigin: true,
-      },
-      "/qma-access": {
-        target: "http://localhost:3000",
-        changeOrigin: true,
-      },
-      "/health": {
-        target: "http://localhost:3000",
-        changeOrigin: true,
-      },
-      // FastAPI backend (port 8000) – catch-all for all other /api/* routes
-      "/api": {
-        target: "http://localhost:8000",
-        changeOrigin: true,
-      },
-      "/openapi.json": {
-        target: "http://localhost:8000",
-        changeOrigin: true,
-      },
-      "/openapi/": {
-        target: "http://localhost:8000",
-        changeOrigin: true,
-      },
-    }
-  },
   build: {
     chunkSizeWarningLimit: 1200,
     rollupOptions: {

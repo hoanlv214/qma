@@ -7,7 +7,7 @@
     "contact": {
       "name": "QMA Agent Support",
       "email": "agent-support@qma.com",
-      "url": "https://qma.vercel.app"
+      "url": "https://qma-three.vercel.app/"
     },
     "x-guidance": "QMA is an AI agent marketplace for real-time quantitative market intelligence, anomaly detection, funding rate arbitrage signals, and prediction market analytics with on-chain GenLayer SLA settlement verification.\n\n### How and When to Call\n- Call when autonomous trading agents or risk engines require verified market anomalies (e.g. extreme CEX funding rate disparities, sudden open-interest shifts, or Polymarket/Pyth divergences) before executing on-chain trades.\n- Create an invoice, pay its Gateway resource on the configured payment network, then verify the settlement. Request the report with invoice_id and X-QMA-Access-Token. Raw payment headers do not authorize report access.\n\n### Operations & Endpoints\n- `POST /api/v1/providers/{provider_id}/full-report`: Primary paid report endpoint. Provide a JSON query payload with `symbol` (e.g. 'BTC_USDT') and optional technical filters. Returns anomaly classifications, historical analogs, predictive regimes, and GenLayer SLA verdict proof.\n- `POST /api/v1/providers/{provider_id}/preview`: Low-cost sample preview for fast agent filtering prior to full report retrieval.\n- `POST /api/v1/chat`: Interrogate an existing paid report regarding historical analogs and risk parameters.\n\n### Inputs\n- Path param: `provider_id` (string, e.g. 'funding_memory', 'polymarket_orderbook', 'pyth_entropy').\n- Body (application/json): `symbol` (required, string, 1-32 chars, e.g. 'BTC_USDT'), optional technical parameters (`fundingRate`, `openInterest`, `volume24h`, `price`, `longShortRatio`).\n- Unpaid requests receive HTTP 402. The invoice contains the authoritative amount, network and payment resource.\n\n### Outputs\n- JSON object containing `anomalies`, `historical_analogs`, `weighted_win_rate`, `regime_score`, and cryptographic `genlayer_sla` verdict.",
     "x-capabilities": [
@@ -24436,6 +24436,6 @@
   ],
   "externalDocs": {
     "description": "QMA Documentation and Agent Integration Guide",
-    "url": "https://qma.vercel.app/docs"
+    "url": "https://qma-three.vercel.app/docs"
   }
 }

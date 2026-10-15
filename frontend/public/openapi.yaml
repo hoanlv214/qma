@@ -61,7 +61,7 @@ info:
   contact:
     name: QMA Agent Support
     email: agent-support@qma.com
-    url: https://qma.vercel.app
+    url: https://qma-three.vercel.app/
   x-guidance: 'QMA is an AI agent marketplace for real-time quantitative market
     intelligence, anomaly detection, funding rate arbitrage signals, and prediction
     market analytics with on-chain GenLayer SLA settlement verification.
@@ -12014,4 +12014,4 @@ tags:
     should use provider-specific report routes.
 externalDocs:
   description: QMA Documentation and Agent Integration Guide
-  url: https://qma.vercel.app/docs
+  url: https://qma-three.vercel.app/docs

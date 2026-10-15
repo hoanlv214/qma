@@ -147,7 +147,7 @@ def get_onchain_identity(agent_id: Optional[int] = None) -> Dict[str, Any]:
         "explorer_url": f"{explorer_base}/token/{ERC8004_IDENTITY_REGISTRY}?a={target_id}",
         "onchain_verified": False,
         "owner": None,
-        "token_uri": "https://qma.vercel.app/.well-known/agent.json",
+        "token_uri": "https://qma-three.vercel.app/.well-known/agent.json",
     }
 
     w3 = get_web3_client()
@@ -232,8 +232,8 @@ def record_reputation_feedback(
         int(score),
         0,  # feedbackType
         tag,
-        "https://qma.vercel.app/docs",
-        evidence_uri or "https://qma.vercel.app/api/v1/market/credit-risk-score",
+        "https://qma-three.vercel.app/docs",
+        evidence_uri or "https://qma-three.vercel.app/api/v1/market/credit-risk-score",
         comment or f"Verified execution of signal report by {validator.address}",
         feedback_hash,
     ).build_transaction({

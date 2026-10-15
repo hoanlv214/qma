@@ -18,6 +18,9 @@ dependencies = [
     "genlayer-py==0.18.0",
     "mcp>=1.10,<2",
     "starlette>=0.40,<1",
+    "psutil>=6.0.0",
+    "psycopg2-binary>=2.9.9",
+    "python-dotenv>=1.0.0",
 ]
 
 [dependency-groups]

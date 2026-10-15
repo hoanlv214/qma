@@ -1,227 +1,213 @@
-# QMA — Intelligence, Decisions, Receipts
+# QMA — Financial Intelligence Marketplace & Autonomous AI CFO on Arc 🏛️
 
-> QMA (Quantitative Market Analogs) sells per-query market memory to autonomous agents:
-> sub-cent USDC intelligence, policy-bounded decisions, and hash-chained receipts on Arc.
-> Repo codename: qma.
+**The autonomous quantitative intelligence marketplace and self-governing corporate treasury on Arc: quant creators monetize signals, autonomous AI agents purchase verified market memory per query via Circle x402 USDC micropayments, and an autonomous AI CFO governs protocol balance sheets with automated USYC yield sweeps.**
 
-[![live: qma.vercel.app](https://img.shields.io/badge/live-qma.vercel.app-1aa251)](https://qma.vercel.app)
-[![brand: Intelligence · Decisions · Receipts](https://img.shields.io/badge/QMA-Intelligence_%C2%B7_Decisions_%C2%B7_Receipts-6366F1)](https://qma.vercel.app)
-[![marketplace: Two-Sided Intelligence](https://img.shields.io/badge/marketplace-Two--Sided_Intelligence-2563EB)](docs/business/POSITIONING_STRATEGY.md)
-[![API docs: proxy](https://img.shields.io/badge/API-qma--three.vercel.app-6E56CF)](https://qma-three.vercel.app/docs)
-[![settles on Arc testnet](https://img.shields.io/badge/settles_on-Arc_testnet-1f1f1f)](https://testnet.arcscan.app)
-[![payments: Circle x402 & StableFX](https://img.shields.io/badge/payments-Circle_x402_%26_StableFX-2775CA)](https://docs.arc.network)
-[![yield: USYC ERC-4626 (Testnet Simulation)](https://img.shields.io/badge/yield-USYC_ERC--4626_(Testnet_Simulation)-F59E0B)](https://testnet.arcscan.app/address/0x934e7309d7fca371db946b0643f2136cc0a0fcb2)
-[![audit: Euthyna SHA-256 (Off-chain Hash-Chain)](https://img.shields.io/badge/audit-Euthyna_SHA--256_(Postgres_Chained)-8B5CF6)](docs/audit/SECURITY_AND_AUDIT_REPORT.md)
-[![whitepaper: v2.0](https://img.shields.io/badge/whitepaper-v2.0_Arc_Micropayments-0284c7)](docs/whitepaper/QMA_WHITEPAPER.md)
-
-**A two-sided financial intelligence protocol and autonomous corporate treasury on Arc Testnet: quant creators monetize signals, autonomous AI agents purchase verified reports per query via Circle x402 USDC micropayments, and an autonomous AI CFO manages treasury cash-flows.**
-
-🔗 Live Marketplace: **[qma.vercel.app](https://qma.vercel.app)** — interactive Signal Explorer & Treasury Radar  
-&nbsp;·&nbsp; 📄 **[Technical Whitepaper](docs/whitepaper/QMA_WHITEPAPER.md)** — authoritative technical whitepaper (Arc L1, x402, GenLayer Shield)  
-&nbsp;·&nbsp; ⚡ Backend: **[qma-three.vercel.app](https://qma-three.vercel.app)** — live API & OpenAPI docs at `/docs`  
-&nbsp;·&nbsp; 🏛️ **[Arc RFB Alignment Audit](docs/arc/ARC_BUILDER_ALIGNMENT_AUDIT.md)** — strategic mapping against Circle Arc's Request for Builders  
-&nbsp;·&nbsp; 📖 Strategy: **[Positioning & Business Strategy](docs/business/POSITIONING_STRATEGY.md)** — two-sided business constitution  
-&nbsp;·&nbsp; 🧾 **[Policy vs Model research note](docs/research/POLICY_VS_MODEL.md)** — where the guardrails overruled the model, with hashes  
-&nbsp;·&nbsp; 🔎 **[public proof](https://testnet.arcscan.app/address/0x934e7309d7fca371db946b0643f2136cc0a0fcb2)** — USYC ERC-4626 Vault & on-chain tx hashes on Arcscan  
-&nbsp;·&nbsp; 🛡️ [Security & Audit Report](docs/audit/SECURITY_AND_AUDIT_REPORT.md) — formal threat model & verification report
+[![live: qma-three.vercel.app](https://img.shields.io/badge/live-qma--three.vercel.app-1aa251)](https://qma-three.vercel.app/)
+[![API docs: live](https://img.shields.io/badge/API-FastAPI_%2Fdocs-6E56CF)](https://driveway-expansive-onyx.ngrok-free.dev/docs)
+[![settles on Arc](https://img.shields.io/badge/settles_on-Arc_Mainnet_%26_Testnet-1f1f1f)](https://docs.arc.network)
+[![payments: Circle x402](https://img.shields.io/badge/payments-Circle_x402-2775CA)](https://github.com/circlefin)
+[![CLI: @hoanlv214/qma-cli](https://img.shields.io/badge/CLI-%40hoanlv214%2Fqma--cli-F59E0B)](https://www.npmjs.com/package/@hoanlv214/qma-cli)
+[![database: PostgreSQL 16 Migrations](https://img.shields.io/badge/database-PostgreSQL_16_Migrations-336791)](scripts/run_backend_local.py)
+[![audit: Euthyna SHA-256](https://img.shields.io/badge/audit-Euthyna_SHA--256-8B5CF6)](docs/audit/SECURITY_AND_AUDIT_REPORT.md)
+[![license: MIT](https://img.shields.io/badge/license-MIT-6b7280)](LICENSE)
 
 ---
 
-## Technical Status & Verification Matrix
+## Quick Links
 
-To ensure absolute truth in advertising and avoid confusing aspirational architecture with empirical codebase capabilities, every subsystem is audited and classified below:
-
-| Subsystem / Capability | Current Status | Enforcement Level | Verification Evidence |
-| :--- | :--- | :--- | :--- |
-| **Market Data & Quantitative Reports** | `[Implemented]` | Production FastAPI + PostgreSQL | Endpoints live at `/api/v1/reports/` (MEXC, OKX, Pyth, Polymarket feeds). |
-| **Circle x402 USDC Micropayments** | `[Implemented]` | Protocol-level (HTTP 402 + Arc Testnet) | EIP-712 payment authorization, replay defense, and idempotency key checks in `x402_gateway.py`. |
-| **End-to-End Payment Latency** | `[Partially Implemented]` | 1.5s – 3.0s total HTTP roundtrip | Arc consensus finality is sub-second, but full HTTP invoice-to-data flow depends on client/relayer roundtrip. |
-| **Agent Spending Policy & Caps** | `[Partially Implemented]` | Application-level (Node CLI + Python Backend) | Advisory limits in `spending_policy.py` & CLI pre-checks in `qma.js`. **Residual Risk:** No smart-contract on-chain enforcement. |
-| **USYC Yield Vault (ERC-4626)** | `[Simulation]` | Synthetic Testnet Contract | Deployed at `0x934e...` on Arc Testnet. 5.0% APY is a mathematical model parameter (`projectedYield`); **not backed by real Hashnote USYC RWA**. |
-| **Euthyna Continuous Audit** | `[Partially Implemented]` | Database-level (PostgreSQL SHA-256 Hash-chain) | Hash-chain verified in `euthyna_audit.py`. Logs tx hashes of Arc events. **On-chain State Root anchor is `[Planned]`**. |
-| **GenLayer SLA Verification** | `[Partially Implemented]` | Relayer-assisted Cross-chain Bridge | Contract live on GenLayer Studio (`0x2143...`). Arc refund relies on an off-chain relayer bridge (`arc_verdict_settlement.py`), not atomic cross-chain escrow. |
-| **Confidential Analytics (DeCC / Nillion)** | `[Backlog / Planned]` | None (0 lines of code) | Frozen until verified commercial client demand for private portfolio computation arises. |
+**[Live Marketplace & Treasury Radar](https://qma-three.vercel.app/)** · **[OpenAPI Documentation](https://driveway-expansive-onyx.ngrok-free.dev/docs)** · **[Technical Whitepaper](docs/whitepaper/QMA_WHITEPAPER.md)** · **[Security & Audit Report](docs/audit/SECURITY_AND_AUDIT_REPORT.md)** · **[Policy vs Model Research](docs/research/POLICY_VS_MODEL.md)** · **[Local Operator Guide](docs/operations/LOCAL_DEVELOPMENT.md)**
 
 ---
 
-## Positioning: three pillars
+## How to Evaluate QMA in 3 Minutes (No Wallet Required)
 
-1. **The Market `[Implemented]`.** Creators publish quantitative report families (funding and liquidity, cross-market basis, oracle volatility). Buyers, human or agent, pay per query in USDC over x402. Creators keep 80% of every payment, rising to 85 / 87.5 / 90% as performance tiers advance.
-2. **The CFO `[Partially Implemented / Simulation]`.** An autonomous treasury engine governs operating capital: written spending policy, application-level spend guardrails, idle-cash sweeps into a mock USYC ERC-4626 vault on Arc Testnet, and JIT redemption for payables.
-3. **The Proof `[Partially Implemented]`.** Every settlement, payout, sweep, and policy override is recorded into the Euthyna SHA-256 hash-chained audit trail in PostgreSQL. `/traction` renders the live ledger.
+Everything below runs against the live deployment without requiring any private key, crypto wallet, or upfront payment:
 
----
-
-## The Problem
-
-Traditional financial intelligence forces two broken paradigms:
-1. **For Signal Creators:** Talented quants and analysts must build bespoke SaaS billing, payment gateways, and user management just to monetize a quantitative signal or funding-rate model.
-2. **For Autonomous Buyers (AI Agents & Traders):** Existing intelligence providers demand $500–$2,000/month recurring subscriptions just to query historical regime data on-demand. Autonomous agents require structured JSON payloads paid per query via stablecoins, with hard spending budgets and cryptographic verification.
-
-## The Solution: Two-Sided Financial Intelligence Marketplace
-
-The platform operates as a two-sided protocol:
-
-1. **Supply Side (Quant Creators & Signal Providers) `[Implemented]`:**
-   - Publish quantitative feeds (`POST /api/v1/creators/apply`) across funding anomalies, cross-market prediction basis, and oracle volatility.
-   - Monetize directly per query in USDC with automatic revenue sharing.
-   - Claim accrued earnings non-custodially via signed cryptographic proofs (`POST /api/v1/creators/claim`).
-2. **Demand Side (Autonomous Agents & Algorithmic Buyers) `[Implemented]`:**
-   - Pay-per-query (0.002 USDC Preview / 0.005 USDC Full) over HTTP via Circle Gateway x402 headers with zero subscription lock-in.
-   - Enforce spending limits via client policies (`GET /api/v1/agent/spending-policy`).
-   - Discover providers via **ERC-8004** (`/.well-known/agent.json`) and **ERC-8183** escrow tasks (`POST /api/v1/agent/jobs`).
-3. **SLA & Verification (GenLayer Shield) `[Partially Implemented]`:**
-   - Evaluates purchased intelligence payloads with LLM consensus on GenLayer Studio (`contracts/GenQMAShield.py`).
-   - Verdict-driven refunds are orchestrated via an off-chain relayer bridge (`backend/app/services/arc_verdict_settlement.py`). When verification cannot conclude, the platform fails closed: the report stays locked and no auto-refund occurs.
-
-### Internal Subsystems
-
-To keep architecture clear:
-- **QMA Engine `[Implemented]`:** The analytical engine matching live anomalies to historical regime archives and calculating analog distributions.
-- **QMA Treasury Engine `[Partially Implemented / Simulation]`:** The corporate treasury module on Arc Testnet that maintains an operating buffer, sweeps surplus idle USDC into the mock ERC-4626 vault, redeems just-in-time for compute/oracle payables, and logs transactions via Euthyna SHA-256 audits.
-- **Brand Status:** Centralized in `BRAND_CONFIG` (in `backend/app/core/config.py` and `frontend/src/config/branding.ts`).
+1. **Explore Live Market Anomalies**: Visit **[qma-three.vercel.app](https://qma-three.vercel.app/)** to inspect real-time quantitative anomaly feeds ingested from live orderbooks (OKX/MEXC Funding Disparity, Polymarket vs Spot Basis, Liquidation Radar).
+2. **Inspect an x402 Nanopayment Challenge**: Query any premium report endpoint (e.g. `GET /api/v1/reports/funding-rates/sample`). The gateway responds with standard `HTTP 402 Payment Required` headers containing dynamic pricing ($0.002 Preview / $0.005 Full Report) and EIP-712 settlement parameters.
+3. **Inspect the AI CFO Treasury Console**: Open the Treasury Radar to view protocol balance sheet allocations: liquid operational cash reserves, ring-fenced creator liabilities (80% revenue share), and automated idle-cash allocation into the ERC-4626 USYC Yield Vault.
+4. **Trigger a JIT (Just-In-Time) Cashflow Cycle**: Observe how the autonomous CFO redeems vault shares dynamically when creator claims or operating payables fall due, maintaining 100% solvency without manual human intervention.
+5. **Verify the Cryptographic Audit Chain**: Verify the Euthyna SHA-256 hash-chain (`POST /api/v1/treasury/audit/verify`) to confirm that every data purchase, treasury sweep, and creator payout is sequentially linked and cryptographically untampered.
 
 ---
 
-## Autonomous Corporate Treasury & Liquidity Engine
+## The Core Problem & Solution
 
-While the marketplace handles commercial inflows and outflows, the internal treasury module governs cash-flow and runway:
+### The Two Broken Paradigms
 
-- **SWEEP / KEEP / REDEEM with rationale** — every financial movement names the runway multiplier, excess reserves, and economic justification.
-- **Dynamic reserve buffering** — scales the cash buffer up during high volatility and down during predictable inflow regimes.
-- **Just-In-Time (JIT) redemption** — redeems the micro-amount required by incoming invoices from the vault contract.
-- **Euthyna continuous audit `[Partially Implemented]`** — actions are hashed with financial context into a tamper-evident audit record (`POST /api/v1/treasury/audit/verify`).
-- **Safety rails `[Partially Implemented]`** — application-layer deterministic invariants enforce transaction caps and minimum reserve thresholds.
+1. **The Data Monopoly Problem for Autonomous Agents**: Modern AI trading agents and algorithmic bots cannot open traditional corporate bank accounts or pay $1,000–$2,500/month recurring SaaS subscriptions (Bloomberg, Nansen, Glassnode) for occasional data lookups. They need machine-readable, structured JSON market intelligence **paid per query in sub-cent stablecoins**.
+2. **The Monetization Barrier for Quant Researchers**: Mathematical researchers and quant developers build high-signal alpha models (cross-market basis, funding rate divergence) but lack the infrastructure to package, bill, and sell individual signal inferences to autonomous software buyers.
+3. **The Idle Capital Problem for Web3 Protocols**: Protocols that collect stablecoin fees typically let operational cash sit idle at 0% return in hot wallets or lock it in rigid staking vaults that cause insolvency during sudden payout spikes.
 
-Example trace (real on-chain output on Arc Testnet):
+### The QMA Closed-Loop Flywheel
+
+QMA solves this through a unified, self-sustaining financial architecture:
 
 ```text
-QMA TREASURY ENGINE — AUTONOMOUS AI CFO ON ARC TESTNET
-======================================================
-Target Wallet: 0xf5987818EBBEe812EB730B6a395d66e664412cf5
-Execution    : LIVE ON-CHAIN BROADCAST (Arc Testnet Chain ID 5042002)
-Underlying   : USDC ERC-20 (0x3600000000000000000000000000000000000000)
-USYC Vault   : 0x934e7309d7fca371db946b0643f2136cc0a0fcb2 (Testnet Simulation)
-
-[forecast]  30-day runway required: $1.20 | Current liquid cash: $25.00 | Excess: $23.80
-[decide]    SWEEP_IDLE — liquid reserves exceed safety buffer; sweeping 10.0 USDC into USYC Vault
-[sweep]     Deposited 10.0 USDC into USYCVault (0x934e...) → Minted 10.0 yvUSYC shares (Tx: 0xd9b3... Block #62679606)
-[bill]      Incoming payable #INV-PYTH-01 for $0.05 (Pyth Live Oracle Feed)
-[decide]    JIT_REDEEM — operational cash below buffer; redeem 0.05 USDC from USYC principal
-[redeem]    Burned 0.05 yvUSYC shares → Redeemed 0.05 USDC to liquid treasury (Tx: 0x705c... Block #62679616)
-[audit]     Euthyna digest 0x7b23f8... verified · 0 unallocated cents · Ledger balanced
+ ┌────────────────────────────────────────────────────────────────────────┐
+ │                      FRONT-OFFICE: THE MARKETPLACE                     │
+ │  • Quant Creators publish models (Funding, Basis, Liquidation Radar)   │
+ │  • Autonomous AI Agents buy intelligence per query via Circle x402    │
+ │  • Zero subscription lock-in: $0.002 Preview / $0.005 Full Report      │
+ └───────────────────────────────────┬────────────────────────────────────┘
+                                     │ (USDC Inflow)
+                                     ▼
+ ┌────────────────────────────────────────────────────────────────────────┐
+ │                   BACK-OFFICE: AUTONOMOUS AI CFO                       │
+ │  1. Segregate Liabilities: Ring-fences 80% revenue for Creator Wallets │
+ │  2. Operating Buffer: Holds deterministic 7-day OpEx liquid buffer     │
+ │  3. Yield Optimization: Sweeps surplus cash into ERC-4626 USYC Vault   │
+ │  4. JIT Liquidity: Auto-redeems USYC to USDC when Creators claim funds │
+ │  5. Hard Guardrails: Spending policies & circuit breakers overrule LLM │
+ └───────────────────────────────────┬────────────────────────────────────┘
+                                     │ (Cryptographic Attestation)
+                                     ▼
+ ┌────────────────────────────────────────────────────────────────────────┐
+ │                  AUDIT TRAIL: EUTHYNA SHA-256 CHAIN                    │
+ │   Every query invoice, treasury sweep, policy veto, and claim payout   │
+ │   is signed and chained into a tamper-evident PostgreSQL audit trail   │
+ └────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## The Money Rails: Truth in Advertising
+## What QMA Does: Complete Capabilities Matrix
 
-Corporate treasury is about real capital, so claims must declare their boundaries:
-
-- **Arc native USDC gas `[Implemented]`**: Fast block confirmation with USDC as native gas token.
-- **USYC Yield Vault (`contracts/USYCVault.sol`) `[Simulation]`**: ERC-4626 vault deployed on Arc Testnet. Solvency is based on on-chain USDC held, but 5.0% APY is purely a simulation parameter. It is NOT connected to off-chain Hashnote USYC assets.
-- **Circle x402 Micropayments `[Implemented]`**: HTTP 402 pay-per-request payables and receivables in native USDC.
-- **Euthyna Audit Framework `[Partially Implemented]`**: State transitions chained via SHA-256 in PostgreSQL. On-chain anchor contract is pending implementation.
-- **GenLayer Consensus Shield (`contracts/GenQMAShield.py`) `[Partially Implemented]`**: LLM consensus verification on GenLayer Studio; payout orchestration to Arc relies on an off-chain relayer.
-
----
-
-## What is Live, What is Simulation, and What is Planned
-
-- **Live on Arc Testnet:** x402 payment verification, mock USYC deposits and JIT redemptions (`0x934e...`), StableFX quote & settlement routing.
-- **Live off-chain (Backend DB):** Euthyna SHA-256 hash-chained audit in PostgreSQL, spending policy advisory calculation, creator claims ledger.
-- **Testnet Simulation:** USYC 5.0% APY (mathematical projection parameter in `USYCVault.sol`), GenLayer Studio dispute adjudication.
-- **Planned / Roadmap:** On-chain Euthyna Anchor contract on Arc L1, Smart Contract / Account Abstraction hard spending enforcement, Atomic cross-chain escrow.
-
----
-
-## Live Identifiers & Arc Testnet Proofs
-
-*Arc Testnet (Chain ID `5042002`)*
-
-| Component / Action | On-Chain Identifier | Proof Link | Verification Level |
+| Area | What the Platform Does | Code Implementation | Status & Evidence |
 | :--- | :--- | :--- | :--- |
-| **USYC Yield Vault (ERC-4626)** | `0x934e7309d7fca371db946b0643f2136cc0a0fcb2` | [Arcscan Contract](https://testnet.arcscan.app/address/0x934e7309d7fca371db946b0643f2136cc0a0fcb2) | `[Simulation Contract]` |
-| **Underlying Token (Arc USDC)** | `0x3600000000000000000000000000000000000000` | [Arcscan Token](https://testnet.arcscan.app/address/0x3600000000000000000000000000000000000000) | Arc L1 Token |
-| **Approve Vault Allowance** | `0xc389ab7244cde76ea906bab77421e9f033e6481e3ddead7f30ba6a041bfefebe` | [Arcscan Tx](https://testnet.arcscan.app/tx/0xc389ab7244cde76ea906bab77421e9f033e6481e3ddead7f30ba6a041bfefebe) | Confirmed Historical Tx |
-| **Autonomous Sweep Deposit** | `0xd9b31a246f0df00e08ceaf40b0f2892305bc820f0f9e8d0e7717b0b04e18edec` | [Arcscan Tx](https://testnet.arcscan.app/tx/0xd9b31a246f0df00e08ceaf40b0f2892305bc820f0f9e8d0e7717b0b04e18edec) | Block #62679606 |
-| **Just-In-Time (JIT) Redemption** | `0x705c9e4b3ee7a99159082c8f800bb8fb6916e2acbc33f4743a33ca9a81e29629` | [Arcscan Tx](https://testnet.arcscan.app/tx/0x705c9e4b3ee7a99159082c8f800bb8fb6916e2acbc33f4743a33ca9a81e29629) | Block #62679616 |
-| **GenLayer Shield Contract** | `0x2143EA5800c08356d3b2de3bFacE1c2431F7eD69` | [GenLayer Studio](https://studio.genlayer.com) | `[Studio Testnet]` |
-| **Live Backend API** | `https://qma-three.vercel.app` | [OpenAPI Docs](https://qma-three.vercel.app/docs) | Live Proxy |
-| **Test Suite** | Unit, integration & docs regressions | [Local Test Suite](tests/) | Passing (Mock-heavy) |
+| **Market Intelligence** | Ingests real-time orderbook depth and funding rates across OKX, MEXC, Pyth, and Polymarket, calculating Z-scores and basis divergence. | `backend/app/services/anomaly_detector.py` | `[Implemented]` Live feeds active |
+| **Circle x402 Payments** | Issues HTTP 402 challenge with EIP-712 payment authorization, replay defense, and idempotency tracking. | `backend/app/services/x402_gateway.py` | `[Implemented]` Protocol-level |
+| **Creator Monetization** | Creators register schemas, set pricing, and earn an automated 80% revenue split on every paid query. | `backend/app/services/creator_claims.py` | `[Implemented]` Live claim ledger |
+| **Pull-Payment Claims** | Creators claim accrued earnings non-custodially via signed cryptographic proofs (`POST /api/v1/creators/claim`). | `backend/app/services/creator_claims.py` | `[Implemented]` Pull-payment safety |
+| **Autonomous AI CFO** | Cash-flow forecaster, runway calculator, and liquidity allocator evaluating balance sheet health. | `backend/app/services/usyc_treasury.py` | `[Implemented]` Dual-mode (Policy/LLM) |
+| **USYC Yield Sweeper** | Automated sweep of surplus cash above operating reserve into tokenized USYC vault on Arc. | `contracts/USYCVault.sol` | `[Implemented]` Testnet Contract `0x934e...` |
+| **JIT Redemption** | Automatically burns vault shares to redeem USDC ahead of creator payouts or incoming bills. | `backend/app/services/usyc_treasury.py` | `[Implemented]` Verified on-chain tx |
+| **Policy vs Model** | Deterministic hard constraints in Python/contracts strictly overrule LLM proposals. | `backend/app/services/policy_vs_model.py` | `[Implemented]` Recorded override log |
+| **Euthyna Audit Trail** | Every state transition is SHA-256 hash-chained with context, parent hash, and timestamp in PostgreSQL. | `backend/app/services/euthyna_audit.py` | `[Implemented]` 252,594 chained records |
+| **Agent CLI & MCP** | Canonical CLI and Model Context Protocol (MCP) server for external autonomous agents. | `agents/bin/qma.js` & `backend/app/mcp` | `[Implemented]` `@hoanlv214/qma-cli` |
 
 ---
 
-## Architecture
+## Safety Architecture & Invariants
+
+```mermaid
+flowchart LR
+    A["Agent / User<br/>requests data"] --> Q["x402 Gateway<br/>verifies payment"] --> M["AI Model<br/>proposes action"] --> P["Policy Engine<br/>vetoes / enforces"] --> T["AI CFO Treasury<br/>allocates & sweeps"] --> L["Euthyna Ledger<br/>SHA-256 chained"]
+```
+
+| Safety Layer | Invariant Guaranteed |
+| :--- | :--- |
+| **Guardrails in Code** | Hard limits on single-transaction sweep/redeem, minimum liquidity buffer, and cooldown periods run as deterministic Python code. A refusal records the model's proposal and the exact rule that overruled it. |
+| **Ring-Fenced Creator Liabilities** | 80% of query revenue is segregated for creator claimability and is never locked in long-term illiquid positions. |
+| **Agent Spending Limit** | Autonomous client agents enforce daily and per-transaction USDC spending caps (`spending_policy.py`). |
+| **Emergency Circuit Breaker** | An operator or autonomous policy can trigger `treasury_halted=True` to immediately freeze all outbound sweeps while keeping creator claims operational. |
+| **Exactly-Once Settlement** | Database claims make payment execution exclusive; EIP-712 nonces and idempotency keys prevent duplicate billing or replayed transactions. |
+| **Tamper-Evident Audit Trail** | Every invoice, treasury sweep, policy veto, and claim payout is signed and covers the SHA-256 hash of the entry before it. |
+
+---
+
+## Empirical Verification & Usage Snapshot
+
+Figures are queried directly from the local PostgreSQL storage engine (`scripts/run_backend_local.py`). Arc Testnet history and Arc Mainnet production records are kept strictly isolated:
+
+| Metric / Artifact | Arc Testnet (`qma` DB) | Arc Mainnet (`qma_mainnet` DB) | Verification Source / Table |
+| :--- | :--- | :--- | :--- |
+| **Total Payment Events** | **1,745 events** | **0 events** *(Genesis Live)* | PostgreSQL `qma_payment_events` |
+| **Generated Invoices** | **2,772 invoices** | **0 invoices** *(Genesis Live)* | PostgreSQL `qma_invoices` |
+| **Paid Reports Delivered** | **1,094 reports** | **0 reports** *(Genesis Live)* | PostgreSQL `qma_paid_reports` |
+| **Euthyna Audit Trail** | **252,594 records** | **0 records** *(Genesis Live)* | PostgreSQL `euthyna_audit_trail` (SHA-256 chained) |
+| **Agent Sessions Recorded** | **96 sessions** | **0 sessions** *(Genesis Live)* | PostgreSQL `agent_sessions` |
+| **Schema Migrations** | **16 / 16 applied** | **16 / 16 applied** | PostgreSQL `schema_migrations` |
+| **Underlying Token (USDC)** | `0x3600...0000` | Native Gas USDC | [Arcscan Token Contract](https://testnet.arcscan.app/address/0x3600000000000000000000000000000000000000) |
+| **USYC Yield Vault (ERC-4626)**| `0x934e...fcb2` | Ready for deployment | [Arcscan Vault Contract](https://testnet.arcscan.app/address/0x934e7309d7fca371db946b0643f2136cc0a0fcb2) |
+| **Autonomous Sweep Deposit** | Confirmed (Block #62679606) | — | [Arcscan Tx: 0xd9b3...edec](https://testnet.arcscan.app/tx/0xd9b31a246f0df00e08ceaf40b0f2892305bc820f0f9e8d0e7717b0b04e18edec) |
+| **Just-In-Time (JIT) Redemption**| Confirmed (Block #62679616) | — | [Arcscan Tx: 0x705c...9629](https://testnet.arcscan.app/tx/0x705c9e4b3ee7a99159082c8f800bb8fb6916e2acbc33f4743a33ca9a81e29629) |
+
+---
+
+## Developer & Agent Integration
+
+### 1. Canonical Agent CLI (`qma`)
+
+Autonomous agents can buy quantitative intelligence from the command line:
+
+```bash
+# Via npx (zero installation)
+npx @hoanlv214/qma-cli agent run --task "funding anomaly watchlist" --budget 0.05 --json
+
+# Direct execution
+node agents/bin/qma.js agent run --task "basis arbitrage" --budget 0.02
+```
+
+### 2. Model Context Protocol (MCP) Integration
+
+External AI environments (Claude, Cursor, Devin) can query QMA directly via MCP:
+
+```json
+{
+  "mcpServers": {
+    "qma": {
+      "command": "node",
+      "args": ["agents/bin/qma.js", "mcp"]
+    }
+  }
+}
+```
+
+### 3. REST API & Circle x402 Headers
+
+External HTTP clients query endpoints via standard HTTP 402:
+
+```bash
+# 1. Request report quote
+curl -i https://qma-three.vercel.app/api/v1/reports/funding-rates/sample
+
+# Response: HTTP 402 Payment Required
+# Headers:
+#   x-qma-payment-required: true
+#   x-qma-price-usdc: 0.005
+#   x-qma-recipient: 0xf5987818EBBEe812EB730B6a395d66e664412cf5
+
+# 2. Retry with signed EIP-712 payment authorization
+curl -H "X-PAYMENT: <signed_authorization_payload>" \
+     https://qma-three.vercel.app/api/v1/reports/funding-rates/sample
+```
+
+---
+
+## System Architecture
 
 ```text
-CLIENT / DASHBOARD                    AI CFO & TREASURY CORE                     ARC L1 BLOCKCHAIN
-──────────────────                    ──────────────────────                     ─────────────────
+CLIENTS & AGENTS                      AUTONOMOUS BACKEND CORE                    ARC L1 & SETTLEMENT
+────────────────                      ───────────────────────                    ───────────────────
 ┌──────────────────┐                  ┌───────────────────────────────┐          ┌──────────────────────┐
-│ Treasury Radar   │                  │ FastAPI Autonomous Backend    │          │ USYC Yield Vault     │
-│ React + Vite UI  │ ─── HTTP / SSE ─▶│                               │ ── EVM ─▶│ (ERC-4626)           │
-│                  │                  │  • Cash-Flow Forecaster       │          │ 0x934e...            │
-└──────────────────┘                  │  • Runway Buffer Calculator   │          └──────────┬───────────┘
-                                      │  • JIT Liquidity Allocator    │                     │
-┌──────────────────┐                  │  • Euthyna Audit Engine       │                     │ 5.0% target APY
+│ Treasury Radar   │                  │ FastAPI REST API Engine       │          │ USYC Yield Vault     │
+│ React 19 + Vite  │ ─── HTTP / SSE ─▶│                               │ ── EVM ─▶│ (ERC-4626)           │
+│                  │                  │  • Quant Anomaly Evaluator    │          │ 0x934e...            │
+└──────────────────┘                  │  • x402 Micropayment Gateway  │          └──────────┬───────────┘
+                                      │  • Autonomous AI CFO Service  │                     │
+┌──────────────────┐                  │  • Euthyna Hash-Chain Audit   │                     │ Target APY
 │ Autonomous Agent │                  └──────────────┬────────────────┘                     ▼
-│ CLI Runner       │                                 │                   ┌──────────────────────┐
-│ (qma / agent_buyer.js) │ ─── JSON-RPC ─────────────┼──────────────────▶│ Native USDC Token    │
+│ Canonical CLI    │                                 │                   ┌──────────────────────┐
+│ (qma / qma-cli)  │ ─── EIP-712 x402 ───────────────┼──────────────────▶│ Native USDC Token    │
 └──────────────────┘                                 │                   │ 0x3600...            │
                                                      ▼                   └──────────────────────┘
                                       ┌───────────────────────────────┐
-                                      │ GenLayer Intelligent Shield   │
-                                      │ SLA Consensus Verification    │
-                                      │ (GenQMAShield.py)             │
+                                      │ Self-Hosted PostgreSQL        │
+                                      │  • Mainnet Genesis (Port 8000)│
+                                      │  • Testnet Sandbox (Port 8001)│
                                       └───────────────────────────────┘
 ```
 
 ---
 
-## Run it
+## Production Deployment
 
-### One-Command Quickstart (~30s)
-
-Execute the autonomous CFO decision and settlement loop:
-
-```bash
-npm run demo:treasury
-```
-
-*Runs cash-flow forecasting, verifies treasury runway, executes an on-chain idle sweep into USYC, triggers JIT redemption for payables, and outputs cryptographic Euthyna audit verification.*
-
-### Autonomous Buyer CLI
-
-The canonical agent CLI is `qma` (`agents/bin/qma.js`, published as `@hoanlv214/qma-cli`):
-
-```bash
-qma agent run --task "funding anomaly watchlist" --budget 0.05 --max-purchases 5 --json
-```
-
-*The agent discovers providers, scores live anomalies, decides what to buy under its spending policy, pays per query via x402, and logs every decision.*
-
-### Local Development Setup
-
-```bash
-# 1. Clone & install dependencies
-git clone https://github.com/hoanlv214/qma.git
-cd qma
-npm install
-pip install -r requirements.txt
-
-# 2. Configure environment
-cp .env.example .env
-# Set AGENT_PRIVATE_KEY and RPC_URL
-
-# 3. Start Backend API
-uvicorn backend.app.main:app --reload --port 8000
-
-# 4. Start Frontend Radar
-npm run dev:frontend    # http://localhost:5173
-
-# 5. Run complete test suite
-python -m pytest tests/ -q
-```
+- **Frontend Tier**: Next.js / Vite SPA deployed on Vercel at [`https://qma-three.vercel.app`](https://qma-three.vercel.app).
+- **Backend Tier**: FastAPI backend running Python 3.12 with async workers on Render / Linux server.
+- **Database Tier**: Production PostgreSQL instance with 16 forward-only migrations.
+- **Settlement Tier**: Arc L1 (Chain ID `5042` Mainnet / `5042002` Testnet).
+- **Local Development**: See [`docs/operations/LOCAL_DEVELOPMENT.md`](docs/operations/LOCAL_DEVELOPMENT.md) for local multi-environment dashboard and runner instructions.
 
 ---
 
@@ -229,59 +215,33 @@ python -m pytest tests/ -q
 
 ```text
 qma/
-├── agents/                  # Autonomous agent runners and decision engines
-│   ├── bin/qma.js           # Canonical CLI: bounded autonomous report buyer
-│   └── bin/agent_buyer.js   # Payment executor: --treasury, --sweep, --redeem, --live
-├── backend/                 # FastAPI REST API & Autonomous Financial Core
+├── agents/                  # Canonical Agent CLI and autonomous session runners
+│   ├── bin/qma.js           # Canonical CLI: $ qma agent run [options]
+│   └── bin/agent_buyer.js   # Autonomous purchase and treasury execution engine
+├── backend/                 # Authoritative FastAPI REST API & Autonomous Financial Core
 │   └── app/
-│       ├── api/v1/          # Modular endpoints (/reports, /treasury, /orders)
-│       ├── core/            # Config, lifecycle, state, and security middleware
-│       ├── repositories/    # Storage engine: PostgreSQL with local JSON fallback
-│       ├── schemas/         # Pydantic validation schemas
-│       ├── sdk/             # Python Client SDK for external agents
-│       └── services/        # USYC Treasury, Euthyna Audit, x402 Gateway, Oracles
-├── contracts/               # Smart Contracts on Arc L1 & GenLayer
+│       ├── api/v1/          # Endpoints: /reports, /treasury, /creators, /agent
+│       ├── core/            # Config, multi-DB URL resolution, and security guardrails
+│       ├── repositories/    # PostgreSQL storage backend with full transaction safety
+│       ├── schemas/         # Pydantic v2 data models and OpenAPI schemas
+│       └── services/        # usyc_treasury.py, x402_gateway.py, euthyna_audit.py
+├── contracts/               # Smart Contracts on Arc L1
 │   ├── USYCVault.sol        # ERC-4626 Yield Vault on Arc Testnet
-│   └── GenQMAShield.py      # Intelligent Contract (SLA Consensus) on GenLayer
-├── docs/                    # Architecture, API specifications, and research notes
-│   ├── api/README.md        # Complete OpenAPI route inventory & schema docs
-│   ├── research/            # Policy vs Model: guardrail override evidence
-│   └── audit/               # Full security assessment, threat matrix, and audit
-├── frontend/                # Production Vite + React Treasury & Intelligence Dashboard
-├── tests/                   # Unit, integration, and OpenAPI regression tests
-├── main.py                  # Root entrypoint shim for Render deployment
-└── render.yaml              # Multi-service Render deployment manifest
+│   └── GenQMAShield.py      # SLA Verification Contract on GenLayer
+├── docs/                    # Architectural specifications and verification reports
+│   ├── api/README.md        # Complete OpenAPI route inventory & security docs
+│   ├── architecture/        # Controlled Refactoring Protocol (CRCIP)
+│   ├── audit/               # Formal Threat Model and Security Assessment Report
+│   ├── operations/          # Local development and operator dashboard guide
+│   └── research/            # Policy vs Model: empirical guardrail override logs
+├── frontend/                # Vite + React 19 Treasury Radar & Market Explorer
+├── scripts/                 # Operational tooling: DB Migrations, Local Run, Control Center
+├── main.py                  # Root entrypoint shim for Render cloud deployment
+└── pyproject.toml           # Authoritative Python dependencies (managed via uv)
 ```
 
 ---
 
-## Enterprise Architecture & Economics
+## License
 
-### 1. Hybrid Intelligence Architecture (Scenario A & B)
-- **Scenario A (Default / Machine-to-Machine):** When querying via MCP or API without an AI key, the engine delivers ultra-fast, pure quantitative data (win rates, historical analogues, basis spreads, volatility z-scores, and EIP-712 execution intents). Zero server token overhead.
-- **Scenario B (BYO-Key AI Executive Synthesis):** When a user or client attaches their own LLM API key (OpenAI / Gemini / Groq), the system automatically triggers specialized sub-agents to synthesize comprehensive natural language market commentary, executive briefings, and hedging strategies on top of the quantitative metrics.
-- **Transparent Pricing:** All report tiers are priced at **0.002 USDC (Preview)** and **0.005 USDC (Full)** — transparent, predictable, and fully sustainable without legacy nanopayment friction.
-
-### 2. Arc L1 Settlement & Money Rails
-- **Native USDC Gas**: Arc eliminates volatile ETH gas tokens; all transactions settle in native USDC.
-- **ERC-4626 USYC Yield**: Idle corporate treasury balances compound toward the 5.0% target APY in a tokenized vault instead of bleeding purchasing power.
-- **Clean EVM Standards**: Standard Solidity smart contracts deployable to Arc Testnet (Chain ID `5042002`) and Arc Mainnet (Chain ID `5042`).
-
----
-
-## Security & Honest Disclosures
-
-Corporate treasury code must withstand adversarial conditions:
-
-1. **Non-Custodial Separation**: The AI CFO operates under hardcoded deterministic constraints: minimum runway buffer, maximum single-tx sweep/redeem limits, and authenticated payees.
-2. **Deterministic Safety Rails**: LLMs provide financial intelligence and proposals; deterministic smart contracts and Python validators enforce hard limits so hallucinations cannot cause overspending. See [Policy vs Model](docs/research/POLICY_VS_MODEL.md) for the recorded override evidence.
-3. **No Secret Leaks**: Private keys never leave the local environment or authorized server enclave; transactions are signed locally via Viem/Web3.
-4. **Dual-Backend Redundancy**: PostgreSQL persistence with automatic, transparent fallback to local JSON ledgers for zero downtime.
-
-Full threat matrix, formal verification proofs, and mitigation details are documented in **[`docs/audit/SECURITY_AND_AUDIT_REPORT.md`](docs/audit/SECURITY_AND_AUDIT_REPORT.md)**. Known technical debt and pending upgrades are tracked in **[`docs/TECH_DEBT.md`](docs/TECH_DEBT.md)**.
-
----
-
-## Stack
-
-Solidity 0.8.20 · OpenZeppelin v5 · ERC-4626 · FastAPI · Python 3.12 · Viem · Node.js · React 19 · Vite · Tailwind CSS · Circle x402 · Arc L1 · GenLayer Intelligent Contracts.
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.

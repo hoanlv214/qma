@@ -49,7 +49,7 @@ services:
       - key: QMA_MCP_API_BASE_URL
         value: https://qma-api.onrender.com
       - key: QMA_MCP_CONNECT_BASE_URL
-        value: https://qma.vercel.app
+        value: https://qma-three.vercel.app/
       - key: QMA_WITHDRAW_RELAYER_ADDRESS
         sync: false
       - key: OPENAI_API_KEY

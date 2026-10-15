@@ -15,10 +15,10 @@ This document is the official submission and verification package for registerin
 | **Payment Rail** | Circle Gateway Nanopayments (`x402`, scheme: `exact`) |
 | **Settlement Currency** | `USDC` (Native Gas on Arc) |
 | **Public API Base URL** | `https://qma-three.vercel.app` |
-| **Application UI** | `https://qma.vercel.app` |
-| **API Documentation** | `https://qma.vercel.app/docs` (Interactive Scalar OpenAPI) |
+| **Application UI** | `https://qma-three.vercel.app/` |
+| **API Documentation** | `https://qma-three.vercel.app/docs` (Interactive Scalar OpenAPI) |
 | **Health Check URL** | `https://qma-three.vercel.app/healthz` |
-| **Support / Contact** | `https://qma.vercel.app/docs` |
+| **Support / Contact** | `https://qma-three.vercel.app/docs` |
 | **Intake URL** | [https://agents.circle.com/services](https://agents.circle.com/services) |
 
 ---

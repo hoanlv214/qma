@@ -49,8 +49,8 @@ export const appKit = createAppKit({
   metadata: {
     name: "QMA",
     description: "Financial Intelligence Marketplace & Agent Commerce on Arc",
-    url: typeof window !== "undefined" ? window.location.origin : "https://qma.vercel.app",
-    icons: ["https://qma.vercel.app/arc-logo.png"],
+    url: typeof window !== "undefined" ? window.location.origin : "https://qma-three.vercel.app/",
+    icons: ["https://qma-three.vercel.app/arc-logo.png"],
   },
   projectId,
   features: {

@@ -30,7 +30,7 @@ class X402SellerAndOpenApiTests(unittest.TestCase):
         self.assertIn("When to Call", guidance)
 
         # Docs link
-        self.assertEqual(self.schema["externalDocs"]["url"], "https://qma.vercel.app/docs")
+        self.assertEqual(self.schema["externalDocs"]["url"], "https://qma-three.vercel.app/docs")
 
     def test_paid_operations_have_x_payment_info(self):
         paths = self.schema["paths"]

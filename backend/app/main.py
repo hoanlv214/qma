@@ -664,7 +664,7 @@ def qma_openapi():
     info["contact"] = {
         "name": "QMA Agent Support",
         "email": "agent-support@qma.com",
-        "url": "https://qma.vercel.app",
+        "url": "https://qma-three.vercel.app/",
     }
     info["x-guidance"] = AGENT_GUIDANCE
     info["x-capabilities"] = [
@@ -678,7 +678,7 @@ def qma_openapi():
     info["x-payment-rails"] = ["x402", "mpp"]
     schema["externalDocs"] = {
         "description": "QMA Documentation and Agent Integration Guide",
-        "url": "https://qma.vercel.app/docs",
+        "url": "https://qma-three.vercel.app/docs",
     }
 
     components = schema.setdefault("components", {})

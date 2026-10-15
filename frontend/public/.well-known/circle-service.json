@@ -74,9 +74,9 @@
   ],
   "provider": {
     "name": "QMA Labs",
-    "url": "https://qma.vercel.app",
-    "support_url": "https://qma.vercel.app/docs",
-    "documentation_url": "https://qma.vercel.app/docs",
+    "url": "https://qma-three.vercel.app/",
+    "support_url": "https://qma-three.vercel.app/docs",
+    "documentation_url": "https://qma-three.vercel.app/docs",
     "health_check_url": "https://qma-api.onrender.com/healthz"
   },
   "example_prompts": [

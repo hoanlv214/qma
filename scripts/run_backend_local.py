@@ -21,10 +21,19 @@ os.environ["QMA_STORAGE_BACKEND"] = "postgres"
 # waste the buyers' bounded poll windows. Local operator allowance only.
 os.environ.setdefault("QMA_RATE_LIMIT_INVOICE_PER_MIN", "60")
 
-database_url = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or os.getenv("QMA_DATABASE_URL")
+try:
+    from backend.app.core.config import resolve_database_url
+    database_url = resolve_database_url()
+except Exception:
+    database_url = (
+        os.getenv("DATABASE_URL")
+        or os.getenv("POSTGRES_URL")
+        or os.getenv("QMA_DATABASE_URL")
+    )
+
 if not database_url:
-    print("\n[CRITICAL ERROR] QMA_STORAGE_BACKEND is set to postgres, but DATABASE_URL is missing!", file=sys.stderr)
-    print("Please ensure DATABASE_URL is defined in .env (e.g. postgresql://postgres:password@localhost:5432/qma).", file=sys.stderr)
+    print("\n[CRITICAL ERROR] QMA_STORAGE_BACKEND is set to postgres, but no database URL was found!", file=sys.stderr)
+    print("Please ensure DATABASE_URL_MAINNET, DATABASE_URL_TESTNET, or DATABASE_URL is defined.", file=sys.stderr)
     sys.exit(1)
 
 # Pre-flight check: strictly verify local PostgreSQL connection before launching uvicorn
@@ -33,7 +42,7 @@ try:
     from urllib.parse import urlparse
     parsed = urlparse(database_url)
     db_target = f"{parsed.hostname}:{parsed.port or 5432}/{parsed.path.lstrip('/')}"
-    print(f"[*] Pre-flight check: Verifying self-hosted PostgreSQL connection to {db_target} ...")
+    print(f"[*] Pre-flight check: Verifying self-hosted PostgreSQL connection to {db_target} (mode={os.getenv('QMA_NETWORK_MODE', 'mainnet')}) ...")
     conn = psycopg2.connect(database_url, connect_timeout=5)
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';")
@@ -49,4 +58,24 @@ except Exception as exc:
 import uvicorn
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True, log_level="info")
+    port = int(os.getenv("PORT") or os.getenv("QMA_BACKEND_PORT") or 8000)
+    reload_val = None
+
+    for arg in sys.argv[1:]:
+        if arg.startswith("--port="):
+            port = int(arg.split("=", 1)[1])
+        elif arg == "--reload":
+            reload_val = True
+        elif arg == "--no-reload":
+            reload_val = False
+
+    if reload_val is None:
+        raw_env_reload = os.getenv("QMA_BACKEND_RELOAD")
+        if raw_env_reload is not None:
+            reload_val = raw_env_reload.lower() in ("true", "1", "yes")
+        else:
+            reload_val = (port != 8000)
+
+    mode = os.getenv("QMA_NETWORK_MODE", "mainnet")
+    print(f"[*] Starting QMA Backend: http://localhost:{port} [mode={mode}, reload={reload_val}]")
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=reload_val, log_level="info")
