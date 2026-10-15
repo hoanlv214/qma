@@ -8,60 +8,22 @@
  */
 
 import { QmaAgent } from "./index.js";
-import * as fs from "node:fs";
-import * as path from "node:path";
+import type { SessionState } from "./session/state.js";
 import * as http from "node:http";
 import { SessionTaskPool } from "./workerPool.js";
+import { workerConfig } from "./workerConfig.js";
 
-function loadEnv() {
-  try {
-    const candidatePaths = [
-      path.resolve(process.cwd(), ".env"),
-      path.resolve(process.cwd(), "..", ".env"),
-    ];
-    for (const envPath of candidatePaths) {
-      if (fs.existsSync(envPath)) {
-        const content = fs.readFileSync(envPath, "utf-8");
-        for (const line of content.split("\n")) {
-          const trimmed = line.trim();
-          if (trimmed && !trimmed.startsWith("#") && trimmed.includes("=")) {
-            const [key, ...valueParts] = trimmed.split("=");
-            const val = valueParts.join("=").trim().replace(/^['"]|['"]$/g, "");
-            const varKey = key.trim();
-            if (!process.env[varKey]) {
-              process.env[varKey] = val;
-            }
-          }
-        }
-      }
-    }
-  } catch (e) {
-    console.error("Failed to load .env file:", e);
-  }
-}
-loadEnv();
-
-const API_BASE_URL = process.env.QMA_API_URL || process.env.API_BASE_URL || "http://127.0.0.1:8000";
-const ARC_GATEWAY_URL = process.env.QMA_ARC_GATEWAY_URL || process.env.ARC_GATEWAY_URL || "http://127.0.0.1:3000";
-const INTERNAL_SECRET = process.env.QMA_ARC_GATEWAY_INTERNAL_SECRET ?? "";
-const POLL_INTERVAL_MS = 5000;
-const SESSION_STATUS_POLL_INTERVAL_MS = 10000;
-const DEFAULT_MAX_CONCURRENT_SESSIONS = 10;
-
-function positiveIntegerEnv(name: string, fallback: number): number {
-  const parsed = Number.parseInt(process.env[name] ?? "", 10);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-const MAX_CONCURRENT_SESSIONS = positiveIntegerEnv(
-  "QMA_WORKER_MAX_CONCURRENT_SESSIONS",
-  DEFAULT_MAX_CONCURRENT_SESSIONS,
-);
+const API_BASE_URL = workerConfig.apiBaseUrl;
+const ARC_GATEWAY_URL = workerConfig.arcGatewayUrl;
+const INTERNAL_SECRET = workerConfig.internalSecret;
+const ARC_CHAIN_ID = workerConfig.arcChainId;
+const POLL_INTERVAL_MS = workerConfig.pollIntervalMs;
+const MAX_CONCURRENT_SESSIONS = workerConfig.maxConcurrentSessions;
 const sessionPool = new SessionTaskPool(MAX_CONCURRENT_SESSIONS);
 
 // Render runs this as a web service. The HTTP surface is health/keep-alive
 // only; autonomous sessions run as independent asynchronous tasks in the pool.
-const PORT = process.env.PORT || 10000;
+const PORT = workerConfig.port;
 http.createServer((req, res) => {
   const url = req.url || "/";
   if (url === "/health") {
@@ -92,9 +54,9 @@ function sessionHeaders(includeJson = false): Record<string, string> {
   return headers;
 }
 
-async function updateSessionState(sessionId: string, state: any, status?: string) {
+async function updateSessionState(sessionId: string, state: SessionState | Record<string, unknown>, status?: string) {
   try {
-    const body: any = { runtime_state: state };
+    const body: Record<string, unknown> = { runtime_state: state };
     if (status) body.status = status;
 
     const res = await fetch(`${API_BASE_URL}/api/v1/sessions/${sessionId}`, {
@@ -111,7 +73,7 @@ async function updateSessionState(sessionId: string, state: any, status?: string
   }
 }
 
-const WORKER_ID = `worker_${process.env.RENDER_INSTANCE_ID || process.pid}_${Math.random().toString(36).substring(2, 7)}`;
+const WORKER_ID = `worker_${workerConfig.instanceId}_${Math.random().toString(36).substring(2, 7)}`;
 
 async function acquireSessionLease() {
   try {
@@ -155,7 +117,7 @@ async function heartbeatSessionLease(sessionId: string, runGeneration: number): 
   return false;
 }
 
-async function checkpointSessionTick(sessionId: string, runGeneration: number, status: string, runtimeState: any, nextRunInSec: number = 15): Promise<boolean> {
+async function checkpointSessionTick(sessionId: string, runGeneration: number, status: string, runtimeState: SessionState | Record<string, unknown>, nextRunInSec: number = 15): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE_URL}/api/v1/sessions/${sessionId}/checkpoint`, {
       method: "POST",
@@ -248,7 +210,7 @@ async function runWorkerLoop() {
                   const validAfter = now - 600;
                   const validBefore = now + Math.max(Number(accepted.maxTimeoutSeconds || 0), 7 * 24 * 3600 + 600);
                   const crypto = await import("node:crypto");
-                  const nonce = "0x" + Array.from(crypto.randomBytes(32)).map((b: any) => b.toString(16).padStart(2, "0")).join("");
+                  const nonce = "0x" + Array.from(crypto.randomBytes(32)).map((b: number) => b.toString(16).padStart(2, "0")).join("");
 
                   const typedData = {
                     types: {
@@ -271,7 +233,7 @@ async function runWorkerLoop() {
                     domain: {
                       name: "GatewayWalletBatched",
                       version: "1",
-                      chainId: 5042002, // Arc Testnet
+                      chainId: ARC_CHAIN_ID,
                       verifyingContract: accepted.extra.verifyingContract,
                     },
                     message: {
@@ -343,22 +305,28 @@ async function runWorkerLoop() {
             // Gateway balance payloads have drifted between micro-USDC base
             // units and decimal strings across service versions; probe the
             // known fields and normalize anything that looks like base units.
-            function gatewayBalanceUsdc(data: any): number {
-              const candidates = [
-                data?.balance,
-                data?.available,
-                data?.amount,
-                data?.total,
-                data?.balances?.[0]?.amount,
-                data?.balances?.[0]?.balance,
-                data?.sources?.[0]?.amount,
-                data?.sources?.[0]?.balance,
-                data?.data?.balance,
-                data?.data?.available,
-                data?.data?.amount,
-                data?.data?.total,
-                data?.data?.balances?.[0]?.amount,
-                data?.data?.balances?.[0]?.balance,
+            function gatewayBalanceUsdc(data: unknown): number {
+              const record = (typeof data === "object" && data !== null) ? (data as Record<string, unknown>) : null;
+              const balances = Array.isArray(record?.balances) ? (record.balances as Array<Record<string, unknown>>) : null;
+              const sources = Array.isArray(record?.sources) ? (record.sources as Array<Record<string, unknown>>) : null;
+              const nestedData = (typeof record?.data === "object" && record?.data !== null) ? (record.data as Record<string, unknown>) : null;
+              const nestedBalances = Array.isArray(nestedData?.balances) ? (nestedData.balances as Array<Record<string, unknown>>) : null;
+
+              const candidates: unknown[] = [
+                record?.balance,
+                record?.available,
+                record?.amount,
+                record?.total,
+                balances?.[0]?.amount,
+                balances?.[0]?.balance,
+                sources?.[0]?.amount,
+                sources?.[0]?.balance,
+                nestedData?.balance,
+                nestedData?.available,
+                nestedData?.amount,
+                nestedData?.total,
+                nestedBalances?.[0]?.amount,
+                nestedBalances?.[0]?.balance,
               ];
               for (const candidate of candidates) {
                 if (candidate === undefined || candidate === null) continue;
@@ -444,7 +412,7 @@ async function runWorkerLoop() {
               throw new Error("Timeout waiting for Gateway balance to settle after deposit.");
             }
 
-            async function pushEvent(sessionId: string, eventType: string, payload: any) {
+            async function pushEvent(sessionId: string, eventType: string, payload: unknown) {
               try {
                 const res = await fetch(`${API_BASE_URL}/api/v1/sessions/${sessionId}/events`, {
                   method: "POST",

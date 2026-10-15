@@ -30,18 +30,20 @@ function finiteNumber(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function paidInvoiceState(value: any): boolean {
-  return value?.status === "paid"
-    && typeof value?.access_token === "string"
-    && value.access_token.length > 0;
+function paidInvoiceState(value: unknown): boolean {
+  const obj = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
+  return obj?.status === "paid"
+    && typeof obj?.access_token === "string"
+    && obj.access_token.length > 0;
 }
 
-function settlementIds(value: any, fallback: SettlementProof[] = []): string[] {
-  const splitIds = Array.isArray(value?.split_settlement_ids)
-    ? value.split_settlement_ids.filter((item: unknown): item is string => typeof item === "string" && item.length > 0)
+function settlementIds(value: unknown, fallback: SettlementProof[] = []): string[] {
+  const obj = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
+  const splitIds = Array.isArray(obj?.split_settlement_ids)
+    ? (obj.split_settlement_ids as unknown[]).filter((item: unknown): item is string => typeof item === "string" && item.length > 0)
     : [];
   if (splitIds.length) return splitIds;
-  if (typeof value?.settlement_id === "string" && value.settlement_id) return [value.settlement_id];
+  if (typeof obj?.settlement_id === "string" && obj.settlement_id) return [obj.settlement_id];
   return fallback.map((item) => item.settlement_id).filter(Boolean);
 }
 
@@ -136,11 +138,11 @@ export class QmaAgent extends EventEmitter {
         });
         const resolved = decision.resolved_candidate;
         const evaluatedCandidates = Array.isArray(decision.evaluated_candidates)
-          ? decision.evaluated_candidates.map((item: any) => ({
-            candidate_id: item.candidate_id,
-            provider_id: item.provider_id,
-            symbol: item.symbol,
-            tier: item.tier,
+          ? decision.evaluated_candidates.map((item: Record<string, unknown>) => ({
+            candidate_id: String(item.candidate_id || ""),
+            provider_id: String(item.provider_id || ""),
+            symbol: String(item.symbol || ""),
+            tier: (item.tier === "full" ? "full" : "preview") as "preview" | "full",
             score: finiteNumber(item.score),
             price_usdc: finiteNumber(item.price_usdc),
             value_density: finiteNumber(item.value_density),
@@ -148,7 +150,7 @@ export class QmaAgent extends EventEmitter {
             preferred: item.candidate_id === resolved?.candidate_id,
             owned: item.status === "ALREADY_OWNED",
             upgrade: Boolean(item.upgrade),
-            canonical_query: item.canonical_query || (
+            canonical_query: (item.canonical_query as Record<string, unknown> | undefined) || (
               item.candidate_id === resolved?.candidate_id
                 ? decision.canonical_query || resolved?.canonical_query
                 : undefined
@@ -178,7 +180,7 @@ export class QmaAgent extends EventEmitter {
             status: "completed",
             provider_id: candidate.provider_id,
             symbol: candidate.symbol,
-            tier: candidate.upgrade ? "full" : candidate.tier as any,
+            tier: (candidate.upgrade ? "full" : candidate.tier) as "preview" | "full",
             amount_usdc: candidate.price_usdc,
             settlement_ids: [`DRY:sim_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`],
           };
@@ -294,7 +296,7 @@ export class QmaAgent extends EventEmitter {
             invoice_id: createdInvoice.invoice_id,
             provider_id: candidate.provider_id,
             symbol: candidate.symbol,
-            tier: candidate.upgrade ? "full" : candidate.tier as any,
+            tier: (candidate.upgrade ? "full" : candidate.tier) as "preview" | "full",
             amount_usdc: invoiceAmount,
             settlement_ids: settlementIds(currentVerified, execution.settlements),
             access_token_received: true,
@@ -304,8 +306,8 @@ export class QmaAgent extends EventEmitter {
         } catch (e) {
           if (paymentStarted && invoice?.invoice_id && invoice.invoice_secret) {
             try {
-              let reconciled: any = null;
-              let lastReconcileError: any = null;
+              let reconciled: Awaited<ReturnType<QmaClient["getAgentInvoiceStatus"]>> | null = null;
+              let lastReconcileError: unknown = null;
               for (let attempt = 1; attempt <= 15; attempt += 1) {
                 try {
                   reconciled = await this.client.getAgentInvoiceStatus(invoice.invoice_id, invoice.invoice_secret);
@@ -319,7 +321,7 @@ export class QmaAgent extends EventEmitter {
                       invoice_id: invoice.invoice_id,
                       provider_id: candidate.provider_id,
                       symbol: candidate.symbol,
-                      tier: candidate.upgrade ? "full" : candidate.tier as any,
+                      tier: (candidate.upgrade ? "full" : candidate.tier) as "preview" | "full",
                       amount_usdc: invoiceAmount,
                       settlement_ids: settlementIds(reconciled, executionSettlements),
                       access_token_received: true,

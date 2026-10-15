@@ -1,9 +1,8 @@
 import { initiateDeveloperControlledWalletsClient } from "@circle-fin/developer-controlled-wallets";
 import * as path from "node:path";
-import { loadEnvFile } from "./load-env.js";
+import { isMainnet } from "./config.js";
 
 const envPath = path.resolve(process.cwd(), "..", ".env");
-loadEnvFile(envPath);
 
 const apiKey = process.env.CIRCLE_CONSOLE_API_KEY;
 const entitySecret = process.env.CIRCLE_ENTITY_SECRET;
@@ -27,10 +26,11 @@ async function main() {
 
   if (!walletSetId) throw new Error("Failed to create Wallet Set");
 
-  console.log("Creating SCA Wallet on ARC-TESTNET...");
+  const blockchain = (isMainnet ? "ARC" : "ARC-TESTNET") as unknown as Parameters<typeof circleClient.createWallets>[0]["blockchains"][number];
+  console.log(`Creating SCA Wallet on ${blockchain}...`);
   const walletsResponse = await circleClient.createWallets({
     accountType: "SCA",
-    blockchains: ["ARC-TESTNET"],
+    blockchains: [blockchain],
     count: 1,
     walletSetId,
   });
@@ -41,7 +41,8 @@ async function main() {
   console.log(`✅ Treasury Wallet Created!`);
   console.log(`Wallet ID: ${wallet?.id}`);
   console.log(`Address: ${wallet?.address}`);
-  console.log(`Type: ${wallet?.accountType}`);
+  const walletExtended = wallet as (typeof wallet & { accountType?: string }) | undefined;
+  console.log(`Type: ${walletExtended?.accountType}`);
   
   import("node:fs").then(fs => {
     fs.appendFileSync(envPath, `\nTREASURY_WALLET_ID=${wallet?.id}\n`);

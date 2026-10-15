@@ -46,15 +46,18 @@ export class CircleAppKitManager {
     amountUsdc: string;
   }) {
     try {
-      const estimate = await (this.kit as any).estimateBridge?.({
+      const kitWithEstimate = this.kit as unknown as {
+        estimateBridge?: (args: Record<string, unknown>) => Promise<unknown>;
+      };
+      const estimate = await kitWithEstimate.estimateBridge?.({
         from: fromChain,
         to: toChain,
         amount: amountUsdc,
         token: "USDC",
       });
       return { success: true, estimate };
-    } catch (err: any) {
-      return { success: false, error: err?.message || "Estimation failed." };
+    } catch (err: unknown) {
+      return { success: false, error: err instanceof Error ? err.message : "Estimation failed." };
     }
   }
 
@@ -72,32 +75,40 @@ export class CircleAppKitManager {
         privateKey,
       });
 
+      type BridgeInput = Parameters<AppKit["bridge"]>[0];
       const result = await this.kit.bridge({
         from: {
-          chain: fromChain as any,
+          chain: fromChain as unknown as BridgeInput["from"]["chain"],
           adapter,
         },
         to: {
-          chain: toChain as any,
+          chain: toChain as unknown as BridgeInput["to"]["chain"],
           adapter,
         },
         amount: amountUsdc,
         token: "USDC",
         config: {
-          transferSpeed: "FAST" as any,
+          transferSpeed: "FAST" as unknown as NonNullable<BridgeInput["config"]>["transferSpeed"],
         },
       });
 
+      const bridgeResult = result as unknown as {
+        amount?: string;
+        state?: string;
+        destination?: { txHash?: string };
+        source?: { txHash?: string };
+      };
+
       return {
         success: true,
-        amount: (result as any)?.amount,
-        state: (result as any)?.state,
-        txHash: (result as any)?.destination?.txHash || (result as any)?.source?.txHash,
+        amount: bridgeResult?.amount,
+        state: bridgeResult?.state,
+        txHash: bridgeResult?.destination?.txHash || bridgeResult?.source?.txHash,
       };
-    } catch (err: any) {
+    } catch (err: unknown) {
       return {
         success: false,
-        error: err?.message || "Bridge execution failed.",
+        error: err instanceof Error ? err.message : "Bridge execution failed.",
       };
     }
   }

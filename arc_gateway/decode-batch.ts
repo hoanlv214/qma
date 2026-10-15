@@ -7,10 +7,10 @@ import {
   parseAbi,
   type Hex,
 } from "viem";
+import { networkProfile } from "./config.js";
 
-const RPC = process.env.ARC_TESTNET_RPC ?? "https://rpc.testnet.arc.network";
-const GATEWAY_API =
-  process.env.GATEWAY_API ?? "https://gateway-api-testnet.circle.com";
+const RPC = networkProfile.arc.rpcUrl;
+const GATEWAY_API = networkProfile.contracts.gatewayApiUrl;
 const SETTLEMENT_WINDOW_MS = 10_000;
 
 const SUBMIT_BATCH_ABI = parseAbi([

@@ -41,9 +41,11 @@ export type SettlementCheckpoint = {
 };
 
 type CircleClientLike = {
-  signTypedData(input: Record<string, unknown>): Promise<any>;
-  createContractExecutionTransaction(input: Record<string, unknown>): Promise<any>;
-  getTransaction(input: Record<string, unknown>): Promise<any>;
+  signTypedData(input: Record<string, unknown>): Promise<{ data?: { signature?: string } }>;
+  createContractExecutionTransaction(input: Record<string, unknown>): Promise<{ data?: { id?: string } }>;
+  getTransaction(input: Record<string, unknown>): Promise<{
+    data?: { transaction?: { state?: string; txHash?: string; transactionHash?: string } };
+  }>;
 };
 
 export type VerdictExecutorDependencies = {

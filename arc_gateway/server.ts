@@ -8,17 +8,24 @@ import {
   formatUnits,
   getAddress,
   http,
+  defineChain,
   parseAbi,
   parseUnits,
   zeroAddress,
   type Hex,
 } from "viem";
-import { arcTestnet } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { decodeBatch } from "./decode-batch.js";
-import fs from "node:fs";
-import path from "node:path";
 import crypto from "node:crypto";
+import {
+  appConfig,
+  isMainnet,
+  networkProfile,
+  optionalEnv,
+  requireEnv,
+  usdcDisplay,
+  usdcPrice,
+} from "./config.js";
 import {
   initiateDeveloperControlledWalletsClient,
   type CircleDeveloperControlledWalletsClient,
@@ -27,6 +34,7 @@ import {
   executeVerdictSettlement,
   type SettlementCheckpoint,
   type VerdictSettlementInstruction,
+  type VerdictExecutorDependencies,
 } from "./verdict-settlement.js";
 
 type PaidRequest = express.Request & {
@@ -39,52 +47,47 @@ type PaidRequest = express.Request & {
   };
 };
 
-function loadLocalEnv() {
-  const envPath = path.resolve(process.cwd(), "..", ".env");
-  if (!fs.existsSync(envPath)) return;
-  for (const rawLine of fs.readFileSync(envPath, "utf8").split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#") || !line.includes("=")) continue;
-    const [key, ...rest] = line.split("=");
-    if (!process.env[key.trim()]) {
-      process.env[key.trim()] = rest.join("=").trim().replace(/^['"]|['"]$/g, "");
-    }
+const arcConfig = networkProfile.arc;
+const contractsConfig = networkProfile.contracts;
+
+const CHAIN_ID = arcConfig.chainId;
+const NETWORK = `eip155:${CHAIN_ID}`;
+const NETWORK_NAME = arcConfig.name;
+const ARC_DOMAIN = arcConfig.cctpDomain;
+
+// PORT is injected by the hosting platform (Render); locally the service uses its configured port.
+const PORT = Number(optionalEnv("PORT") ?? appConfig.services.arcGatewayPort);
+const SELLER = appConfig.platform.treasuryAddress;
+const AMOUNT = usdcPrice(appConfig.pricing.fullUsdc);
+const PREVIEW_AMOUNT = usdcPrice(appConfig.pricing.previewUsdc);
+const DEFAULT_DEPOSIT_USDC = usdcDisplay(appConfig.gateway.defaultDepositUsdc);
+const DEFAULT_APPROVE_USDC = usdcDisplay(appConfig.gateway.defaultApproveUsdc);
+const GATEWAY_MAX_FEE_RAW = appConfig.gateway.maxFeeRaw;
+
+const GATEWAY_API = contractsConfig.gatewayApiUrl;
+const ARC_EXPLORER = arcConfig.explorerUrl;
+const RPC_URL = arcConfig.rpcUrl;
+const BALANCES_URL = `${GATEWAY_API}/v1/balances`;
+
+const GATEWAY_WALLET = contractsConfig.gatewayWallet;
+const GATEWAY_MINTER = contractsConfig.gatewayMinter;
+
+// Secrets / Circle wallet identifiers (env only). Public addresses are derived, never duplicated in env.
+const RELAYER_PRIVATE_KEY = optionalEnv("QMA_WITHDRAW_RELAYER_PRIVATE_KEY") as Hex | undefined;
+const TREASURY_WALLET_ID = optionalEnv("TREASURY_WALLET_ID");
+const CIRCLE_CONSOLE_API_KEY = optionalEnv("CIRCLE_CONSOLE_API_KEY");
+const CIRCLE_ENTITY_SECRET = optionalEnv("CIRCLE_ENTITY_SECRET");
+const GATEWAY_DELEGATE_WALLET_ID = optionalEnv("QMA_GATEWAY_DELEGATE_WALLET_ID");
+let gatewayDelegateAddress: string | undefined;
+
+function relayerAddress(): string | null {
+  if (!RELAYER_PRIVATE_KEY) return null;
+  try {
+    return privateKeyToAccount(RELAYER_PRIVATE_KEY).address;
+  } catch {
+    return null;
   }
 }
-
-loadLocalEnv();
-
-const PORT = Number(process.env.PORT ?? process.env.QMA_ARC_GATEWAY_PORT ?? "3000");
-const SELLER =
-  process.env.QMA_PLATFORM_TREASURY_ADDRESS ??
-  process.env.QMA_ARC_SELLER_ADDRESS ??
-  "0x23e7c029a287a83d80b2e084e008211658dda11d";
-const AMOUNT = process.env.QMA_ARC_AMOUNT ?? "$0.005";
-const DEFAULT_DEPOSIT_USDC = process.env.QMA_ARC_DEFAULT_DEPOSIT_USDC ?? "1.00";
-const DEFAULT_APPROVE_USDC = process.env.QMA_ARC_APPROVE_USDC ?? "10.00";
-const GATEWAY_API =
-  process.env.GATEWAY_API ??
-  process.env.QMA_CIRCLE_GATEWAY_API ??
-  "https://gateway-api-testnet.circle.com";
-const ARC_EXPLORER =
-  process.env.ARC_EXPLORER ??
-  process.env.QMA_ARC_EXPLORER ??
-  "https://testnet.arcscan.app";
-const BALANCES_URL = `${GATEWAY_API}/v1/balances`;
-const GATEWAY_WALLET =
-  process.env.GATEWAY_WALLET ??
-  "0x0077777d7EBA4688BDeF3E311b846F25870A19B9";
-const GATEWAY_MINTER =
-  process.env.QMA_ARC_GATEWAY_MINTER ??
-  "0x0022222ABE238Cc2C7Bb1f21003F0a260052475B";
-const RELAYER_PRIVATE_KEY = process.env.QMA_WITHDRAW_RELAYER_PRIVATE_KEY as Hex | undefined;
-const RELAYER_ADDRESS = process.env.QMA_WITHDRAW_RELAYER_ADDRESS;
-const TREASURY_WALLET_ID = process.env.TREASURY_WALLET_ID;
-const CIRCLE_CONSOLE_API_KEY = process.env.CIRCLE_CONSOLE_API_KEY;
-const CIRCLE_ENTITY_SECRET = process.env.CIRCLE_ENTITY_SECRET;
-const GATEWAY_MAX_FEE_RAW = process.env.QMA_GATEWAY_MAX_FEE_RAW ?? "2010000";
-const GATEWAY_DELEGATE_WALLET_ID = process.env.QMA_GATEWAY_DELEGATE_WALLET_ID;
-const GATEWAY_DELEGATE_ADDRESS = process.env.QMA_GATEWAY_DELEGATE_ADDRESS;
 
 let circleClient: CircleDeveloperControlledWalletsClient | null = null;
 let walletSetId: string | null = null;
@@ -99,38 +102,54 @@ if (CIRCLE_CONSOLE_API_KEY && CIRCLE_ENTITY_SECRET) {
 
   if (TREASURY_WALLET_ID) {
     circleClient.getWallet({ id: TREASURY_WALLET_ID })
-      .then((resp: any) => {
-        walletSetId = resp.data?.wallet?.walletSetId ?? null;
-        treasuryWalletAddress = resp.data?.wallet?.address ?? null;
-        treasuryAccountType = resp.data?.wallet?.accountType ?? null;
+      .then((resp) => {
+        const wallet = resp.data?.wallet as { walletSetId?: string; address?: string; accountType?: string } | undefined;
+        walletSetId = wallet?.walletSetId ?? null;
+        treasuryWalletAddress = wallet?.address ?? null;
+        treasuryAccountType = wallet?.accountType ?? null;
         console.log(`[Circle] Discovered Wallet Set ID: ${walletSetId}`);
       })
-      .catch((err: any) => {
+      .catch((err: Error) => {
         console.error(`[Circle] Failed to fetch wallet set ID: ${err.message}`);
       });
   }
 }
 
-const INTERNAL_SECRET = process.env.QMA_ARC_GATEWAY_INTERNAL_SECRET ?? "";
-const SPLIT_LEG_URL_SECRET =
-  process.env.QMA_SPLIT_LEG_URL_SECRET ??
-  `split-url:${process.env.QMA_ACCESS_TOKEN_SECRET ?? process.env.QMA_SESSION_SECRET ?? "qma-local-demo-secret-change-me"}`;
-const SPLIT_RECEIPT_SECRET =
-  process.env.QMA_SPLIT_RECEIPT_SECRET ??
-  `split-receipt:${process.env.QMA_ACCESS_TOKEN_SECRET ?? process.env.QMA_SESSION_SECRET ?? "qma-local-demo-secret-change-me"}`;
-const QMA_BACKEND_URL =
-  (process.env.QMA_BACKEND_INTERNAL_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "");
-const NETWORK = "eip155:5042002";
-const NETWORK_NAME = "Arc Testnet";
-const ARC_DOMAIN = 26;
-const ARC_TESTNET_USDC =
-  "0x3600000000000000000000000000000000000000" as `0x${string}`;
+const INTERNAL_SECRET = optionalEnv("QMA_ARC_GATEWAY_INTERNAL_SECRET") ?? "";
+// Must derive exactly like backend/app/core/config.py so split-leg URLs and receipts verify on both sides.
+function splitSecret(explicitEnv: string, derivedPrefix: string): string {
+  const explicit = optionalEnv(explicitEnv);
+  if (explicit) return explicit;
+  const accessTokenSecret = optionalEnv("QMA_ACCESS_TOKEN_SECRET") ?? optionalEnv("QMA_SESSION_SECRET");
+  if (!accessTokenSecret) {
+    throw new Error(`Missing ${explicitEnv} (or QMA_ACCESS_TOKEN_SECRET to derive it).`);
+  }
+  return `${derivedPrefix}:${accessTokenSecret}`;
+}
+const SPLIT_LEG_URL_SECRET = splitSecret("QMA_SPLIT_LEG_URL_SECRET", "split-url");
+const SPLIT_RECEIPT_SECRET = splitSecret("QMA_SPLIT_RECEIPT_SECRET", "split-receipt");
+const QMA_BACKEND_URL = requireEnv("QMA_BACKEND_INTERNAL_URL").replace(/\/$/, "");
+
+const ARC_USDC = arcConfig.usdcAddress;
+
 const SETTLEMENT_RAIL = "circle_gateway_x402";
 const SETTLEMENT_CURRENCY = "USDC";
 const SUPPORTED_SETTLEMENT_ASSETS = ["USDC"];
-const GATEWAY_WALLET_ADDRESS = GATEWAY_WALLET as `0x${string}`;
+const GATEWAY_WALLET_ADDRESS = GATEWAY_WALLET;
+
+// Arc's native gas token is USDC exposed with 18 decimals at the EVM level (the ERC-20 view uses 6).
+const arcChain = defineChain({
+  id: CHAIN_ID,
+  name: NETWORK_NAME,
+  nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
+  rpcUrls: { default: { http: [RPC_URL] } },
+  blockExplorers: { default: { name: "Explorer", url: ARC_EXPLORER } },
+  testnet: !isMainnet,
+});
+
 const publicClient = createPublicClient({
-  transport: http(process.env.ARC_TESTNET_RPC ?? "https://rpc.testnet.arc.network"),
+  chain: arcChain,
+  transport: http(RPC_URL),
 });
 const facilitator = new BatchFacilitatorClient({ url: GATEWAY_API });
 const GATEWAY_WALLET_ABI = parseAbi([
@@ -299,7 +318,7 @@ function buildSplitPaymentRequirements(req: express.Request, leg: Record<string,
   return {
     scheme: "exact" as const,
     network: NETWORK,
-    asset: ARC_TESTNET_USDC,
+    asset: ARC_USDC,
     amount: BigInt(String(leg.amount_raw)).toString(),
     payTo: getAddress(String(leg.pay_to)),
     maxTimeoutSeconds: 7 * 24 * 60 * 60 + 600,
@@ -344,7 +363,7 @@ function validateWithdrawIntent(
   if (!sameAddress(sourceContract, GATEWAY_WALLET) || !sameAddress(destinationContract, GATEWAY_MINTER)) {
     throw new RelayHttpError("intent targets an unexpected Gateway contract", 400);
   }
-  if (!sameAddress(sourceToken, ARC_TESTNET_USDC) || !sameAddress(destinationToken, ARC_TESTNET_USDC)) {
+  if (!sameAddress(sourceToken, ARC_USDC) || !sameAddress(destinationToken, ARC_USDC)) {
     throw new RelayHttpError("intent targets an unsupported token", 400);
   }
   if (!sameAddress(destinationCaller, zeroAddress)) {
@@ -420,7 +439,7 @@ app.get("/health", (_req, res) => {
     settlement: {
       rail: SETTLEMENT_RAIL,
       currency: SETTLEMENT_CURRENCY,
-      token_address: ARC_TESTNET_USDC,
+      token_address: ARC_USDC,
       decimals: 6,
       supported_assets: SUPPORTED_SETTLEMENT_ASSETS,
       gateway_supported: true,
@@ -432,14 +451,11 @@ app.get("/health", (_req, res) => {
 function amountForRequest(req: express.Request) {
   const requested = Number(req.query.amount_usdc ?? "");
   if (Number.isFinite(requested) && requested > 0) {
-    return `$${requested.toFixed(6).replace(/0+$/, "").replace(/\.$/, "")}`;
+    return usdcPrice(requested);
   }
   const tier = String(req.query.tier ?? "full").toLowerCase();
   if (tier === "preview") {
-    return `$${process.env.QMA_PRICE_PREVIEW_USDC ?? "0.002"}`;
-  }
-  if (tier === "full") {
-    return `$${process.env.QMA_PRICE_FULL_USDC ?? AMOUNT.replace(/^\$/, "")}`;
+    return PREVIEW_AMOUNT;
   }
   return AMOUNT;
 }
@@ -633,7 +649,7 @@ app.get("/qma-access", (req, res, next) => {
     settlement: {
       rail: SETTLEMENT_RAIL,
       currency: SETTLEMENT_CURRENCY,
-      token_address: ARC_TESTNET_USDC,
+      token_address: ARC_USDC,
       decimals: 6,
       amount: amountUsdc,
       network: NETWORK_NAME,
@@ -679,7 +695,7 @@ app.get("/api/deposit-calldata/:address", (req, res) => {
     const depositData = encodeFunctionData({
       abi: GATEWAY_WALLET_ABI,
       functionName: "deposit",
-      args: [ARC_TESTNET_USDC, rawAmount],
+      args: [ARC_USDC, rawAmount],
     });
     res.json({
       amount,
@@ -687,11 +703,11 @@ app.get("/api/deposit-calldata/:address", (req, res) => {
       approveAmount,
       rawApproveAmount: rawApproveAmount.toString(),
       depositor: req.params.address,
-      usdc: ARC_TESTNET_USDC,
+      usdc: ARC_USDC,
       gatewayWallet: GATEWAY_WALLET,
       approveTx: {
         from: req.params.address,
-        to: ARC_TESTNET_USDC,
+        to: ARC_USDC,
         data: approveData,
       },
       depositTx: {
@@ -711,13 +727,13 @@ app.get("/api/wallet-status/:address", async (req, res) => {
     const owner = req.params.address as `0x${string}`;
     const [usdcBalance, allowance] = await Promise.all([
       publicClient.readContract({
-        address: ARC_TESTNET_USDC,
+        address: ARC_USDC,
         abi: erc20Abi,
         functionName: "balanceOf",
         args: [owner],
       }),
       publicClient.readContract({
-        address: ARC_TESTNET_USDC,
+        address: ARC_USDC,
         abi: erc20Abi,
         functionName: "allowance",
         args: [owner, GATEWAY_WALLET_ADDRESS],
@@ -734,7 +750,10 @@ app.get("/api/wallet-status/:address", async (req, res) => {
         formatted: formatUnits(allowance, 6),
       },
       gatewayWallet: GATEWAY_WALLET,
-      usdcAddress: ARC_TESTNET_USDC,
+      usdcAddress: ARC_USDC,
+      network: NETWORK,
+      networkName: NETWORK_NAME,
+      chainId: CHAIN_ID,
       defaultDepositUsdc: DEFAULT_DEPOSIT_USDC,
       defaultApproveUsdc: DEFAULT_APPROVE_USDC,
     });
@@ -744,21 +763,13 @@ app.get("/api/wallet-status/:address", async (req, res) => {
 });
 
 app.get("/api/withdraw/relay/status", (_req, res) => {
-  let relayer = RELAYER_ADDRESS ?? null;
-  if (RELAYER_PRIVATE_KEY) {
-    try {
-      relayer = privateKeyToAccount(RELAYER_PRIVATE_KEY).address;
-    } catch {
-      relayer = RELAYER_ADDRESS ?? null;
-    }
-  }
   res.json({
     mode: RELAYER_PRIVATE_KEY ? "platform_relayed" : "seller_wallet",
     configured: Boolean(RELAYER_PRIVATE_KEY),
-    relayer,
+    relayer: relayerAddress(),
     gatewayMinter: GATEWAY_MINTER,
     gatewayWallet: GATEWAY_WALLET,
-    usdcAddress: ARC_TESTNET_USDC,
+    usdcAddress: ARC_USDC,
   });
 });
 
@@ -799,12 +810,12 @@ app.post("/api/withdraw/relay", async (req, res) => {
     const account = privateKeyToAccount(RELAYER_PRIVATE_KEY);
     const walletClient = createWalletClient({
       account,
-      chain: arcTestnet,
-      transport: http(process.env.ARC_TESTNET_RPC ?? "https://rpc.testnet.arc.network"),
+      chain: arcChain,
+      transport: http(RPC_URL),
     });
     const relayPublicClient = createPublicClient({
-      chain: arcTestnet,
-      transport: http(process.env.ARC_TESTNET_RPC ?? "https://rpc.testnet.arc.network"),
+      chain: arcChain,
+      transport: http(RPC_URL),
     });
     const mintTxHash = await walletClient.writeContract({
       address: GATEWAY_MINTER as Hex,
@@ -847,7 +858,7 @@ app.get("/api/creator/claim/status", (_req, res) => {
     executor: TREASURY_WALLET_ID ?? null,
     relayer: "circle_gas_station",
     treasury: SELLER,
-    usdcAddress: ARC_TESTNET_USDC,
+    usdcAddress: ARC_USDC,
     requiresInternalSecret: Boolean(INTERNAL_SECRET),
   });
 });
@@ -861,14 +872,19 @@ app.post("/api/internal/verdict-settlements/:invoiceId/execute", async (req, res
     }
     if (!treasuryWalletAddress || !treasuryAccountType) {
       const walletResponse = await circleClient.getWallet({ id: TREASURY_WALLET_ID });
-      treasuryWalletAddress = walletResponse.data?.wallet?.address ?? null;
-      treasuryAccountType = walletResponse.data?.wallet?.accountType ?? null;
+      const wallet = walletResponse.data?.wallet as { walletSetId?: string; address?: string; accountType?: string } | undefined;
+      treasuryWalletAddress = wallet?.address ?? null;
+      treasuryAccountType = wallet?.accountType ?? null;
     }
     if (!treasuryWalletAddress || !treasuryAccountType) {
       throw new RelayHttpError("Circle treasury wallet identity is unavailable", 503);
     }
     if (!sameAddress(treasuryWalletAddress, SELLER)) {
       throw new RelayHttpError("Circle treasury wallet address does not match the x402 seller", 503);
+    }
+    if (GATEWAY_DELEGATE_WALLET_ID && !gatewayDelegateAddress) {
+      const delegateResponse = await circleClient.getWallet({ id: GATEWAY_DELEGATE_WALLET_ID });
+      gatewayDelegateAddress = delegateResponse.data?.wallet?.address ?? undefined;
     }
 
     instruction = await backendJson(
@@ -884,15 +900,15 @@ app.post("/api/internal/verdict-settlements/:invoiceId/execute", async (req, res
       { method: "POST", body: JSON.stringify(value) },
     );
     const result = await executeVerdictSettlement(instruction, {
-      circleClient: circleClient as any,
+      circleClient: circleClient as unknown as VerdictExecutorDependencies["circleClient"],
       treasuryWalletId: TREASURY_WALLET_ID,
       treasuryAddress: treasuryWalletAddress,
       treasuryAccountType,
       delegateWalletId: GATEWAY_DELEGATE_WALLET_ID,
-      delegateAddress: GATEWAY_DELEGATE_ADDRESS,
+      delegateAddress: gatewayDelegateAddress,
       gatewayWallet: GATEWAY_WALLET,
       gatewayMinter: GATEWAY_MINTER,
-      arcUsdc: ARC_TESTNET_USDC,
+      arcUsdc: ARC_USDC,
       arcDomain: ARC_DOMAIN,
       arcExplorer: ARC_EXPLORER,
       maxFeeRaw: GATEWAY_MAX_FEE_RAW,
@@ -903,7 +919,13 @@ app.post("/api/internal/verdict-settlements/:invoiceId/execute", async (req, res
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(requests),
         });
-        const transferData = await transferRes.json().catch(() => ({})) as any;
+        const transferData = (await transferRes.json().catch(() => ({}))) as {
+          success?: boolean;
+          error?: string;
+          message?: string;
+          attestation?: Hex;
+          signature?: Hex;
+        };
         if (!transferRes.ok || transferData.success === false || transferData.error) {
           throw new RelayHttpError(
             `gateway transfer failed: ${transferData.message || transferData.error || `HTTP ${transferRes.status}`}`,
@@ -952,17 +974,26 @@ app.post("/api/creator/claim", async (req, res) => {
 
     console.log(`[Claim] Using Circle Paymaster for claim ${claimId}`);
 
-    const response = await circleClient.createTransaction({
-      idempotencyKey: crypto.randomUUID(),
-      walletId: TREASURY_WALLET_ID,
-      destinationAddress: recipient,
-      amount: [amountUsdc],
-      tokenId: "ef87c8c3-85de-598a-af50-c5135eecfa74", // ARC-TESTNET USDC Token ID
-      fee: {
-        type: "level",
-        config: { feeLevel: "MEDIUM" }
-      }
-    });
+    const claimTokenId = contractsConfig.circleArcUsdcTokenId || undefined;
+    const feeConfig = { type: "level" as const, config: { feeLevel: "MEDIUM" as const } };
+    const txPayload = claimTokenId
+      ? {
+          idempotencyKey: crypto.randomUUID(),
+          walletId: TREASURY_WALLET_ID,
+          destinationAddress: recipient,
+          amount: [amountUsdc],
+          tokenId: claimTokenId,
+          fee: feeConfig,
+        }
+      : {
+          idempotencyKey: crypto.randomUUID(),
+          walletId: TREASURY_WALLET_ID,
+          destinationAddress: recipient,
+          amount: [amountUsdc],
+          tokenAddress: ARC_USDC,
+          fee: feeConfig,
+        };
+    const response = await circleClient.createTransaction(txPayload);
 
     res.json({
       status: "success",
@@ -1047,8 +1078,7 @@ app.post("/api/wallet/create", async (req, res) => {
     if (!walletSetId) {
       throw new RelayHttpError("wallet set is not resolved yet, please try again in a moment", 503);
     }
-    const isMainnet = process.env.QMA_NETWORK_MODE === "mainnet";
-    const blockchain = isMainnet ? "ARC" : "ARC-TESTNET";
+    const blockchain = (isMainnet ? "ARC" : "ARC-TESTNET") as Parameters<CircleDeveloperControlledWalletsClient["createWallets"]>[0]["blockchains"][number];
 
     console.log(`[Circle] Creating a new session wallet on ${blockchain}...`);
     const walletsResponse = await circleClient.createWallets({
@@ -1062,7 +1092,7 @@ app.post("/api/wallet/create", async (req, res) => {
     if (wallets.length === 0) {
       throw new RelayHttpError("Failed to create wallet", 500);
     }
-    const wallet = wallets[0];
+    const wallet = wallets[0] as { id: string; address: string; blockchain: string; accountType?: string };
     res.json({
       status: "success",
       walletId: wallet.id,
@@ -1126,7 +1156,7 @@ app.post("/api/wallet/deposit", async (req, res) => {
     // 1. Approve Gateway to spend USDC from the wallet
     const approveTx = await circleClient.createContractExecutionTransaction({
       walletId,
-      contractAddress: ARC_TESTNET_USDC,
+      contractAddress: ARC_USDC,
       abiFunctionSignature: "approve(address,uint256)",
       abiParameters: [GATEWAY_WALLET, rawApproveAmount],
       fee: {
@@ -1143,7 +1173,7 @@ app.post("/api/wallet/deposit", async (req, res) => {
       walletId,
       contractAddress: GATEWAY_WALLET,
       abiFunctionSignature: "deposit(address,uint256)",
-      abiParameters: [ARC_TESTNET_USDC, rawAmount],
+      abiParameters: [ARC_USDC, rawAmount],
       fee: {
         type: "level",
         config: { feeLevel: "MEDIUM" }
@@ -1175,10 +1205,7 @@ app.post("/api/wallet/withdraw", async (req, res) => {
       throw new RelayHttpError("walletId, destinationAddress, and amountUsdc are required", 400);
     }
 
-    const isMainnet = process.env.QMA_NETWORK_MODE === "mainnet";
-    const tokenId = isMainnet
-      ? "usdc-token-id-on-arc-mainnet" // Replace with actual Token ID on mainnet
-      : "ef87c8c3-85de-598a-af50-c5135eecfa74"; // ARC-TESTNET USDC Token ID
+    const tokenId = contractsConfig.circleArcUsdcTokenId || undefined;
 
     console.log(`[Withdraw] Transferring ${amountUsdc} USDC from ${sourceWalletId} to ${destinationAddress}`);
 
@@ -1186,17 +1213,25 @@ app.post("/api/wallet/withdraw", async (req, res) => {
     // response collapse into the original Circle transaction instead of
     // double-sending funds; fall back to a random key for legacy callers.
     const clientKey = String(req.body?.idempotencyKey ?? "").trim();
-    const response = await circleClient.createTransaction({
-      idempotencyKey: clientKey || crypto.randomUUID(),
-      walletId: sourceWalletId,
-      destinationAddress,
-      amount: [amountUsdc],
-      tokenId,
-      fee: {
-        type: "level",
-        config: { feeLevel: "MEDIUM" }
-      }
-    });
+    const feeConfig = { type: "level" as const, config: { feeLevel: "MEDIUM" as const } };
+    const withdrawTxPayload = tokenId
+      ? {
+          idempotencyKey: clientKey || crypto.randomUUID(),
+          walletId: sourceWalletId,
+          destinationAddress,
+          amount: [amountUsdc],
+          tokenId,
+          fee: feeConfig,
+        }
+      : {
+          idempotencyKey: clientKey || crypto.randomUUID(),
+          walletId: sourceWalletId,
+          destinationAddress,
+          amount: [amountUsdc],
+          tokenAddress: ARC_USDC,
+          fee: feeConfig,
+        };
+    const response = await circleClient.createTransaction(withdrawTxPayload);
 
     res.json({
       status: "success",

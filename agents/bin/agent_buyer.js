@@ -18,27 +18,46 @@ import { createPublicClient, createWalletClient, encodeFunctionData, http, parse
 import { privateKeyToAccount } from "viem/accounts";
 
 const DEFAULT_API = "https://qma-api.onrender.com";
-const ARC_CHAIN_ID = 5042002;
-const ARC_TESTNET_CHAIN = {
-  id: ARC_CHAIN_ID,
-  name: "Arc Testnet",
-  nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
-  rpcUrls: {
-    default: { http: [process.env.ARC_TESTNET_RPC || "https://rpc.testnet.arc.network"] },
-  },
-  blockExplorers: {
-    default: { name: "Arcscan", url: "https://testnet.arcscan.app" },
-  },
+
+const networksPath = [
+  path.resolve(process.cwd(), "config", "networks.json"),
+  path.resolve(process.cwd(), "..", "config", "networks.json"),
+].find((p) => fs.existsSync(p));
+
+const networksData = networksPath ? JSON.parse(fs.readFileSync(networksPath, "utf8")) : null;
+const isMainnet = (process.env.QMA_NETWORK_MODE || "").toLowerCase() === "mainnet";
+const activeProfile = networksData ? (isMainnet ? networksData.mainnet : networksData.testnet) : null;
+const arcConfig = activeProfile?.arc || {
+  chainId: isMainnet ? 5042 : 5042002,
+  name: isMainnet ? "Arc Mainnet" : "Arc Testnet",
+  rpcUrl: isMainnet ? "https://rpc.mainnet.arc.io" : "https://rpc.testnet.arc.network",
+  explorerUrl: isMainnet ? "https://explorer.arc.io" : "https://testnet.arcscan.app",
+  usdcAddress: "0x3600000000000000000000000000000000000000",
+  usycVaultAddress: "0x934e7309d7fca371db946b0643f2136cc0a0fcb2",
 };
 
-const USDC_TOKEN_ADDRESS = process.env.ARC_USDC_ADDRESS || "0x3600000000000000000000000000000000000000";
+const ARC_CHAIN_ID = arcConfig.chainId;
+const ARC_CHAIN = {
+  id: arcConfig.chainId,
+  name: arcConfig.name,
+  nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 6 },
+  rpcUrls: {
+    default: { http: [process.env.ARC_RPC_URL || arcConfig.rpcUrl] },
+  },
+  blockExplorers: {
+    default: { name: "Explorer", url: process.env.ARC_EXPLORER || arcConfig.explorerUrl },
+  },
+};
+const ARC_TESTNET_CHAIN = ARC_CHAIN;
+
+const USDC_TOKEN_ADDRESS = process.env.ARC_USDC_ADDRESS || arcConfig.usdcAddress || "0x3600000000000000000000000000000000000000";
 const ERC20_ABI = [
   { inputs: [{ type: "address" }, { type: "address" }], name: "allowance", outputs: [{ type: "uint256" }], stateMutability: "view", type: "function" },
   { inputs: [{ type: "address" }, { type: "uint256" }], name: "approve", outputs: [{ type: "bool" }], stateMutability: "nonpayable", type: "function" },
   { inputs: [{ type: "address" }], name: "balanceOf", outputs: [{ type: "uint256" }], stateMutability: "view", type: "function" },
 ];
 
-const USYC_VAULT_ADDRESS = process.env.ARC_USYC_VAULT_ADDRESS || "0x934e7309d7fca371db946b0643f2136cc0a0fcb2";
+const USYC_VAULT_ADDRESS = process.env.ARC_USYC_VAULT_ADDRESS || arcConfig.usycVaultAddress || "0x934e7309d7fca371db946b0643f2136cc0a0fcb2";
 const USYC_VAULT_ABI = [
   { inputs: [], name: "totalAssets", outputs: [{ type: "uint256" }], stateMutability: "view", type: "function" },
   { inputs: [{ type: "address", name: "account" }], name: "balanceOf", outputs: [{ type: "uint256" }], stateMutability: "view", type: "function" },
@@ -698,7 +717,7 @@ const CONFIG = {
   runSource: process.env.QMA_RUN_SOURCE || argValue("run-source") || null,
   executor: argValue("executor", process.env.QMA_AGENT_EXECUTOR || "local-private-key"),
   circleWalletAddress: process.env.CIRCLE_AGENT_WALLET_ADDRESS || process.env.QMA_CIRCLE_AGENT_WALLET_ADDRESS || argValue("wallet"),
-  circleChain: process.env.CIRCLE_AGENT_WALLET_CHAIN || "ARC-TESTNET",
+  circleChain: process.env.CIRCLE_AGENT_WALLET_CHAIN || (isMainnet ? "ARC" : "ARC-TESTNET"),
   candidateId: argValue("candidate-id"),
   canonicalQuery: (() => {
     const raw = argValue("query-json");
@@ -1079,7 +1098,7 @@ async function runTreasuryMode() {
   console.log(`===============================================`);
   console.log(`Target Wallet: ${targetWallet}`);
   console.log(`Execution    : ${isLive ? "🟢 LIVE ON-CHAIN BROADCAST" : "🟡 DRY-RUN SIMULATION (Pass --live to execute)"}`);
-  console.log(`Network      : Arc Testnet (Chain ID 5042002)`);
+  console.log(`Network      : ${ARC_CHAIN.name} (Chain ID ${ARC_CHAIN.id})`);
   console.log(`Underlying   : USDC ERC-20 (${USDC_TOKEN_ADDRESS})`);
   console.log(`USYC Vault   : ${USYC_VAULT_ADDRESS}`);
 
@@ -1111,28 +1130,28 @@ async function runTreasuryMode() {
         account: targetWallet,
         vault_contract: USYC_VAULT_ADDRESS,
         underlying_asset: USDC_TOKEN_ADDRESS,
-        chain_id: ARC_CHAIN_ID,
-        network: "Arc Testnet",
+        chain_id: ARC_CHAIN.id,
+        network: ARC_CHAIN.name,
         is_live_onchain: true,
         usyc_shares: userShares,
         usdc_equivalent: userShares,
         total_vault_assets_usdc: totalVaultUsdc,
         current_apy_percent: 5.0,
-        explorer_url: `https://testnet.arcscan.app/address/${USYC_VAULT_ADDRESS}`,
+        explorer_url: `${ARC_CHAIN.blockExplorers.default.url}/address/${USYC_VAULT_ADDRESS}`,
       };
     } catch (e) {
       pos = {
         account: targetWallet,
         vault_contract: USYC_VAULT_ADDRESS,
         underlying_asset: USDC_TOKEN_ADDRESS,
-        chain_id: ARC_CHAIN_ID,
-        network: "Arc Testnet",
+        chain_id: ARC_CHAIN.id,
+        network: ARC_CHAIN.name,
         is_live_onchain: false,
         usyc_shares: 0.0,
         usdc_equivalent: 0.0,
         total_vault_assets_usdc: 0.0,
         current_apy_percent: 5.0,
-        explorer_url: `https://testnet.arcscan.app/address/${USYC_VAULT_ADDRESS}`,
+        explorer_url: `${ARC_CHAIN.blockExplorers.default.url}/address/${USYC_VAULT_ADDRESS}`,
       };
     }
   }
@@ -1360,7 +1379,7 @@ async function runTreasuryMode() {
   console.log(`  Audit Health    : ✅ PASSED (All records SHA-256 verified)`);
   console.log(`  Vault On-Chain  : ${USYC_VAULT_ADDRESS}`);
   console.log(`  Deployment Tx   : 0xe6d8610e5a7697fcfdf6a6159321773802b8315acc9b897854f498355d7972c0`);
-  console.log(`  Anchor Chain    : Arc Testnet (Chain ID 5042002)\n`);
+  console.log(`  Anchor Chain    : ${ARC_CHAIN.name} (Chain ID ${ARC_CHAIN.id})\n`);
 }
 
 const entrypoint = hasFlag("treasury")
