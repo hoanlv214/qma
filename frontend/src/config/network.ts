@@ -10,7 +10,7 @@ import networksData from "../../../config/networks.json";
 export type NetworkMode = "testnet" | "mainnet";
 
 export const NETWORK_MODE: NetworkMode =
-  ((import.meta.env.VITE_NETWORK_MODE || (import.meta.env as any).QMA_NETWORK_MODE || "").trim().toLowerCase() === "mainnet")
+  ((import.meta.env.VITE_NETWORK_MODE || "").trim().toLowerCase() === "mainnet")
     ? "mainnet"
     : "testnet";
 
@@ -48,44 +48,19 @@ export interface ArcChainConfig extends SupportedCrossChain {
   shieldContractAddress?: string;
 }
 
-// Active profile raw data loaded from shared config/networks.json
+// Active profile raw data loaded from shared config/networks.json based on NETWORK_MODE
 const rawProfile = IS_TESTNET ? networksData.testnet : networksData.mainnet;
-
-// Allow environment variables to optionally override active profile properties
-const resolveArcChainId = (): number => {
-  const envVal = import.meta.env.VITE_ARC_CHAIN_ID;
-  if (envVal && (IS_TESTNET || String(envVal) !== "5042002")) {
-    return Number(envVal);
-  }
-  return rawProfile.arc.chainId;
-};
-
-const resolveArcRpc = (): string => {
-  const envVal = import.meta.env.VITE_ARC_RPC_URL;
-  if (envVal && (IS_TESTNET || !envVal.includes("testnet"))) {
-    return envVal;
-  }
-  return rawProfile.arc.rpcUrl;
-};
-
-const resolveArcExplorer = (): string => {
-  const envVal = import.meta.env.VITE_ARC_EXPLORER;
-  if (envVal && (IS_TESTNET || !envVal.includes("testnet"))) {
-    return envVal;
-  }
-  return rawProfile.arc.explorerUrl;
-};
 
 export const ARC_CHAIN: ArcChainConfig = {
   id: "arc",
-  name: import.meta.env.VITE_ARC_CHAIN_NAME || rawProfile.arc.name,
-  chainId: resolveArcChainId(),
-  chainIdHex: `0x${resolveArcChainId().toString(16)}`,
-  cctpDomain: Number(import.meta.env.VITE_ARC_CCTP_DOMAIN || rawProfile.arc.cctpDomain),
-  explorerUrl: resolveArcExplorer(),
-  rpcUrl: resolveArcRpc(),
-  usdcAddress: (import.meta.env.VITE_ARC_USDC_ADDRESS || rawProfile.arc.usdcAddress) as `0x${string}`,
-  eurcAddress: (import.meta.env.VITE_ARC_EURC_ADDRESS || rawProfile.arc.eurcAddress) as `0x${string}`,
+  name: rawProfile.arc.name,
+  chainId: rawProfile.arc.chainId,
+  chainIdHex: rawProfile.arc.chainIdHex,
+  cctpDomain: rawProfile.arc.cctpDomain,
+  explorerUrl: rawProfile.arc.explorerUrl,
+  rpcUrl: rawProfile.arc.rpcUrl,
+  usdcAddress: rawProfile.arc.usdcAddress as `0x${string}`,
+  eurcAddress: rawProfile.arc.eurcAddress as `0x${string}`,
   usycVaultAddress: rawProfile.arc.usycVaultAddress,
   shieldContractAddress: rawProfile.arc.shieldContractAddress,
   nativeCurrency: rawProfile.arc.nativeCurrency,
@@ -104,10 +79,10 @@ export const SUPPORTED_CROSS_CHAINS: SupportedCrossChain[] = rawProfile.crossCha
 }));
 
 export const CIRCLE_CONTRACTS: CircleContractsConfig = {
-  gatewayWallet: (import.meta.env.VITE_GATEWAY_WALLET || rawProfile.contracts.gatewayWallet) as `0x${string}`,
-  gatewayMinter: (import.meta.env.VITE_GATEWAY_MINTER || rawProfile.contracts.gatewayMinter) as `0x${string}`,
-  cctpTokenMessenger: (import.meta.env.VITE_CCTP_TOKEN_MESSENGER || rawProfile.contracts.cctpTokenMessenger) as `0x${string}`,
-  gatewayApiUrl: import.meta.env.VITE_GATEWAY_API_URL || rawProfile.contracts.gatewayApiUrl,
+  gatewayWallet: rawProfile.contracts.gatewayWallet as `0x${string}`,
+  gatewayMinter: rawProfile.contracts.gatewayMinter as `0x${string}`,
+  cctpTokenMessenger: rawProfile.contracts.cctpTokenMessenger as `0x${string}`,
+  gatewayApiUrl: rawProfile.contracts.gatewayApiUrl,
 };
 
 export const ARC_TOKENS = {

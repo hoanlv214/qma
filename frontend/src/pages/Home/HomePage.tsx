@@ -511,7 +511,7 @@ export function HomePage({ onNavigate }: HomeProps) {
                                 <a href="/docs" target="_blank" rel="noopener noreferrer">API Docs</a>
                                 <button type="button" className="footer-link-btn" onClick={() => onNavigate("terms")}>Terms of Service</button>
                                 <button type="button" className="footer-link-btn" onClick={() => onNavigate("privacy")}>Privacy Policy</button>
-                                <a href="https://testnet.arcscan.app/" target="_blank" rel="noopener noreferrer">Arcscan Explorer</a>
+                                <a href={ARC_CHAIN.explorerUrl} target="_blank" rel="noopener noreferrer">Arc Explorer</a>
                             </div>
                             <div className="landing-footer-col">
                                 <h3>Developers</h3>

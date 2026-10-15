@@ -79,8 +79,17 @@ export interface AgentIncident {
   timestamp?: string;
 }
 
-export const fetchTreasuryPosition = (init: RequestInit = {}) =>
-  requestJson<TreasuryPosition>("/api/v1/treasury/usyc/position", init);
+export const fetchTreasuryPosition = (
+  accountOrInit?: string | RequestInit,
+  maybeInit?: RequestInit
+) => {
+  const account = typeof accountOrInit === "string" ? accountOrInit : undefined;
+  const init = typeof accountOrInit === "object" ? accountOrInit : (maybeInit || {});
+  const url = account
+    ? `/api/v1/treasury/usyc/position?account=${encodeURIComponent(account)}`
+    : "/api/v1/treasury/usyc/position";
+  return requestJson<TreasuryPosition>(url, init);
+};
 
 export interface GenlayerStatus {
   status: "operational" | "degraded" | "unconfigured";
@@ -95,8 +104,17 @@ export interface GenlayerStatus {
 export const fetchGenlayerStatus = (init: RequestInit = {}) =>
   requestJson<GenlayerStatus>("/api/v1/genlayer/status", init);
 
-export const fetchTreasuryForecast = (horizonDays = 30, init: RequestInit = {}) =>
-  requestJson<TreasuryForecast>(`/api/v1/treasury/usyc/forecast?horizon_days=${horizonDays}`, init);
+export const fetchTreasuryForecast = (
+  horizonDays = 30,
+  accountOrInit?: string | RequestInit,
+  maybeInit?: RequestInit
+) => {
+  const account = typeof accountOrInit === "string" ? accountOrInit : undefined;
+  const init = typeof accountOrInit === "object" ? accountOrInit : (maybeInit || {});
+  const params = new URLSearchParams({ horizon_days: String(horizonDays) });
+  if (account) params.set("account", account);
+  return requestJson<TreasuryForecast>(`/api/v1/treasury/usyc/forecast?${params.toString()}`, init);
+};
 
 export const fetchTreasuryPolicy = (init: RequestInit = {}) =>
   requestJson<TreasuryPolicy>("/api/v1/treasury/policy", init);

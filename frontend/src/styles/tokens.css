@@ -139,8 +139,13 @@
 .invoice-val,
 .pf-val,
 .terminal-line,
+.currency-amount,
+.metric-value,
+.ticker-value,
+.balance-amount,
 [data-tabular] {
     font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
 }
 
 .text-balance {

@@ -48,7 +48,7 @@ export function DecisionReceipt({
   const settlementId = paymentDetails?.settlementId || invoice?.settlement_id;
   const arcscanUrl = (paymentDetails?.explorerUrl && paymentDetails.explorerUrl !== paymentDetails.genlayerExplorerUrl && !paymentDetails.explorerUrl.includes('genlayer.com'))
     ? paymentDetails.explorerUrl
-    : (arcscanTx ? `https://testnet.arcscan.app/tx/${arcscanTx}` : undefined);
+    : (arcscanTx ? `${ARC_CHAIN.explorerUrl}/tx/${arcscanTx}` : undefined);
   const genlayerUrl = paymentDetails?.genlayerExplorerUrl || (genlayerTx ? `https://explorer-studio-dev.genlayer.com/transactions/${genlayerTx}` : undefined);
   const dynamicConfidence = genlayerReceipt?.confidence != null
     ? (Number(genlayerReceipt.confidence) / 100).toFixed(2)

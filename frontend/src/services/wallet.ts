@@ -98,6 +98,11 @@ export async function connectWallet(rdns?: string): Promise<string> {
   const provider = getInjectedWallet(rdns);
   if (!provider) throw new Error("No EVM wallet provider found. Please install a Web3 wallet (MetaMask, Rabby, OKX, etc.).");
   const accounts = await provider.request<string[]>({ method: "eth_requestAccounts" });
+  try {
+    await ensureArcNetwork(provider);
+  } catch (err) {
+    console.warn("Could not switch to target Arc network upon connect:", err);
+  }
   return accounts?.[0] || "";
 }
 

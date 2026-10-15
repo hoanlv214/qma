@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Loader } from "@/components/Loader";
 import { getPlatformSummary, getPlatformPayments, getPlatformPayers } from "@/services/traction";
 import { shortAddress } from "@/services/wallet";
+import { ARC_CHAIN } from "@/config/network";
 import { formatDateTime, formatUsdc, gatewayStatusBadge, tierLabel } from "@/utils/format";
 
 type PlatformData = Record<string, any>;
@@ -20,7 +21,7 @@ function renderSettlementRef(event: any) {
   }
   if (txHash) {
     return (
-      <a className="tx-link" href={`https://testnet.arcscan.app/tx/${txHash}`} target="_blank" rel="noreferrer" title={`Settlement: ${settlementId || ""}`}>
+      <a className="tx-link" href={`${ARC_CHAIN.explorerUrl}/tx/${txHash}`} target="_blank" rel="noreferrer" title={`Settlement: ${settlementId || ""}`}>
         {shortAddress(txHash)}
       </a>
     );

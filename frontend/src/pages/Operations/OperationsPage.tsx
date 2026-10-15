@@ -182,7 +182,10 @@ export function OperationsPage({ onNavigate }: OperationsProps) {
               <dl className="operations-kv">
                 <div><dt>Yield vault (USDC equivalent)</dt><dd className="mono">{usdc(position?.usdc_equivalent, 4)}</dd></div>
                 <div><dt>Vault shares</dt><dd className="mono">{position?.usyc_shares ?? "—"}</dd></div>
-                <div><dt>Current APY</dt><dd className="mono">{position?.current_apy_percent ?? "—"}%</dd></div>
+                <div>
+                  <dt>Current APY <InfoHint text="Net APY estimated by EarnKit for the Morpho USDC lending vault on Arc." /></dt>
+                  <dd className="mono">{position?.current_apy_percent ?? "—"}%</dd>
+                </div>
               </dl>
             </section>
 
@@ -195,9 +198,18 @@ export function OperationsPage({ onNavigate }: OperationsProps) {
               <div className="operations-big-metric">{usdc(forecast?.total_treasury_usdc, 4)}</div>
               <p className="operations-metric-caption">Total treasury under management</p>
               <dl className="operations-kv">
-                <div><dt>Upcoming obligations</dt><dd className="mono">{usdc(forecast?.upcoming_bills_usdc, 4)}</dd></div>
-                <div><dt>Projected yield (30d)</dt><dd className="mono">{usdc(forecast?.projected_yield_earned_usdc, 4)}</dd></div>
-                <div><dt>Safety buffer ratio</dt><dd className="mono">{forecast?.safety_buffer_ratio ?? "—"}×</dd></div>
+                <div>
+                  <dt>Upcoming obligations <InfoHint text="Sum of open creator claims awaiting settlement plus the minimum operating obligations baseline ($5.00 USDC)." /></dt>
+                  <dd className="mono">{usdc(forecast?.upcoming_bills_usdc, 4)}</dd>
+                </div>
+                <div>
+                  <dt>Projected yield (30d) <InfoHint text="Compounded interest earned over 30 days based on active vault shares and current APY." /></dt>
+                  <dd className="mono">{usdc(forecast?.projected_yield_earned_usdc, 4)}</dd>
+                </div>
+                <div>
+                  <dt>Safety buffer ratio <InfoHint text="Ratio of total treasury assets to upcoming obligations (target policy buffer is 2×)." /></dt>
+                  <dd className="mono">{forecast?.safety_buffer_ratio ?? "—"}×</dd>
+                </div>
               </dl>
             </section>
 

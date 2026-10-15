@@ -13,7 +13,7 @@ describe("WalletAppKitModal & Reown AppKit Suite", () => {
     expect(arcTestnetChain.id).toBe(5042002);
     expect(arcTestnetChain.name).toBe("Arc Testnet");
     expect(arcTestnetChain.nativeCurrency.symbol).toBe("USDC");
-    expect(arcTestnetChain.chainNamespace).toBe("eip155");
+    expect((arcTestnetChain as any).chainNamespace).toBe("eip155");
 
     const account = getAppKitAccount();
     expect(account).toHaveProperty("isConnected");

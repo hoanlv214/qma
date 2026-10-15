@@ -270,6 +270,18 @@
     color: #64b5f6;
 }
 
+.exchange-pill.exchange-polymarket {
+    border-color: rgba(139, 92, 246, 0.45);
+    background: rgba(139, 92, 246, 0.15);
+    color: #a78bfa;
+}
+
+.exchange-pill.exchange-pyth {
+    border-color: rgba(232, 121, 249, 0.45);
+    background: rgba(232, 121, 249, 0.15);
+    color: #f0abfc;
+}
+
 .card-funding {
     font-family: var(--mono);
     font-size: 0.75rem;

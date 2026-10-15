@@ -292,11 +292,11 @@ export function AutonomousCfoTreasuryRadar() {
                             <td className="mono-td">
                               {r.tx_hash ? (
                                 <a
-                                  href={r.arcscan_url || `https://testnet.arcscan.app/tx/${r.tx_hash}`}
+                                  href={r.arcscan_url || `${ARC_CHAIN.explorerUrl}/tx/${r.tx_hash}`}
                                   target="_blank"
                                   rel="noreferrer"
                                   className="tx-link"
-                                  title={`Arcscan Tx: ${r.tx_hash}`}
+                                  title={`Explorer Tx: ${r.tx_hash}`}
                                 >
                                   Tx: {shortAddress(r.tx_hash)}
                                 </a>

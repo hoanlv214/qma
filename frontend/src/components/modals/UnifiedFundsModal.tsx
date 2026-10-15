@@ -918,7 +918,7 @@ export function UnifiedFundsModal({
                           )}
                         </button>
                       </div>
-                      <div className="text-xs text-t3">Send USDC (via Arc Testnet) to this smart contract address.</div>
+                      <div className="text-xs text-t3">Send USDC (via {ARC_CHAIN.name}) to this smart contract address.</div>
                     </div>
 
                     <div className="flex flex-col gap-3">

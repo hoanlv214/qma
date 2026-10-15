@@ -312,7 +312,7 @@ export function TractionPage({ onNavigate }: TractionProps) {
                       {recentSettlements.slice(0, 5).map((event: any, idx: number) => {
                         const txHash = event?.transaction_hash || event?.tx_hash || event?.settlement_tx_hash;
                         const settlementId = event?.settlement_id;
-                        const explorerUrl = event?.explorer_url || (txHash ? `https://testnet.arcscan.app/tx/${txHash}` : "");
+                        const explorerUrl = event?.explorer_url || (txHash ? `${ARC_CHAIN.explorerUrl}/tx/${txHash}` : "");
                         const isFinal = ["completed", "confirmed"].includes(String(event?.gateway_status || "").toLowerCase());
 
                         return (

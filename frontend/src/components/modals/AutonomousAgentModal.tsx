@@ -90,7 +90,7 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
     let disposed = false;
     const load = () => {
       fetchGenlayerStatus()
-        .then((s) => { if (!disposed) setGenlayerStatus(s); })
+        .then((s: GenlayerStatus) => { if (!disposed) setGenlayerStatus(s); })
         .catch(() => { if (!disposed) setGenlayerStatus(null); });
     };
     load();

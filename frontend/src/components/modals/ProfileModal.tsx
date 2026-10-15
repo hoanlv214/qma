@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
 import { Loader } from "../ui/Loader";
 import { shortAddress } from "../../utils/format";
+import { ARC_CHAIN } from "../../config/network";
 import "./ProfileModal.css";
 
 interface ProfileModalProps {
@@ -76,7 +77,7 @@ export function ProfileModal({
                   <td>{payment.symbol || payment.query_symbol || "n/a"}</td>
                   <td className="mono-td">{amount != null ? `${Number(amount).toFixed(3)} USDC` : "-"}</td>
                   <td><span className={`pnl-badge ${status === "completed" || status === "received" ? "win" : "loss"}`}>{status}</span></td>
-                  <td className="mono-td settlement-cell">{txHash ? <a className="tx-link" href={payment.explorer_url || `https://testnet.arcscan.app/tx/${txHash}`} target="_blank" rel="noopener noreferrer">{shortAddress(txHash)}</a> : settlementLabel ? <span className="settlement-ref">{shortAddress(settlementLabel)}</span> : "n/a"}</td>
+                  <td className="mono-td settlement-cell">{txHash ? <a className="tx-link" href={payment.explorer_url || `${ARC_CHAIN.explorerUrl}/tx/${txHash}`} target="_blank" rel="noopener noreferrer">{shortAddress(txHash)}</a> : settlementLabel ? <span className="settlement-ref">{shortAddress(settlementLabel)}</span> : "n/a"}</td>
                   <td>{payment.has_report || status === "completed" || status === "received" ? <button type="button" className="refresh-btn" onClick={() => onOpenReport(payment)}>Open</button> : "n/a"}</td>
                 </tr>;
               })}

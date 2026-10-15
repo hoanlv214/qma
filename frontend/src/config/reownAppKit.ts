@@ -1,10 +1,10 @@
 import { createAppKit } from "@reown/appkit/react";
-import { defineChain } from "@reown/appkit/networks";
+import { defineChain, type AppKitNetwork } from "@reown/appkit/networks";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { ARC_CHAIN } from "./network";
 import { registerAppKitProviderSource, type Eip1193Provider } from "../services/wallet";
 
-export const arcTestnetChain = defineChain({
+export const arcTestnetChain: AppKitNetwork = defineChain({
   id: ARC_CHAIN.chainId,
   name: ARC_CHAIN.name,
   chainNamespace: "eip155",
@@ -21,16 +21,18 @@ export const arcTestnetChain = defineChain({
   },
   blockExplorers: {
     default: {
-      name: "Arcscan",
+      name: ARC_CHAIN.name,
       url: ARC_CHAIN.explorerUrl,
     },
   },
 });
 
-// 1. Get projectId from env or use public development fallback
+import { appConfig } from "./app";
+
+// 1. Get projectId from env or use centralized config
 export const projectId =
   (import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string) ||
-  "b56e18d47c72ab683b10814fe9495694";
+  appConfig.walletConnect.projectId;
 
 // 2. Initialize WagmiAdapter
 export const wagmiAdapter = new WagmiAdapter({

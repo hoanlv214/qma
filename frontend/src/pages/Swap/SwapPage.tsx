@@ -1304,7 +1304,7 @@ export function SwapPage({ onNavigate }: SwapProps) {
                         {fxTxHash && (
                           <div className="feedback-links">
                             <a
-                              href={`https://testnet.arcscan.app/tx/${fxTxHash}`}
+                              href={`${ARC_CHAIN.explorerUrl}/tx/${fxTxHash}`}
                               target="_blank"
                               rel="noreferrer"
                               className="feedback-link"
@@ -1313,7 +1313,7 @@ export function SwapPage({ onNavigate }: SwapProps) {
                             </a>
                             {fxSettlementTxHash && (
                               <a
-                                href={fxSettlementExplorerUrl || `https://testnet.arcscan.app/tx/${fxSettlementTxHash}`}
+                                href={fxSettlementExplorerUrl || `${ARC_CHAIN.explorerUrl}/tx/${fxSettlementTxHash}`}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="feedback-link"

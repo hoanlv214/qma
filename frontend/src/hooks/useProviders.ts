@@ -40,6 +40,37 @@ const DEFAULT_PROVIDERS: Provider[] = [
       ],
     },
   },
+  {
+    provider_id: "polymarket_divergence",
+    provider_name: "Polymarket Prediction Divergence",
+    category: "prediction_market",
+    description: "Cross-market prediction divergence engine between Polymarket and perpetual futures",
+    owner_wallet: "0x3333333333333333333333333333333333333333",
+    ui_schema: {
+      fields: [
+        { key: "symbol", label: "Target Symbol", type: "string", default: "BTC" },
+        { key: "event_title", label: "Prediction Question", type: "string", default: "When will Bitcoin hit $150k?" },
+        { key: "market_probability", label: "Polymarket Prob", type: "number", default: 0.28, step: 0.01 },
+        { key: "perpetual_funding_8h", label: "Perp Funding (%)", type: "number", default: 0.015, step: 0.005 },
+        { key: "basis_spread_bps", label: "Basis Spread (bps)", type: "number", default: 45, step: 5 },
+      ],
+    },
+  },
+  {
+    provider_id: "pyth_stress_band",
+    provider_name: "Pyth Low-Latency Stress Band",
+    category: "market_stress",
+    description: "Sub-second oracle stress analytics powered by Pyth Network Hermes",
+    owner_wallet: "0x4444444444444444444444444444444444444444",
+    ui_schema: {
+      fields: [
+        { key: "symbol", label: "Oracle Feed", type: "string", default: "ETH/USD" },
+        { key: "price", label: "Pyth Price ($)", type: "number", default: 2515.50, step: 0.5 },
+        { key: "confidence_interval", label: "Confidence (±$)", type: "number", default: 1.25, step: 0.05 },
+        { key: "exponent", label: "Feed Exponent", type: "integer", default: -8 },
+      ],
+    },
+  },
 ];
 
 export function useProviders({ activeQuery, setActiveQuery }: UseProvidersOptions) {

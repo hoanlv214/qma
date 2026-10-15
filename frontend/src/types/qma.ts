@@ -51,7 +51,7 @@ export interface Provider {
       key: string;
       label: string;
       type: string;
-      step?: string;
+      step?: string | number;
       required?: boolean;
       default?: any;
     }[];

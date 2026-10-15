@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { appKit, openAppKitModal, closeAppKitModal } from "../../config/reownAppKit";
+import { ensureArcNetwork } from "../../services/wallet";
 
 export interface WalletAppKitModalProps {
   open: boolean;
@@ -10,7 +11,7 @@ export interface WalletAppKitModalProps {
 /**
  * Reown AppKit Wallet Connection Bridge.
  * Replaces the handwritten 354-line EIP-6963 modal with the official Reown AppKit ecosystem modal.
- * Supports 300+ wallets, QR mobile connections, and automatic Arc Testnet alignment.
+ * Supports 300+ wallets, QR mobile connections, and automatic Arc network alignment.
  */
 export function WalletAppKitModal({ open, onClose, onConnected }: WalletAppKitModalProps) {
   const initialAddressRef = useRef<string | null>(null);
@@ -37,6 +38,7 @@ export function WalletAppKitModal({ open, onClose, onConnected }: WalletAppKitMo
       if (account?.isConnected && account?.address) {
         // Trigger only if address is newly connected or modal was explicitly opened
         if (account.address !== initialAddressRef.current || !initialAddressRef.current) {
+          ensureArcNetwork().catch(() => {});
           onConnected(account.address);
           closeAppKitModal().catch(() => {});
           onClose();

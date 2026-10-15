@@ -393,12 +393,12 @@ export function PaywallPanel(props: PaywallPanelProps) {
                     ) : null}
                     {paymentDetails.txHash && paymentDetails.txHash !== (paymentDetails.genlayerTxHash || genlayerReceipt?.transaction_hash) ? (
                       <div className="paywall-detail-row">
-                        <span className="paywall-detail-label">Arcscan Tx</span>
+                        <span className="paywall-detail-label">Explorer Tx</span>
                         <a
                           className="paywall-detail-value tx-link"
                           href={paymentDetails.explorerUrl && paymentDetails.explorerUrl !== paymentDetails.genlayerExplorerUrl && !paymentDetails.explorerUrl.includes('genlayer.com')
                             ? paymentDetails.explorerUrl
-                            : `https://testnet.arcscan.app/tx/${paymentDetails.txHash}`
+                            : `${ARC_CHAIN.explorerUrl}/tx/${paymentDetails.txHash}`
                           }
                           target="_blank"
                           rel="noreferrer"

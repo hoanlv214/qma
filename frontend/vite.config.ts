@@ -59,6 +59,17 @@ export default defineConfig({
       },
     }
   },
+  build: {
+    chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor_react: ["react", "react-dom"],
+          vendor_web3: ["viem", "wagmi", "@reown/appkit", "@reown/appkit-adapter-wagmi"],
+        },
+      },
+    },
+  },
   preview: {
     port: 4173,
   },
