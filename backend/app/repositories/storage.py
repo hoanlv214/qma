@@ -441,6 +441,8 @@ def reserve_agent_wallet_spend(
     spend_cap: float = 10000.0,
 ) -> bool:
     try:
+        if hasattr(storage_backend, "reserve_agent_wallet_spend"):
+            return bool(storage_backend.reserve_agent_wallet_spend(wallet_address, amount, spend_cap))
         if hasattr(storage_backend, "rpc"):
             res = storage_backend.rpc(
                 "reserve_agent_wallet_spend",
@@ -463,6 +465,8 @@ def release_agent_wallet_spend(
     amount: float,
 ) -> bool:
     try:
+        if hasattr(storage_backend, "release_agent_wallet_spend"):
+            return bool(storage_backend.release_agent_wallet_spend(wallet_address, amount))
         if hasattr(storage_backend, "rpc"):
             storage_backend.rpc(
                 "release_agent_wallet_spend",
@@ -474,6 +478,52 @@ def release_agent_wallet_spend(
             return True
     except Exception as exc:
         logger.warning(f"Could not release agent wallet spend: {exc}")
+    return False
+
+
+def reserve_session_spend(
+    storage_backend,
+    *,
+    session_id: str,
+    amount: float,
+) -> bool:
+    try:
+        if hasattr(storage_backend, "reserve_session_spend"):
+            return bool(storage_backend.reserve_session_spend(session_id, amount))
+        if hasattr(storage_backend, "rpc"):
+            res = storage_backend.rpc(
+                "reserve_session_spend",
+                {
+                    "p_session_id": session_id,
+                    "p_amount": amount,
+                },
+            )
+            return bool(res)
+    except Exception as exc:
+        logger.warning(f"Could not reserve session spend: {exc}")
+    return False
+
+
+def release_session_spend(
+    storage_backend,
+    *,
+    session_id: str,
+    amount: float,
+) -> bool:
+    try:
+        if hasattr(storage_backend, "release_session_spend"):
+            return bool(storage_backend.release_session_spend(session_id, amount))
+        if hasattr(storage_backend, "rpc"):
+            storage_backend.rpc(
+                "release_session_spend",
+                {
+                    "p_session_id": session_id,
+                    "p_amount": amount,
+                },
+            )
+            return True
+    except Exception as exc:
+        logger.warning(f"Could not release session spend: {exc}")
     return False
 
 

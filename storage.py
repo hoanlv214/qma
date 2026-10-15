@@ -1398,7 +1398,7 @@ class PostgresStorage:
 
     backend_name = "postgres"
 
-    def __init__(self, database_url: str, min_conn: int = 1, max_conn: int = 10):
+    def __init__(self, database_url: str, min_conn: int = 1, max_conn: int = 30):
         if psycopg2 is None:
             raise RuntimeError("psycopg2 is not installed. Please install psycopg2-binary to use PostgresStorage.")
         self.database_url = database_url
@@ -1676,7 +1676,62 @@ class PostgresStorage:
                 (settlement_id,),
                 fetch_one=True
             )
+        if row:
+            return True
+
+        row = self.execute_query(
+            "SELECT entitlement_id FROM public.qma_paid_reports WHERE settlement_id = %s LIMIT 1;",
+            (settlement_id,),
+            fetch_one=True
+        )
         return row is not None
+
+    def claim_settlement_for_invoice(self, settlement_id: str, invoice_id: str) -> bool:
+        if not settlement_id or not invoice_id:
+            return False
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                # Advisory transaction lock on the settlement ID to serialize claims
+                cur.execute("SELECT pg_advisory_xact_lock(hashtext('settlement:' || %s));", (settlement_id,))
+
+                # Check payment events
+                cur.execute("SELECT 1 FROM public.qma_payment_events WHERE settlement_id = %s LIMIT 1;", (settlement_id,))
+                if cur.fetchone():
+                    conn.rollback()
+                    return False
+
+                # Check other invoices
+                cur.execute(
+                    "SELECT 1 FROM public.qma_invoices WHERE settlement_id = %s AND invoice_id != %s LIMIT 1;",
+                    (settlement_id, invoice_id),
+                )
+                if cur.fetchone():
+                    conn.rollback()
+                    return False
+
+                # Check paid reports
+                cur.execute("SELECT 1 FROM public.qma_paid_reports WHERE settlement_id = %s LIMIT 1;", (settlement_id,))
+                if cur.fetchone():
+                    conn.rollback()
+                    return False
+
+                # Bind to invoice atomically
+                cur.execute(
+                    "UPDATE public.qma_invoices SET settlement_id = %s WHERE invoice_id = %s AND (settlement_id IS NULL OR settlement_id = %s);",
+                    (settlement_id, invoice_id, settlement_id),
+                )
+                updated = cur.rowcount > 0
+                conn.commit()
+                return updated
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            return False
+        finally:
+            self.put_connection(conn)
 
     def save_paid_reports(self, reports: dict) -> None:
         if not reports:
@@ -2540,9 +2595,70 @@ class PostgresStorage:
     def save_creator_claim(self, record: dict) -> None:
         # Claims are money-critical: a failed write must fail closed, never
         # vanish behind a warning while the caller reports success.
+        wallet = record.get("creator_wallet") or record.get("claimant_address")
+        amount = float(record.get("amount_usdc") or 0.0)
         self._upsert("qma_creator_claims", [{
-            "claim_id": record["claim_id"], "claim": record,
+            "claim_id": record["claim_id"],
+            "creator_wallet": normalize_address(wallet) if wallet else None,
+            "amount_usdc": amount,
+            "claim": record,
         }], "claim_id")
+
+    def reserve_agent_wallet_spend(self, wallet_address: str, amount: float, spend_cap: float = 10000.0) -> bool:
+        norm = normalize_address(wallet_address)
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT public.reserve_agent_wallet_spend(%s, %s, %s);",
+                    (norm, amount, spend_cap),
+                )
+                conn.commit()
+                res = cur.fetchone()
+                return bool(res and res[0])
+        finally:
+            self.put_connection(conn)
+
+    def release_agent_wallet_spend(self, wallet_address: str, amount: float) -> bool:
+        norm = normalize_address(wallet_address)
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT public.release_agent_wallet_spend(%s, %s);",
+                    (norm, amount),
+                )
+                conn.commit()
+                return True
+        finally:
+            self.put_connection(conn)
+
+    def reserve_session_spend(self, session_id: str, amount: float) -> bool:
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT public.reserve_session_spend(%s, %s);",
+                    (session_id, amount),
+                )
+                conn.commit()
+                res = cur.fetchone()
+                return bool(res and res[0])
+        finally:
+            self.put_connection(conn)
+
+    def release_session_spend(self, session_id: str, amount: float) -> bool:
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT public.release_session_spend(%s, %s);",
+                    (session_id, amount),
+                )
+                conn.commit()
+                return True
+        finally:
+            self.put_connection(conn)
 
     def load_wallet_spending_events(self, address: str) -> list:
         result = []
@@ -2854,6 +2970,25 @@ class PostgresStorage:
                     cur.execute(
                         "SELECT public.release_agent_wallet_spend(%s, %s);",
                         (addr, amt)
+                    )
+                    conn.commit()
+                    return True
+                elif fn_name == "reserve_session_spend":
+                    sid = payload.get("p_session_id") or payload.get("session_id")
+                    amt = payload.get("p_amount", 0)
+                    cur.execute(
+                        "SELECT public.reserve_session_spend(%s, %s);",
+                        (sid, amt)
+                    )
+                    conn.commit()
+                    res = cur.fetchone()
+                    return bool(res and list(res.values())[0]) if isinstance(res, dict) else bool(res and res[0])
+                elif fn_name == "release_session_spend":
+                    sid = payload.get("p_session_id") or payload.get("session_id")
+                    amt = payload.get("p_amount", 0)
+                    cur.execute(
+                        "SELECT public.release_session_spend(%s, %s);",
+                        (sid, amt)
                     )
                     conn.commit()
                     return True
