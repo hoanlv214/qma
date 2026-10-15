@@ -96,7 +96,7 @@ export class QmaClient {
   }
 
   private async getJson<T>(path: string, extraHeaders: Record<string, string> = {}): Promise<T> {
-    const headers: Record<string, string> = { ...extraHeaders };
+    const headers: Record<string, string> = { "User-Agent": "QMA-Agent-Client/1.0", ...extraHeaders };
     if (this.apiKey) {
       headers["Authorization"] = `Bearer ${this.apiKey}`;
     }
@@ -119,7 +119,7 @@ export class QmaClient {
     payload: unknown,
     extraHeaders: Record<string, string> = {},
   ): Promise<T> {
-    const headers: Record<string, string> = { "Content-Type": "application/json", ...extraHeaders };
+    const headers: Record<string, string> = { "Content-Type": "application/json", "User-Agent": "QMA-Agent-Client/1.0", ...extraHeaders };
     if (this.apiKey) {
       headers["Authorization"] = `Bearer ${this.apiKey}`;
     }

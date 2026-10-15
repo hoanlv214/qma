@@ -67,3 +67,74 @@ def test_origin_shield_blocks_unauthorized_remote_calls(monkeypatch):
         },
     )
     assert resp.status_code == 200
+
+
+def test_headless_scraper_blocked(monkeypatch):
+    """Verify automated headless scrapers from remote IPs are rejected with 403 bot_blocked."""
+    client = TestClient(app_module.app)
+    monkeypatch.setattr(app_module, "ORIGIN_SHIELD_SECRET", "")
+
+    # HeadlessChrome User-Agent from remote IP
+    resp = client.get(
+        "/api/v1/platform/summary",
+        headers={
+            "cf-connecting-ip": "54.183.149.156",
+            "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.54 Safari/537.36",
+        },
+    )
+    assert resp.status_code == 403
+    assert resp.json()["error"] == "bot_blocked"
+
+    # HeadlessChrome Sec-Ch-Ua header
+    resp = client.get(
+        "/api/v1/platform/summary",
+        headers={
+            "cf-connecting-ip": "54.183.149.156",
+            "sec-ch-ua": '"HeadlessChrome";v="141"',
+        },
+    )
+    assert resp.status_code == 403
+    assert resp.json()["error"] == "bot_blocked"
+
+
+def test_public_tunnel_direct_access_blocked_without_proxy_or_auth(monkeypatch):
+    """Verify direct calls to ngrok/tunnel domains are rejected unless routed through Vercel or authenticated."""
+    client = TestClient(app_module.app)
+    monkeypatch.setattr(app_module, "ORIGIN_SHIELD_SECRET", "")
+
+    # 1. Direct call to ngrok host without Vercel header or auth
+    resp = client.get(
+        "/api/v1/platform/summary",
+        headers={
+            "cf-connecting-ip": "54.183.149.156",
+            "host": "driveway-expansive-onyx.ngrok-free.dev",
+            "user-agent": "Mozilla/5.0",
+        },
+    )
+    assert resp.status_code == 403
+    assert resp.json()["error"] == "direct_tunnel_access_forbidden"
+
+    # 2. Ngrok call with Vercel proxy header (x-vercel-id)
+    resp = client.get(
+        "/api/v1/platform/summary",
+        headers={
+            "cf-connecting-ip": "118.70.52.15",
+            "host": "driveway-expansive-onyx.ngrok-free.dev",
+            "x-vercel-id": "hkg1::iad1::v4lsw-1760513904992-0b73c4481b49",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+        },
+    )
+    assert resp.status_code == 200
+
+    # 3. Ngrok call with Authorization header (e.g. Agent CLI or API client)
+    resp = client.get(
+        "/api/v1/platform/summary",
+        headers={
+            "cf-connecting-ip": "54.183.149.156",
+            "host": "driveway-expansive-onyx.ngrok-free.dev",
+            "authorization": "Bearer test-token",
+            "user-agent": "QMA-Agent-Client/1.0",
+        },
+    )
+    assert resp.status_code == 200
+

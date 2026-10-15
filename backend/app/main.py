@@ -991,33 +991,78 @@ async def qma_rate_limit_middleware(request: Request, call_next):
     if request.method == "OPTIONS":
         return await call_next(request)
 
-    # Origin Shielding: Protect origin tunnel (e.g. ngrok) from direct bypass
+    # Client IP and loopback detection
     client_ip = client_ip_from_request(request)
     is_loopback = client_ip in ("127.0.0.1", "::1", "localhost", "testclient")
     is_health = request.url.path in ("/api/v1/health", "/health", "/healthz", "/metrics")
 
-    if ORIGIN_SHIELD_SECRET and not is_loopback and not is_health:
-        shield_hdr = request.headers.get("x-qma-origin-secret", "").strip()
-        if not shield_hdr or shield_hdr != ORIGIN_SHIELD_SECRET:
+    # 1. Anti-Bot / Anti-Scraper Gate: block headless automated browsers from external networks
+    if not is_loopback:
+        ua = request.headers.get("user-agent", "").lower()
+        sec_ch_ua = request.headers.get("sec-ch-ua", "").lower()
+        is_headless_bot = (
+            any(sig in ua for sig in ("headlesschrome", "phantomjs", "selenium", "puppeteer"))
+            or ("headlesschrome" in sec_ch_ua)
+        )
+        if is_headless_bot:
             return JSONResponse(
                 status_code=403,
                 content={
-                    "error": "origin_shield_blocked",
-                    "message": "Direct access to origin tunnel forbidden. Requests must pass through authorized proxy.",
+                    "error": "bot_blocked",
+                    "message": "Automated headless scrapers are prohibited.",
                     "status_code": 403,
-                    "detail": "origin_shield_blocked",
+                    "detail": "bot_blocked",
                 },
             )
+
+    # 2. Origin Shielding & Tunnel Bypass Protection
+    has_vercel_proxy = bool(request.headers.get("x-vercel-id"))
+    shield_hdr = request.headers.get("x-qma-origin-secret", "").strip()
+    has_origin_secret = bool(ORIGIN_SHIELD_SECRET and shield_hdr == ORIGIN_SHIELD_SECRET)
+    internal_sec = request.headers.get("x-qma-internal-secret")
+    has_internal_sec = bool(internal_sec and ARC_GATEWAY_INTERNAL_SECRET and internal_sec == ARC_GATEWAY_INTERNAL_SECRET)
+    admin_tok = request.headers.get("x-qma-admin-token")
+    has_admin_tok = bool(admin_tok and ADMIN_TOKEN and admin_tok == ADMIN_TOKEN)
+    has_api_auth = bool(
+        request.headers.get("authorization")
+        or request.headers.get("payment-signature")
+        or request.headers.get("x-qma-access-token")
+        or request.headers.get("x-qma-wallet-token")
+        or request.headers.get("x-qma-api-key")
+    )
+    is_authorized = has_vercel_proxy or has_origin_secret or has_internal_sec or has_admin_tok or has_api_auth
+
+    # Detect public development tunnels (e.g. ngrok, cloudflare tunnel, localtunnel)
+    host_hdr = request.headers.get("host", "").lower()
+    is_tunnel = any(t in host_hdr for t in ("ngrok-free.dev", "ngrok.io", "ngrok-free.app", "trycloudflare.com", "loca.lt"))
+
+    if is_tunnel and not is_loopback and not is_health and not is_authorized:
+        return JSONResponse(
+            status_code=403,
+            content={
+                "error": "direct_tunnel_access_forbidden",
+                "message": "Direct access to development tunnel is forbidden. Please route requests via https://qma-three.vercel.app or authenticate.",
+                "status_code": 403,
+                "detail": "direct_tunnel_access_forbidden",
+            },
+        )
+
+    if ORIGIN_SHIELD_SECRET and not is_loopback and not is_health and not is_authorized:
+        return JSONResponse(
+            status_code=403,
+            content={
+                "error": "origin_shield_blocked",
+                "message": "Direct access to origin tunnel forbidden. Requests must pass through authorized proxy.",
+                "status_code": 403,
+                "detail": "origin_shield_blocked",
+            },
+        )
 
     if not RATE_LIMIT_ENABLED:
         return await call_next(request)
 
     # Internal workers and admin callers bypass public client rate limits
-    internal_sec = request.headers.get("x-qma-internal-secret")
-    if internal_sec and ARC_GATEWAY_INTERNAL_SECRET and internal_sec == ARC_GATEWAY_INTERNAL_SECRET:
-        return await call_next(request)
-    admin_tok = request.headers.get("x-qma-admin-token")
-    if admin_tok and ADMIN_TOKEN and admin_tok == ADMIN_TOKEN:
+    if has_internal_sec or has_admin_tok:
         return await call_next(request)
     if request.headers.get("x-benchmark-test") == "1" and is_loopback:
         return await call_next(request)
