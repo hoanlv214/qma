@@ -12,7 +12,12 @@ APP["earn"]["onchainMetrics"] = False               # unit tests never read vaul
 APP["earn"]["snapshotSampler"] = False              # unit tests never start the background sampler
 APP["providers"]["signalVerifiabilityGate"] = False # unit tests never run the sale-time evidence gate
 APP["llm"].update({"provider": "openai", "model": "", "useLaya": False})  # no real LLM calls by default
-for _k in ("DATABASE_URL", "POSTGRES_URL", "QMA_DATABASE_URL"):
+_DB_ENV_KEYS = (
+    "DATABASE_URL", "POSTGRES_URL", "QMA_DATABASE_URL", "SUPABASE_DB_URL",
+    "DATABASE_URL_MAINNET", "POSTGRES_URL_MAINNET", "QMA_DATABASE_URL_MAINNET", "SUPABASE_DB_URL_MAINNET",
+    "DATABASE_URL_TESTNET", "POSTGRES_URL_TESTNET", "QMA_DATABASE_URL_TESTNET", "SUPABASE_DB_URL_TESTNET",
+)
+for _k in _DB_ENV_KEYS:
     os.environ.pop(_k, None)                        # cannot fall through to Postgres
 _ISOLATION_DIR = tempfile.mkdtemp(prefix="qma_test_data_")
 os.environ["QMA_DATA_DIR"] = _ISOLATION_DIR         # JSON ledgers land here, not repo root
@@ -25,16 +30,16 @@ from fastapi.testclient import TestClient
 import backend.app.main as app_module
 
 # Ensure any env vars re-loaded by backend.app.core.config.load_local_env() are purged
-for _k in ("DATABASE_URL", "POSTGRES_URL", "QMA_DATABASE_URL"):
+for _k in _DB_ENV_KEYS:
     os.environ.pop(_k, None)
 
 
 @pytest.fixture(autouse=True)
 def _purge_database_env_in_tests():
-    for _k in ("DATABASE_URL", "POSTGRES_URL", "QMA_DATABASE_URL"):
+    for _k in _DB_ENV_KEYS:
         os.environ.pop(_k, None)
     yield
-    for _k in ("DATABASE_URL", "POSTGRES_URL", "QMA_DATABASE_URL"):
+    for _k in _DB_ENV_KEYS:
         os.environ.pop(_k, None)
 
 

@@ -23,7 +23,12 @@ def load_local_env(env_path: Path | None = None) -> None:
                 continue
             key, value = line.split("=", 1)
             key_clean = key.strip()
-            if key_clean in ("DATABASE_URL", "POSTGRES_URL", "QMA_DATABASE_URL") and (
+            db_env_keys = (
+                "DATABASE_URL", "POSTGRES_URL", "QMA_DATABASE_URL", "SUPABASE_DB_URL",
+                "DATABASE_URL_MAINNET", "POSTGRES_URL_MAINNET", "QMA_DATABASE_URL_MAINNET", "SUPABASE_DB_URL_MAINNET",
+                "DATABASE_URL_TESTNET", "POSTGRES_URL_TESTNET", "QMA_DATABASE_URL_TESTNET", "SUPABASE_DB_URL_TESTNET",
+            )
+            if key_clean in db_env_keys and (
                 "PYTEST_CURRENT_TEST" in os.environ
                 or "PYTEST_VERSION" in os.environ
                 or os.getenv("QMA_STORAGE_BACKEND") == "json"
@@ -64,40 +69,6 @@ PUBLIC_MCP_URL: str = str(os.getenv("QMA_MCP_PUBLIC_URL") or app_setting("deploy
 PUBLIC_DOCS_URL: str = str(os.getenv("QMA_PUBLIC_DOCS_URL") or app_setting("deployments", "publicDocsUrl"))
 
 
-@dataclass(frozen=True)
-class Settings:
-    root_dir: Path = ROOT_DIR
-    public_dir: Path = ROOT_DIR / "public"
-    payment_ledger_path: Path = DATA_DIR / "payment_ledger.json"
-    paid_reports_path: Path = DATA_DIR / "paid_reports.json"
-    invoices_path: Path = DATA_DIR / "invoices.json"
-    creator_applications_path: Path = DATA_DIR / "creator_applications.json"
-    provider_controls_path: Path = DATA_DIR / "provider_controls.json"
-    creator_claims_path: Path = DATA_DIR / "creator_claims.json"
-    euthyna_audit_path: Path = DATA_DIR / "euthyna_audit_trail.json"
-    treasury_policy_path: Path = DATA_DIR / "treasury_policy.json"
-    earn_vault_positions_path: Path = DATA_DIR / "earn_vault_positions.json"
-    brand_name: str = BRAND_NAME
-    brand_codename: str = BRAND_CODENAME
-    brand_tagline: str = BRAND_TAGLINE
-    brand_description: str = BRAND_DESCRIPTION
-    internal_quant_engine: str = INTERNAL_QUANT_ENGINE
-    internal_treasury_module: str = INTERNAL_TREASURY_MODULE
-    api_title: str = BRAND_TITLE
-    api_version: str = "1.0.0"
-
-    @property
-    def access_token_secret(self) -> str:
-        return os.getenv("QMA_ACCESS_TOKEN_SECRET") or os.getenv("QMA_SESSION_SECRET") or "qma-local-demo-secret-change-me"
-
-    @property
-    def cors_allowed_origins(self) -> list[str]:
-        return [str(origin) for origin in app_setting("services", "corsAllowedOrigins")]
-
-
-settings = Settings()
-
-
 # ---------------------------------------------------------------------------
 # Payment / pricing constants
 # ---------------------------------------------------------------------------
@@ -127,6 +98,74 @@ ARC_USDC_ADDRESS: str = str(_arc_preset["usdcAddress"])
 ARC_TESTNET_USDC: str = ARC_USDC_ADDRESS  # Backward-compatible alias
 ARC_EURC_ADDRESS: str = str(_arc_preset["eurcAddress"])
 ARC_USYC_VAULT_ADDRESS: str = str(_arc_preset["usycVaultAddress"])
+
+
+def resolve_database_url(network_mode: Optional[str] = None) -> Optional[str]:
+    """Resolve PostgreSQL / Supabase connection URL based on active network mode.
+    
+    Supports:
+    - Mainnet: DATABASE_URL_MAINNET, POSTGRES_URL_MAINNET, QMA_DATABASE_URL_MAINNET, SUPABASE_DB_URL_MAINNET
+    - Testnet: DATABASE_URL_TESTNET, POSTGRES_URL_TESTNET, QMA_DATABASE_URL_TESTNET, SUPABASE_DB_URL_TESTNET
+    - Universal fallback: DATABASE_URL, POSTGRES_URL, QMA_DATABASE_URL, SUPABASE_DB_URL
+    """
+    mode = (network_mode or os.getenv("QMA_NETWORK_MODE", _default_network_mode)).strip().lower()
+    is_test = mode != "mainnet"
+
+    if is_test:
+        return (
+            os.getenv("DATABASE_URL_TESTNET")
+            or os.getenv("POSTGRES_URL_TESTNET")
+            or os.getenv("QMA_DATABASE_URL_TESTNET")
+            or os.getenv("SUPABASE_DB_URL_TESTNET")
+            or os.getenv("DATABASE_URL")
+            or os.getenv("POSTGRES_URL")
+            or os.getenv("QMA_DATABASE_URL")
+            or os.getenv("SUPABASE_DB_URL")
+        )
+    return (
+        os.getenv("DATABASE_URL_MAINNET")
+        or os.getenv("POSTGRES_URL_MAINNET")
+        or os.getenv("QMA_DATABASE_URL_MAINNET")
+        or os.getenv("SUPABASE_DB_URL_MAINNET")
+        or os.getenv("DATABASE_URL")
+        or os.getenv("POSTGRES_URL")
+        or os.getenv("QMA_DATABASE_URL")
+        or os.getenv("SUPABASE_DB_URL")
+    )
+
+
+@dataclass(frozen=True)
+class Settings:
+    root_dir: Path = ROOT_DIR
+    public_dir: Path = ROOT_DIR / "public"
+    payment_ledger_path: Path = DATA_DIR / ("payment_ledger.json" if IS_TESTNET else "payment_ledger.mainnet.json")
+    paid_reports_path: Path = DATA_DIR / ("paid_reports.json" if IS_TESTNET else "paid_reports.mainnet.json")
+    invoices_path: Path = DATA_DIR / ("invoices.json" if IS_TESTNET else "invoices.mainnet.json")
+    creator_applications_path: Path = DATA_DIR / "creator_applications.json"
+    provider_controls_path: Path = DATA_DIR / "provider_controls.json"
+    creator_claims_path: Path = DATA_DIR / "creator_claims.json"
+    euthyna_audit_path: Path = DATA_DIR / ("euthyna_audit_trail.json" if IS_TESTNET else "euthyna_audit_trail.mainnet.json")
+    treasury_policy_path: Path = DATA_DIR / "treasury_policy.json"
+    earn_vault_positions_path: Path = DATA_DIR / "earn_vault_positions.json"
+    brand_name: str = BRAND_NAME
+    brand_codename: str = BRAND_CODENAME
+    brand_tagline: str = BRAND_TAGLINE
+    brand_description: str = BRAND_DESCRIPTION
+    internal_quant_engine: str = INTERNAL_QUANT_ENGINE
+    internal_treasury_module: str = INTERNAL_TREASURY_MODULE
+    api_title: str = BRAND_TITLE
+    api_version: str = "1.0.0"
+
+    @property
+    def access_token_secret(self) -> str:
+        return os.getenv("QMA_ACCESS_TOKEN_SECRET") or os.getenv("QMA_SESSION_SECRET") or "qma-local-demo-secret-change-me"
+
+    @property
+    def cors_allowed_origins(self) -> list[str]:
+        return [str(origin) for origin in app_setting("services", "corsAllowedOrigins")]
+
+
+settings = Settings()
 
 # StableFX Configuration
 STABLEFX_EURC_USD_RATE: float = float(app_setting("stablefx", "eurcUsdRate"))

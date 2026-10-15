@@ -889,14 +889,51 @@ def make_agent_decision(
     )
 
     def _guard_check(decision: dict) -> dict:
-        if decision.get("action") == "purchase":
-            price_val = Decimal(str(decision.get("max_price_usdc") or "0.005"))
-            allowed, spend_reason = get_spend_limit_guard().can_spend(wallet, price_val)
+        plan = decision.get("plan", {})
+        if plan.get("action") == "purchase":
+            price_val = Decimal(str(plan.get("max_price_usdc") or "0.005"))
+            guard = get_spend_limit_guard()
+            allowed, spend_reason = guard.can_spend(wallet, price_val)
             if not allowed:
                 logger.warning("SpendLimitGuard blocked autonomous purchase: %s", spend_reason)
-                decision["action"] = "skip"
-                decision["reason"] = f"Spend Guard: {spend_reason}"
+                model_proposal = {
+                    "action": "purchase",
+                    "candidate_id": plan.get("candidate_id"),
+                    "requested_tier": plan.get("requested_tier"),
+                    "reason": plan.get("reason"),
+                    "proposed_price_usdc": float(price_val),
+                }
+                guardrail_detail = {
+                    "attempted_usdc": float(price_val),
+                    "allowed_usdc": float(guard.max_single_tx),
+                    "daily_limit_usdc": float(guard.max_daily_spend),
+                    "reason": spend_reason,
+                }
+                guardrail_msg = "Blocked by code, not by the model. It is above the payer's payment limit."
+                plan["model_proposal"] = model_proposal
+                plan["guardrail_blocked"] = True
+                plan["guardrail_rule"] = "spend_guard.spend_limit"
+                plan["guardrail_message"] = guardrail_msg
+                plan["guardrail_detail"] = guardrail_detail
+                plan["action"] = "skip"
+                plan["reason"] = f"Blocked by code, not by the model. {spend_reason}"
+
+                decision["model_proposal"] = model_proposal
+                decision["guardrail_blocked"] = True
+                decision["guardrail_rule"] = "spend_guard.spend_limit"
+                decision["guardrail_message"] = guardrail_msg
+                decision["guardrail_detail"] = guardrail_detail
                 decision["agent_rejection"] = "spend_policy_exceeded"
+            else:
+                plan["guardrail_blocked"] = False
+                plan["guardrail_rule"] = None
+                decision["guardrail_blocked"] = False
+                decision["guardrail_rule"] = None
+        else:
+            plan["guardrail_blocked"] = False
+            plan["guardrail_rule"] = None
+            decision["guardrail_blocked"] = False
+            decision["guardrail_rule"] = None
         return decision
 
     # Try Fast Parser first (Tier 0: <1ms regex)

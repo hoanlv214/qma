@@ -27,6 +27,7 @@ treasury_policy.json
 private_data/
 data/cache/
 data/full_*.csv
+data/*.json
 *.key
 .qma-test-wallets*.json
 exports/

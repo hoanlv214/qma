@@ -205,6 +205,11 @@ class AgentPlanResponse(ResponseModel):
     max_price_usdc: float
     reason: str
     rejected_candidate_ids: List[str]
+    guardrail_blocked: Optional[bool] = None
+    guardrail_rule: Optional[str] = None
+    guardrail_message: Optional[str] = None
+    guardrail_detail: Optional[Dict[str, Any]] = None
+    model_proposal: Optional[Dict[str, Any]] = None
 
 
 class AgentValidationResponse(ResponseModel):
@@ -224,3 +229,9 @@ class AgentDecisionResponse(ResponseModel):
     selection_basis: Dict[str, Any]
     candidate_count: int
     decision_source: str
+    guardrail_blocked: Optional[bool] = None
+    guardrail_rule: Optional[str] = None
+    guardrail_message: Optional[str] = None
+    guardrail_detail: Optional[Dict[str, Any]] = None
+    model_proposal: Optional[Dict[str, Any]] = None
+

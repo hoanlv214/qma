@@ -221,7 +221,17 @@ def _postgres_mode() -> bool:
         return False
     if backend == "postgres":
         return True
-    return bool(os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or os.getenv("QMA_DATABASE_URL"))
+    try:
+        from backend.app.core.config import resolve_database_url
+        return bool(resolve_database_url())
+    except Exception:
+        return bool(
+            os.getenv("DATABASE_URL")
+            or os.getenv("POSTGRES_URL")
+            or os.getenv("QMA_DATABASE_URL")
+            or os.getenv("DATABASE_URL_MAINNET")
+            or os.getenv("DATABASE_URL_TESTNET")
+        )
 
 
 def _snapshot_db() -> Optional[Any]:

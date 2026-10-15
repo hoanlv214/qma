@@ -24,14 +24,33 @@ except ImportError:
     psycopg2 = None
 
 
-def get_database_url() -> str:
-    # Check env
-    url = (
-        os.getenv("DATABASE_URL")
-        or os.getenv("POSTGRES_URL")
-        or os.getenv("QMA_DATABASE_URL")
-        or os.getenv("SUPABASE_DB_URL")
-    )
+def get_database_url(network_mode: str = None) -> str:
+    mode = (network_mode or os.getenv("QMA_NETWORK_MODE", "mainnet")).strip().lower()
+    is_testnet = mode != "mainnet"
+
+    # Check env with network-specific priority
+    if is_testnet:
+        url = (
+            os.getenv("DATABASE_URL_TESTNET")
+            or os.getenv("POSTGRES_URL_TESTNET")
+            or os.getenv("QMA_DATABASE_URL_TESTNET")
+            or os.getenv("SUPABASE_DB_URL_TESTNET")
+            or os.getenv("DATABASE_URL")
+            or os.getenv("POSTGRES_URL")
+            or os.getenv("QMA_DATABASE_URL")
+            or os.getenv("SUPABASE_DB_URL")
+        )
+    else:
+        url = (
+            os.getenv("DATABASE_URL_MAINNET")
+            or os.getenv("POSTGRES_URL_MAINNET")
+            or os.getenv("QMA_DATABASE_URL_MAINNET")
+            or os.getenv("SUPABASE_DB_URL_MAINNET")
+            or os.getenv("DATABASE_URL")
+            or os.getenv("POSTGRES_URL")
+            or os.getenv("QMA_DATABASE_URL")
+            or os.getenv("SUPABASE_DB_URL")
+        )
     if url:
         return url
 
@@ -42,6 +61,18 @@ def get_database_url() -> str:
             with open(path, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
+                    if is_testnet and (
+                        line.startswith("DATABASE_URL_TESTNET=")
+                        or line.startswith("POSTGRES_URL_TESTNET=")
+                        or line.startswith("QMA_DATABASE_URL_TESTNET=")
+                    ):
+                        return line.split("=", 1)[1].strip().strip('"').strip("'")
+                    if not is_testnet and (
+                        line.startswith("DATABASE_URL_MAINNET=")
+                        or line.startswith("POSTGRES_URL_MAINNET=")
+                        or line.startswith("QMA_DATABASE_URL_MAINNET=")
+                    ):
+                        return line.split("=", 1)[1].strip().strip('"').strip("'")
                     if line.startswith("DATABASE_URL=") or line.startswith("POSTGRES_URL="):
                         return line.split("=", 1)[1].strip().strip('"').strip("'")
     return ""
@@ -137,19 +168,25 @@ if __name__ == "__main__":
     status = False
     dry = False
 
+    target_network = None
+
     args = sys.argv[1:]
     for i, arg in enumerate(args):
         if arg == "--status":
             status = True
         elif arg == "--dry-run":
             dry = True
+        elif arg.startswith("--network="):
+            target_network = arg.split("=", 1)[1]
+        elif arg == "--network" and i + 1 < len(args):
+            target_network = args[i + 1]
         elif arg.startswith("--database-url="):
             db_url = arg.split("=", 1)[1]
         elif arg == "--database-url" and i + 1 < len(args):
             db_url = args[i + 1]
 
     if not db_url:
-        db_url = get_database_url()
+        db_url = get_database_url(target_network)
 
     success = apply_migrations(db_url, dry_run=dry, status_only=status)
     sys.exit(0 if success else 1)
