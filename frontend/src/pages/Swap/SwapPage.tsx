@@ -1338,7 +1338,7 @@ export function SwapPage({ onNavigate }: SwapProps) {
                       <div>
                         <h2 className="swap-card-title">Execution Router</h2>
                         <p className="swap-card-subtitle">
-                          Headless DEX Aggregation &amp; RWA Routing across Arc Testnet liquidity venues.
+                          Headless DEX Aggregation &amp; RWA Routing across Arc liquidity venues.
                         </p>
                       </div>
                     </div>

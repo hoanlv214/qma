@@ -46,7 +46,7 @@ interface LiveLedgerBlock {
 const SCENARIOS: Record<DecisionOutcome, ReplayScenario> = {
   paid: {
     id: "paid",
-    counterparty: "Live buyer · Arc Testnet",
+    counterparty: `Live buyer · ${ARC_CHAIN.name}`,
     reference: "report purchase · full tier",
     amount: "····",
     observe: [

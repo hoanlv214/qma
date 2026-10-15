@@ -172,13 +172,17 @@ def fetch_gateway_info_cached(ttl_seconds: int = 300, *, include_raw: bool = Fal
     return compact
 
 
-def fetch_creator_claim_status_cached(ttl_seconds: int = 15) -> dict:
+def fetch_creator_claim_status_cached(ttl_seconds: int = 60) -> dict:
     now = time.time()
     cached = state.gateway_info_cache.get("creator_claim")
     if cached and now - cached.get("at", 0) < ttl_seconds:
         return cached["data"]
+    if not ARC_GATEWAY_BASE_URL:
+        data = {"configured": False, "error": "ARC_GATEWAY_BASE_URL is not configured"}
+        state.gateway_info_cache["creator_claim"] = {"at": now, "data": data}
+        return data
     try:
-        resp = requests.get(f"{ARC_GATEWAY_BASE_URL.rstrip('/')}/api/creator/claim/status", timeout=5)
+        resp = requests.get(f"{ARC_GATEWAY_BASE_URL.rstrip('/')}/api/creator/claim/status", timeout=1.5)
         data = resp.json() if resp.ok else {
             "configured": False,
             "error": f"{resp.status_code}: {resp.text[:200]}",
