@@ -1,94 +1,63 @@
-# QMA Environment Tiers: Local, Staging, and Production
+# QMA Environment Architecture: Local Development & Vercel Proxy
 
-This guide defines the configuration parameters, environment variables, and network configurations across the three deployment tiers of **QMA**.
+This guide documents the active runtime architecture and environment configuration of **QMA**.
 
 ---
 
-## 1. Environment Tier Matrix
+## 1. Environment Matrix
 
-| Dimension | Local (`dev`) | Staging (`staging`) | Production (`prod`) |
-|---|---|---|---|
-| **Frontend URL** | `http://localhost:5173` | `https://staging.qma.market` (or Vercel Preview) | `https://app.qma.market` |
-| **Backend API** | `http://localhost:8000` | `https://qma-three.vercel.app` (Vercel Proxy) | `https://api.qma.market` |
-| **MCP Endpoint** | `http://localhost:8000/mcp` (or Dev Tunnel) | `https://qma-three.vercel.app/mcp` | `https://api.qma.market/mcp` |
-| **Arc Gateway Relay** | `http://localhost:3001` | `https://gateway-staging.qma.market` | `https://gateway.qma.market` |
-| **Blockchain Network** | Arc Testnet (`5042002`) / Local node | Arc Testnet (`5042002`) | Arc Mainnet / Base / Circle Gateway |
-| **USDC Contract** | `0x3600000000000000000000000000000000000000` | `0x3600000000000000000000000000000000000000` | Circle Mainnet USDC Token ID / Contract |
-| **Storage Engine** | `JsonStorage` (Local JSON) or Dev Supabase | Dedicated Supabase Staging | High-Availability PostgreSQL (Supabase Pro) |
-| **Signing & Key Custody** | Plain `.env` test keys | Render Environment Secrets | AWS KMS / HashiCorp Vault / KMS Relayer |
+| Dimension | Local Development (`dev`) | Production Deployment (`prod`) |
+|---|---|---|
+| **Frontend Web App** | `http://localhost:5173` | `https://qma-three.vercel.app` |
+| **Public API Base** | `http://localhost:8000` | `https://qma-three.vercel.app` (Vercel Reverse Proxy) |
+| **MCP Endpoint** | `http://localhost:8000/mcp` | `https://qma-three.vercel.app/mcp` |
+| **Backend Engine** | Local FastAPI (`http://localhost:8000`) | Local FastAPI tunneled via `vercel.json` rewrites |
+| **Arc Gateway Relay** | Local Node sidecar (`http://localhost:3000`) | Local Node sidecar (`http://localhost:3000`) |
+| **Blockchain Network** | Arc Mainnet (Chain 5042) / Testnet (5042002) | Arc Mainnet (Chain 5042) / Testnet (5042002) |
+| **Network Profile Config** | `config/networks.json` | `config/networks.json` |
+| **Business & Service Config**| `config/app.json` | `config/app.json` |
+| **Storage Engine** | Local PostgreSQL or Supabase | PostgreSQL / Supabase |
 
 ---
 
 ## 2. Configuration Profiles
 
-### Profile A: Local Development (`.env` in root & `frontend/.env.local`)
+### Profile A: Local Development (`.env` in repo root)
 
 ```bash
-# Backend (.env)
-PORT=8000
-ENVIRONMENT=development
-SELLER_WALLET=0xYourLocalDevWalletAddress
-ARC_GATEWAY_URL=http://localhost:3001
-PAYMENT_NETWORK_NAME="Arc Testnet"
+# Network Mode (toggle between mainnet and testnet)
+QMA_NETWORK_MODE=mainnet
+VITE_NETWORK_MODE=mainnet
 
-# Optional: Supabase (Omit to use local JSON storage: paid_reports.json)
-# SUPABASE_URL=https://dev-proj.supabase.co
-# SUPABASE_SERVICE_ROLE_KEY=your-dev-key
+# Local service endpoints
+QMA_ARC_GATEWAY_URL=http://127.0.0.1:3000
+QMA_API_URL=http://127.0.0.1:8000
+API_BASE_URL=http://127.0.0.1:8000
 
-# Frontend (frontend/.env.local)
-VITE_API_BASE_URL=http://localhost:8000
-# For testing remote Claude/ChatGPT connectors locally via Cloudflare Tunnel:
-# VITE_QMA_MCP_PUBLIC_URL=https://your-tunnel.trycloudflare.com/mcp
+# Storage
+QMA_STORAGE_BACKEND=postgres
+DATABASE_URL=postgresql://postgres:...@localhost:5432/qma
 ```
 
 ---
 
-### Profile B: Staging Environment (`render.yaml` / Staging Config)
+### Profile B: Production Deployment (Vercel Proxy)
 
-```bash
-# Backend
-ENVIRONMENT=staging
-PORT=8000
-SUPABASE_URL=https://qma-staging.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOi...
-SUPABASE_SCHEMA=public
-ARC_GATEWAY_URL=http://localhost:3000
-MCP_API_BASE_URL=https://qma-three.vercel.app
-MCP_CONNECT_BASE_URL=https://staging.qma.market
-SELLER_WALLET=0xStagingTreasuryWalletAddress
-PAYMENT_NETWORK_NAME="Arc Testnet"
+In production, frontend is deployed on Vercel at `https://qma-three.vercel.app`.
+To keep backend infrastructure secure and concealed, all public traffic routes through Vercel's edge network using rewrites configured in `vercel.json`:
 
-# Frontend
-VITE_API_BASE_URL=https://qma-three.vercel.app
+```json
+{
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://<your-tunnel-endpoint>/api/:path*" },
+    { "source": "/mcp", "destination": "https://<your-tunnel-endpoint>/mcp" },
+    { "source": "/mcp/:path*", "destination": "https://<your-tunnel-endpoint>/mcp/:path*" },
+    { "source": "/health", "destination": "https://<your-tunnel-endpoint>/health" },
+    { "source": "/healthz", "destination": "https://<your-tunnel-endpoint>/healthz" },
+    { "source": "/docs", "destination": "https://<your-tunnel-endpoint>/docs" },
+    { "source": "/:path*", "destination": "/" }
+  ]
+}
 ```
 
----
-
-### Profile C: Production Environment
-
-```bash
-# Backend
-ENVIRONMENT=production
-PORT=8000
-SUPABASE_URL=https://qma-prod.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOi...
-SUPABASE_SCHEMA=public
-ARC_GATEWAY_URL=https://gateway.qma.market
-MCP_API_BASE_URL=https://api.qma.market
-MCP_CONNECT_BASE_URL=https://app.qma.market
-SELLER_WALLET=0xProductionTreasuryWalletAddress
-PAYMENT_NETWORK_NAME="Arc Mainnet"
-SENTRY_DSN=https://your-sentry-dsn.ingest.sentry.io/12345
-
-# Frontend
-VITE_API_BASE_URL=https://api.qma.market
-```
-
----
-
-## 3. Staging Promotion Workflow
-
-1. **Local Test**: Validate code changes locally with `uv run pytest` and `bun run build`.
-2. **Deploy to Staging**: Push to staging branch; migrations run against staging Supabase using [`scripts/schema.sql`](file:///c:/Users/Admin/Downloads/code/buy/qma/scripts/schema.sql).
-3. **Verify Connectors**: Test Claude Custom Connector and ChatGPT OAuth flows against the Staging MCP endpoint.
-4. **Production Release**: Promote to `main` with verified production secrets and monitoring enabled.
+Public clients (browser, Claude, ChatGPT, Circle Marketplace, Agent CLI) interface exclusively with `https://qma-three.vercel.app`.

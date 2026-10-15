@@ -7,7 +7,7 @@
  *   QMA_MCP_TOKEN  MCP connection token (OAuth scope "mcp", 30-day TTL)
  *
  * The token carries the owner's spend caps; every tools/call is re-validated
- * server-side, and revoking the connection on qma.market cuts access instantly.
+ * server-side, and revoking the connection in the app cuts access instantly.
  */
 
 import fs from "node:fs";

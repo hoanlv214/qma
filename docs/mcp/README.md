@@ -38,7 +38,7 @@ connection token spends **only** from your Agent Wallet, **only** within your
 caps, and dies instantly when you revoke on `/connect`.
 
 ```
-Claude/ChatGPT ── opens browser ──► qma.market/connect  (you + Rabby + caps)
+Claude/ChatGPT ── opens browser ──► qma-three.vercel.app/connect  (you + Rabby + caps)
       ▲                                       │ single-use code (PKCE)
       └──────── token exchange ───────────────┘
       │
