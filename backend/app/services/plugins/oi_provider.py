@@ -123,10 +123,9 @@ class OpenInterestMemoryProviderV2(ProviderPlugin):
         normalized = paid_kit.normalize_tier(tier)
         
         score_val = self._complexity_score(context.get("query", context))
-        uplift_max = float(os.getenv("QMA_PRICE_COMPLEXITY_UPLIFT_MAX", "0"))
+        uplift_max = paid_kit.complexity_uplift_max()
         
-        env_key = f"QMA_PROVIDER_OI_MEMORY_PRICE_{normalized.upper()}_USDC"
-        base = float(os.getenv(env_key, paid_kit.tier_price(normalized)))
+        base = paid_kit.tier_price(normalized)
         
         amount = round(base * (1.0 + (score_val / 100.0) * uplift_max), 6) if uplift_max > 0 else round(base, 6)
         

@@ -102,19 +102,36 @@ class BybitLinearAdapter(MarketDataAdapter):
         if not isinstance(tickers, list) or not tickers:
             return []
 
-        # Filter symbols with negative funding meeting threshold
+        # Filter symbols with funding rate dislocations meeting threshold (positive or negative)
+        abs_threshold = abs(self.funding_threshold)
         filtered = [
             item for item in tickers
             if isinstance(item, dict)
             and item.get("symbol", "").endswith("USDT")
-            and safe_float(item.get("fundingRate")) <= self.funding_threshold
+            and abs(safe_float(item.get("fundingRate"))) >= abs_threshold
         ]
 
-        # Sort by most negative funding rate
+        # Sort by largest absolute funding rate dislocation
         filtered = sorted(
             filtered,
-            key=lambda item: safe_float(item.get("fundingRate")),
+            key=lambda item: abs(safe_float(item.get("fundingRate"))),
+            reverse=True,
         )[: self.anomaly_limit]
+
+        # Prevent signal starvation on calm/sideways days
+        if len(filtered) < self.anomaly_limit:
+            existing_syms = {item.get("symbol") for item in filtered if isinstance(item, dict)}
+            all_sorted = sorted(
+                [
+                    item for item in tickers
+                    if isinstance(item, dict)
+                    and item.get("symbol", "").endswith("USDT")
+                    and item.get("symbol") not in existing_syms
+                ],
+                key=lambda item: abs(safe_float(item.get("fundingRate"))),
+                reverse=True,
+            )
+            filtered.extend(all_sorted[: self.anomaly_limit - len(filtered)])
 
         anomalies = []
         for ticker in filtered:

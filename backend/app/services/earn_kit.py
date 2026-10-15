@@ -23,11 +23,14 @@ from threading import Lock
 from typing import Any, Dict, List, Optional
 from web3 import Web3
 
+from backend.app.core.static_config import app_setting
 from backend.app.core.config import (
     ARC_RPC_URL,
     ARC_CHAIN_ID,
+    ARC_EURC_ADDRESS,
     ARC_EXPLORER,
     ARC_TESTNET_USDC,
+    IS_TESTNET,
     PLATFORM_TREASURY_ADDRESS,
     settings,
 )
@@ -97,7 +100,7 @@ ARC_EARN_OPPORTUNITIES: List[Dict[str, Any]] = [
         "vaultFee": 0.0,
         "rewards": [],
         "collateral": [],
-        "chain": "Arc_Testnet",
+        "chain": "Arc_Testnet" if IS_TESTNET else "Arc_Mainnet",
         "chain_id": ARC_CHAIN_ID,
         "vaultAddress": "0x4869c9B5F54f6c40A5a417537b03a4537cb90c91",
         "vault_address": "0x4869c9B5F54f6c40A5a417537b03a4537cb90c91",
@@ -125,7 +128,7 @@ ARC_EARN_OPPORTUNITIES: List[Dict[str, Any]] = [
         "vaultFee": 0.0,
         "rewards": [],
         "collateral": [],
-        "chain": "Arc_Testnet",
+        "chain": "Arc_Testnet" if IS_TESTNET else "Arc_Mainnet",
         "chain_id": ARC_CHAIN_ID,
         "vaultAddress": "",
         "vault_address": "",
@@ -146,14 +149,14 @@ ARC_EARN_OPPORTUNITIES: List[Dict[str, Any]] = [
         "name": "Morpho Arc EURC Vault",
         "protocol": "MORPHO",
         "asset": "EURC",
-        "assetAddress": "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a",
+        "assetAddress": ARC_EURC_ADDRESS,
         "currentApy": 0.042,  # 4.2% Net APY
         "net_apy": 0.042,
         "nativeApy": 0.0,
         "vaultFee": 0.0,
         "rewards": [],
         "collateral": [],
-        "chain": "Arc_Testnet",
+        "chain": "Arc_Testnet" if IS_TESTNET else "Arc_Mainnet",
         "chain_id": ARC_CHAIN_ID,
         "vaultAddress": "0x2e983A1Ba5e8b38AAAeC4B44019dC217Da5641A5",
         "vault_address": "0x2e983A1Ba5e8b38AAAeC4B44019dC217Da5641A5",
@@ -176,11 +179,11 @@ _DEFAULT_SNAPSHOTS_PATH = _REPO_ROOT / "earn_vault_snapshots.json"
 
 
 def _snapshots_path() -> Path:
-    """QMA_DATA_DIR (test isolation) wins over the repo-root default."""
+    """QMA_DATA_DIR (deployment data directory / test isolation) wins over the repo-root default."""
     data_dir = os.getenv("QMA_DATA_DIR")
     if data_dir:
         return Path(data_dir) / "earn_vault_snapshots.json"
-    return Path(os.getenv("QMA_EARN_SNAPSHOTS_PATH", str(_DEFAULT_SNAPSHOTS_PATH)))
+    return _DEFAULT_SNAPSHOTS_PATH
 
 
 def _load_vault_snapshots() -> Dict[str, List[Dict[str, float]]]:
@@ -313,17 +316,14 @@ _SAMPLER_LOCK = Lock()
 
 def start_earn_snapshot_sampler() -> Optional[Any]:
     """Start the background share-price sampler (idempotent). Kill switch:
-    QMA_EARN_SNAPSHOT_SAMPLER=0; interval via QMA_EARN_SNAPSHOT_INTERVAL_SECONDS."""
+    config earn.snapshotSampler=false; interval via config earn.snapshotIntervalSeconds."""
     global _SAMPLER_THREAD
     with _SAMPLER_LOCK:
         if _SAMPLER_THREAD is not None and _SAMPLER_THREAD.is_alive():
             return _SAMPLER_THREAD
-        if os.getenv("QMA_EARN_SNAPSHOT_SAMPLER", "1").strip().lower() in {"0", "false", "off"}:
+        if not bool(app_setting("earn", "snapshotSampler")):
             return None
-        try:
-            interval = max(60, int(os.getenv("QMA_EARN_SNAPSHOT_INTERVAL_SECONDS", "3600")))
-        except (TypeError, ValueError):
-            interval = 3600
+        interval = max(60, int(app_setting("earn", "snapshotIntervalSeconds")))
 
         def _loop() -> None:
             while True:
@@ -537,7 +537,7 @@ class EarnKitService:
         """Read real TVL (totalAssets) and share price (convertToAssets) from the
         verified ERC-4626 vault. Returns None when the vault has no address, the
         RPC is unreachable, or the kill switch is set. Cached briefly per vault."""
-        if os.getenv("QMA_EARN_ONCHAIN_METRICS", "1").strip().lower() in {"0", "false", "off"}:
+        if not bool(app_setting("earn", "onchainMetrics")):
             return None
         vault_id = opp.get("vault_id") if isinstance(opp, dict) else None
         vault_addr = opp.get("vaultAddress") if isinstance(opp, dict) else None
@@ -1165,7 +1165,7 @@ class EarnKitService:
         return {
             # Official App Kit getPosition spec:
             "wallet": w_addr,
-            "chain": "ARC-TESTNET",
+            "chain": "ARC-TESTNET" if IS_TESTNET else "ARC",
             "vaultAddress": opp["vaultAddress"] if opp else "",
             "vaultName": opp["name"] if opp else vault_id,
             "asset": opp["asset"] if opp else "USDC",

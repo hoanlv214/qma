@@ -32,6 +32,7 @@ from qma_engine import QMAEngine
 
 from storage import create_storage_backend
 
+from backend.app.core.static_config import app_setting
 from backend.app.core.config import (
     settings,
     load_local_env,
@@ -330,10 +331,7 @@ async def _qma_lifespan(app):
     treasury_decide_task = None
     if ARC_GATEWAY_INTERNAL_SECRET:
         reconcile_task = asyncio.create_task(_arc_settlement_reconcile_loop())
-    try:
-        decide_interval = int(os.getenv("QMA_TREASURY_DECIDE_INTERVAL_SECONDS", "0"))
-    except (TypeError, ValueError):
-        decide_interval = 0
+    decide_interval = int(app_setting("treasury", "decideIntervalSeconds"))
     if decide_interval > 0:
         treasury_decide_task = asyncio.create_task(_treasury_decide_loop())
     try:
@@ -819,6 +817,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from backend.app.core.emergency import emergency_stop_middleware
+app.middleware("http")(emergency_stop_middleware)
+
 app.mount("/public", StaticFiles(directory=str(settings.public_dir)), name="public")
 
 # ---------------------------------------------------------------------------
@@ -835,20 +836,32 @@ storage_backend = create_storage_backend(
 )
 state.storage_backend = storage_backend
 
+# Fail-closed guard: production must never run on uncoordinated local JSON files
+_is_prod_env = (
+    os.getenv("ENVIRONMENT", "").lower() == "production"
+    or os.getenv("RENDER", "").lower() == "true"
+    or os.getenv("NODE_ENV", "").lower() == "production"
+)
+if _is_prod_env and storage_backend.__class__.__name__ != "PostgresStorage":
+    raise RuntimeError(
+        "FATAL CONFIGURATION ERROR: Production environment detected (ENVIRONMENT=production or RENDER=true). "
+        "Production deployments MUST configure a valid DATABASE_URL and use PostgresStorage. "
+        "Fallback to local JsonStorage is strictly forbidden in production."
+    )
+
 from backend.app.core.provider_registry import ProviderRegistryV2
 from backend.app.services.plugins.funding_provider import FundingProviderV2
 from backend.app.services.plugins.oi_provider import OpenInterestMemoryProviderV2
 from backend.app.services.plugins.polymarket_provider import PolymarketDivergenceProviderV2
 from backend.app.services.plugins.pyth_provider import PythStressBandProviderV2
-from backend.app.services.plugins.swap_provider import SwapRouteAnalysisProviderV2
 from backend.app.services.providers_meta import provider_metadata
 
 provider_registry = ProviderRegistryV2()
-provider_registry.register(FundingProviderV2(owner_wallet=os.getenv("QMA_FUNDING_MEMORY_OWNER_WALLET", PAYMENT_WALLET_ADDRESS)))
-provider_registry.register(OpenInterestMemoryProviderV2(owner_wallet=os.getenv("QMA_OI_MEMORY_OWNER_WALLET", "0x2222222222222222222222222222222222222222")))
-provider_registry.register(PolymarketDivergenceProviderV2(owner_wallet=os.getenv("QMA_POLYMARKET_OWNER_WALLET", "0x3333333333333333333333333333333333333333")))
-provider_registry.register(PythStressBandProviderV2(owner_wallet=os.getenv("QMA_PYTH_OWNER_WALLET", "0x4444444444444444444444444444444444444444")))
-provider_registry.register(SwapRouteAnalysisProviderV2(owner_wallet=os.getenv("QMA_SWAP_ANALYSIS_OWNER_WALLET", PAYMENT_WALLET_ADDRESS)))
+_provider_owner_wallets = app_setting("providers", "ownerWallets")
+provider_registry.register(FundingProviderV2(owner_wallet=str(_provider_owner_wallets["funding"])))
+provider_registry.register(OpenInterestMemoryProviderV2(owner_wallet=str(_provider_owner_wallets["openInterest"])))
+provider_registry.register(PolymarketDivergenceProviderV2(owner_wallet=str(_provider_owner_wallets["polymarket"])))
+provider_registry.register(PythStressBandProviderV2(owner_wallet=str(_provider_owner_wallets["pyth"])))
 CREATOR_CLAIMS_PATH = str(settings.creator_claims_path)
 
 
@@ -2118,6 +2131,13 @@ _PUBLIC_VERIFICATION_CLAIMS = (
     "regime",
     "predicted_bias",
     "bias",
+    "event_title",
+    "pyth_price_usdc",
+    "confidence_interval_usd",
+    "confidence_spread_bps",
+    "stress_regime",
+    "stress_level",
+    "oracle_source",
 )
 
 
@@ -2150,7 +2170,7 @@ _EVIDENCE_CHECK_CACHE: Dict[str, Any] = {}
 
 
 def _gate_enabled() -> bool:
-    return os.getenv("QMA_SIGNAL_VERIFIABILITY_GATE", "1").strip().lower() not in {"0", "false", "off"}
+    return bool(app_setting("providers", "signalVerifiabilityGate"))
 
 
 def _mexc_evidence_has_market_data(evidence_url: str) -> tuple:
@@ -2294,7 +2314,14 @@ def _genlayer_evidence_url(invoice):
     if provider_id == "oi_memory":
         return f"https://contract.mexc.com/api/v1/contract/funding_rate/{clean_symbol}"
     if provider_id == "polymarket_divergence":
-        return "https://gamma-api.polymarket.com/events?limit=5&active=true"
+        slug_map = {
+            "BTC": "when-will-bitcoin-hit-150k",
+            "ETH": "will-ethereum-surpass-4000-in-2026",
+            "SOL": "solana-flips-ethereum-market-cap-in-2026",
+        }
+        sym_key = str(raw_symbol or "").strip().upper()
+        slug = slug_map.get(sym_key, f"{sym_key.lower()}-milestone")
+        return f"https://gamma-api.polymarket.com/events?slug={slug}"
     if provider_id == "pyth_stress_band":
         from backend.app.services.plugins.pyth_provider import PYTH_FEED_IDS
         feed_id = PYTH_FEED_IDS.get(raw_symbol.upper())
@@ -2571,7 +2598,7 @@ def reconcile_arc_verdict_settlements_once(max_invoices: int = 20) -> int:
 
 
 async def _arc_settlement_reconcile_loop() -> None:
-    interval = max(5.0, float(os.getenv("QMA_ARC_SETTLEMENT_RECONCILE_SECONDS", "30")))
+    interval = max(5.0, float(app_setting("payment", "arcSettlementReconcileSeconds")))
     while True:
         await asyncio.sleep(interval)
         await asyncio.to_thread(reconcile_arc_verdict_settlements_once)
@@ -2579,10 +2606,7 @@ async def _arc_settlement_reconcile_loop() -> None:
 
 async def _treasury_decide_loop() -> None:
     """Periodic autonomous CFO capital allocation and yield evaluation loop."""
-    try:
-        interval = int(os.getenv("QMA_TREASURY_DECIDE_INTERVAL_SECONDS", "0"))
-    except (TypeError, ValueError):
-        interval = 0
+    interval = int(app_setting("treasury", "decideIntervalSeconds"))
     if interval <= 0:
         return
     while True:
@@ -2713,7 +2737,7 @@ def _verify_invoice_report_with_genlayer_locked(invoice_id, invoice):
     # A submitted GenLayer tx that produced no order is only retried for a
     # bounded window; past it the hash is stale and the next verify submits a
     # fresh on-chain verification instead of waiting forever.
-    resubmit_after_sec = int(os.getenv("QMA_GENLAYER_RESUBMIT_AFTER_SEC", "600"))
+    resubmit_after_sec = int(app_setting("genlayer", "resubmitAfterSeconds"))
     pending_since = float(gl_state.get("pending_since") or invoice.get("paid_at") or time.time())
     if pending_tx and (time.time() - pending_since) > resubmit_after_sec:
         resubmit_count = int(gl_state.get("resubmit_count") or 0)

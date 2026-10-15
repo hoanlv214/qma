@@ -190,14 +190,26 @@ class MexcFuturesAdapter(MarketDataAdapter):
             return []
 
         specs = self.contract_specs()
+        abs_threshold = abs(self.funding_threshold)
         filtered_tickers = [
             item for item in tickers
-            if safe_float(item.get("fundingRate")) <= self.funding_threshold
+            if abs(safe_float(item.get("fundingRate"))) >= abs_threshold
         ]
         filtered_tickers = sorted(
             filtered_tickers,
-            key=lambda item: safe_float(item.get("fundingRate")),
+            key=lambda item: abs(safe_float(item.get("fundingRate"))),
+            reverse=True,
         )[:self.anomaly_limit]
+
+        # Prevent signal starvation on calm/sideways days
+        if len(filtered_tickers) < self.anomaly_limit:
+            existing_syms = {item.get("symbol") for item in filtered_tickers}
+            all_sorted = sorted(
+                [item for item in tickers if item.get("symbol") not in existing_syms],
+                key=lambda item: abs(safe_float(item.get("fundingRate"))),
+                reverse=True,
+            )
+            filtered_tickers.extend(all_sorted[: self.anomaly_limit - len(filtered_tickers)])
 
         anomalies = []
         for ticker in filtered_tickers:

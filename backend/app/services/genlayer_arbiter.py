@@ -17,11 +17,13 @@ import threading
 import time
 from pathlib import Path
 
+from backend.app.core.static_config import app_setting
+
 logger = logging.getLogger("QMA-GenLayer")
 
 STUDIO_NEXT_CHAIN_ID = 61997
-STUDIO_NEXT_EXPLORER_URL = "https://explorer-studio-dev.genlayer.com"
-GENLAYER_SLA_CACHE_TTL_SECONDS = int(os.getenv("QMA_GENLAYER_SLA_CACHE_TTL_SECONDS", "900"))
+STUDIO_NEXT_EXPLORER_URL = str(app_setting("genlayer", "explorerUrl"))
+GENLAYER_SLA_CACHE_TTL_SECONDS = int(app_setting("genlayer", "slaCacheTtlSeconds"))
 
 _SLA_CACHE_LOCK = threading.Lock()
 _SLA_VERDICT_CACHE: dict[str, dict[str, Any]] = {}
@@ -32,9 +34,9 @@ _SLA_CACHE_FILE = Path(__file__).resolve().parents[3] / "data" / "genlayer_sla_c
 # submissions below the cap, and cool down when a queue-depth revert is
 # observed. Capacity errors stay verification-pending: they are capacity, not
 # evidence failures, so they must never read as a rejected report.
-_GENLAYER_MAX_INFLIGHT_SUBMISSIONS = max(1, int(os.getenv("QMA_GENLAYER_MAX_INFLIGHT", "12")))
-_GENLAYER_SUBMIT_QUEUE_TIMEOUT_SEC = max(5, int(os.getenv("QMA_GENLAYER_SUBMIT_QUEUE_TIMEOUT_SEC", "240")))
-_GENLAYER_QUEUE_COOLDOWN_SEC = max(5, int(os.getenv("QMA_GENLAYER_QUEUE_COOLDOWN_SEC", "90")))
+_GENLAYER_MAX_INFLIGHT_SUBMISSIONS = max(1, int(app_setting("genlayer", "maxInflightSubmissions")))
+_GENLAYER_SUBMIT_QUEUE_TIMEOUT_SEC = max(5, int(app_setting("genlayer", "submitQueueTimeoutSeconds")))
+_GENLAYER_QUEUE_COOLDOWN_SEC = max(5, int(app_setting("genlayer", "queueCooldownSeconds")))
 _GENLAYER_SUBMIT_GATE = threading.BoundedSemaphore(_GENLAYER_MAX_INFLIGHT_SUBMISSIONS)
 _GENLAYER_SUBMIT_STATE_LOCK = threading.Lock()
 _GENLAYER_QUEUE_COOLDOWN_UNTIL = 0.0
@@ -180,50 +182,34 @@ def get_sla_cache_stats() -> dict[str, Any]:
 
 def _contract_address() -> str:
     import sys
-    mod = sys.modules.get(__name__)
-    if mod and hasattr(mod, "GENLAYER_CONTRACT_ADDRESS"):
-        return str(mod.GENLAYER_CONTRACT_ADDRESS or "").strip()
-    return os.getenv("GENLAYER_CONTRACT_ADDRESS", "").strip()
+    mod = sys.modules[__name__]
+    return str(mod.GENLAYER_CONTRACT_ADDRESS or "").strip()
 
 
 def _private_key() -> str:
     import sys
-    mod = sys.modules.get(__name__)
-    if mod and hasattr(mod, "GENLAYER_PRIVATE_KEY"):
-        return str(mod.GENLAYER_PRIVATE_KEY or "").strip()
-    return os.getenv("GENLAYER_PRIVATE_KEY", "").strip()
+    mod = sys.modules[__name__]
+    return str(mod.GENLAYER_PRIVATE_KEY or "").strip()
 
 
 def _network() -> str:
     import sys
-    mod = sys.modules.get(__name__)
-    if mod and hasattr(mod, "GENLAYER_NETWORK"):
-        return str(mod.GENLAYER_NETWORK or "").strip().lower()
-    return os.getenv("GENLAYER_NETWORK", "studio-next").strip().lower()
+    mod = sys.modules[__name__]
+    return str(mod.GENLAYER_NETWORK or "").strip().lower()
 
 
 def _rpc_endpoint() -> str:
     import sys
-    mod = sys.modules.get(__name__)
-    if mod and hasattr(mod, "GENLAYER_RPC_ENDPOINT"):
-        return str(mod.GENLAYER_RPC_ENDPOINT or "").strip()
-    net = _network()
-    default_endpoint = (
-        "https://studio-next.genlayer.com/api"
-        if "next" in net
-        else "https://studio.genlayer.com/api"
-    )
-    return os.getenv("GENLAYER_RPC_ENDPOINT", default_endpoint).strip()
+    mod = sys.modules[__name__]
+    return str(mod.GENLAYER_RPC_ENDPOINT or "").strip()
 
 
-# Module attributes initially populated from environment
-GENLAYER_CONTRACT_ADDRESS = os.getenv("GENLAYER_CONTRACT_ADDRESS", "").strip()
+# Public GenLayer settings come from config/app.json; only the signing key is a secret (env).
+# Module attributes stay patchable by tests.
+GENLAYER_CONTRACT_ADDRESS = str(app_setting("genlayer", "contractAddress")).strip()
 GENLAYER_PRIVATE_KEY = os.getenv("GENLAYER_PRIVATE_KEY", "").strip()
-GENLAYER_NETWORK = os.getenv("GENLAYER_NETWORK", "studio-next").strip().lower()
-GENLAYER_RPC_ENDPOINT = os.getenv(
-    "GENLAYER_RPC_ENDPOINT",
-    "https://studio-next.genlayer.com/api" if "next" in GENLAYER_NETWORK else "https://studio.genlayer.com/api",
-).strip()
+GENLAYER_NETWORK = str(app_setting("genlayer", "network")).strip().lower()
+GENLAYER_RPC_ENDPOINT = str(app_setting("genlayer", "rpcEndpoint")).strip()
 
 
 

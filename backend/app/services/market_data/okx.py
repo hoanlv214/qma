@@ -147,6 +147,7 @@ class OkxSwapAdapter(MarketDataAdapter):
                     oi_map[item["instId"]] = item
 
         # Fetch funding rates concurrently for candidates
+        abs_threshold = abs(self.funding_threshold)
         results = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             future_to_ticker = {
@@ -157,13 +158,13 @@ class OkxSwapAdapter(MarketDataAdapter):
                 t = future_to_ticker[future]
                 try:
                     fr = future.result()
-                    if fr is not None and fr <= self.funding_threshold:
+                    if fr is not None and abs(fr) >= abs_threshold:
                         results.append((t, fr))
                 except Exception as exc:
                     logger.debug("Failed to fetch funding for %s: %s", t.get("instId"), exc)
 
-        # Sort by most negative funding rate
-        results = sorted(results, key=lambda x: x[1])[: self.anomaly_limit]
+        # Sort by largest absolute funding rate dislocation
+        results = sorted(results, key=lambda x: abs(x[1]), reverse=True)[: self.anomaly_limit]
 
         anomalies = []
         for t, fr in results:

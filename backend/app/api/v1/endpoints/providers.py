@@ -24,6 +24,7 @@ from backend.app.schemas import (
 )
 from backend.app.core.security_schemes import qma_admin_token_header
 from backend.app.core.openapi_responses import documented_error, documented_errors
+from backend.app.core.emergency import assert_not_emergency_stopped
 
 # Fix 3: In-memory cache for claim nonces (TTL-bounded intent)
 # We can clear this set on restart because claims have short TTL (60s) anyway.
@@ -288,6 +289,7 @@ def create_providers_router(deps: SimpleNamespace) -> APIRouter:
     )
     def create_creator_claim(payload: CreatorClaimRequest):
         """Creator-initiated claim: verify owner signature, debit ledger, and execute USDC payout."""
+        assert_not_emergency_stopped("Creator earnings claim operations")
         claimant = deps.normalize_address(payload.claimant_address)
         now = int(time.time())
         if payload.issued_at > now + 60 or now - payload.issued_at > deps.creator_claim_intent_ttl_seconds:
@@ -342,6 +344,7 @@ def create_providers_router(deps: SimpleNamespace) -> APIRouter:
             claim_id = f"claim_{uuid.uuid4().hex}"
             record = {
                 "claim_id": claim_id,
+                "creator_wallet": claimant,
                 "claimant_address": claimant,
                 "provider_ids": provider_ids,
                 "amount_usdc": requested_amount,
@@ -353,8 +356,15 @@ def create_providers_router(deps: SimpleNamespace) -> APIRouter:
                 "message": message,
             }
             deps.get_creator_claims_db().append(record)
-            if not deps.save_creator_claim_record(record):
-                raise HTTPException(status_code=500, detail="Could not persist creator claim request.")
+            try:
+                if not deps.save_creator_claim_record(record):
+                    raise HTTPException(status_code=500, detail="Could not persist creator claim request.")
+            except Exception as exc:
+                if "idx_creator_claims_wallet_nonce" in str(exc) or "duplicate key" in str(exc).lower() or "unique constraint" in str(exc).lower():
+                    raise HTTPException(status_code=409, detail={"error": "claim_nonce_replayed", "message": "This claim nonce has already been used."})
+                if isinstance(exc, HTTPException):
+                    raise exc
+                raise HTTPException(status_code=500, detail=f"Could not persist creator claim request: {exc}")
 
         try:
             headers = {"Content-Type": "application/json"}

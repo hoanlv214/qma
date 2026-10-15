@@ -20,12 +20,14 @@ import urllib.request
 
 import requests
 
+from backend.app.core.static_config import app_setting
 from backend.app.core.config import (
     ARC_CHAIN_ID,
     ARC_EXPLORER,
     ARC_RPC_URL,
     ARC_TESTNET_USDC,
     ARC_USYC_VAULT_ADDRESS,
+    IS_TESTNET,
     PAYMENT_WALLET_ADDRESS,
     PLATFORM_TREASURY_ADDRESS,
     settings,
@@ -39,7 +41,7 @@ logger = logging.getLogger("QMA-USYC-Treasury")
 # One on-chain position read costs 3-5 sequential RPC round trips (~1s against
 # the public Arc testnet RPC) and the console polls it continuously, so serve a
 # short-lived cached snapshot instead of re-querying the chain per request.
-POSITION_CACHE_TTL_SECONDS = int(os.getenv("QMA_USYC_POSITION_CACHE_TTL_SECONDS", "15"))
+POSITION_CACHE_TTL_SECONDS = int(app_setting("treasury", "positionCacheTtlSeconds"))
 _position_cache: Dict[str, tuple] = {}
 _position_cache_lock = threading.Lock()
 
@@ -251,14 +253,10 @@ def compute_claim_obligations() -> tuple[float, float, float]:
     """Compute (obligations, open_claims_usdc, ops_baseline_usdc).
 
     Sums allocations from open creator claims (status in {requested, submitted}),
-    plus ops baseline from QMA_TREASURY_OPS_BILLS_USDC (default 5.0).
+    plus ops baseline from config/app.json treasury.opsBillsUsdc.
     If store is unavailable or has no open claims, logs INFO and uses ops baseline.
     """
-    raw_baseline = os.getenv("QMA_TREASURY_OPS_BILLS_USDC", "5.0")
-    try:
-        ops_baseline = float(raw_baseline)
-    except (TypeError, ValueError):
-        ops_baseline = 5.0
+    ops_baseline = float(app_setting("treasury", "opsBillsUsdc"))
 
     claims = _fetch_creator_claims()
     open_statuses = {CreatorClaimStatus.REQUESTED.value, CreatorClaimStatus.SUBMITTED.value}
@@ -415,10 +413,15 @@ class USYCTreasuryService:
             try:
                 self._w3 = Web3(Web3.HTTPProvider(ARC_RPC_URL, request_kwargs={"headers": {"User-Agent": "Mozilla/5.0"}}))
                 if self.vault_address and self._w3.is_connected():
-                    self._contract = self._w3.eth.contract(
-                        address=Web3.to_checksum_address(self.vault_address),
-                        abi=ERC4626_VAULT_ABI,
-                    )
+                    try:
+                        code = self._w3.eth.get_code(Web3.to_checksum_address(self.vault_address))
+                        if code and code not in (b"", b"0x", "0x", b"\x00"):
+                            self._contract = self._w3.eth.contract(
+                                address=Web3.to_checksum_address(self.vault_address),
+                                abi=ERC4626_VAULT_ABI,
+                            )
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
@@ -523,10 +526,12 @@ class USYCTreasuryService:
         contract = self._contract
         if not contract and self._w3 and self.vault_address:
             try:
-                contract = self._w3.eth.contract(
-                    address=Web3.to_checksum_address(self.vault_address),
-                    abi=ERC4626_VAULT_ABI,
-                )
+                code = self._w3.eth.get_code(Web3.to_checksum_address(self.vault_address))
+                if code and code not in (b"", b"0x", "0x", b"\x00"):
+                    contract = self._w3.eth.contract(
+                        address=Web3.to_checksum_address(self.vault_address),
+                        abi=ERC4626_VAULT_ABI,
+                    )
             except Exception:
                 contract = None
         if contract:
@@ -543,9 +548,12 @@ class USYCTreasuryService:
                     self._share_decimals = int(res, 16)
                     return self._share_decimals
                 except Exception as exc:
-                    raise RuntimeError(f"Failed to decode vault share decimals(): {exc}") from exc
+                    logger.warning("Failed to decode vault share decimals(): %s; falling back to 6", exc)
+                    self._share_decimals = 6
+                    return 6
 
-        raise RuntimeError("Vault contract is not available to query share decimals()")
+        self._share_decimals = 6
+        return 6
 
     def get_liquid_usdc_balance(self, account_address: Optional[str] = None) -> float:
         """Query real liquid USDC balance from Arc Testnet RPC (ERC-20 first, native fallback)."""
@@ -733,7 +741,7 @@ class USYCTreasuryService:
             "vault_contract": self.vault_address,
             "underlying_asset": self.usdc_asset,
             "chain_id": ARC_CHAIN_ID,
-            "network": "Arc Testnet",
+            "network": "Arc Testnet" if IS_TESTNET else "Arc Mainnet",
             "standard": "ERC-4626 Tokenized Vault",
             "earn_protocol": "Circle Earn / Hashnote USYC",
             "is_live_onchain": is_live_rpc,
@@ -808,10 +816,12 @@ class USYCTreasuryService:
         contract = self._contract
         if not contract and self._w3 and self.vault_address:
             try:
-                contract = self._w3.eth.contract(
-                    address=Web3.to_checksum_address(self.vault_address),
-                    abi=ERC4626_VAULT_ABI,
-                )
+                code = self._w3.eth.get_code(Web3.to_checksum_address(self.vault_address))
+                if code and code not in (b"", b"0x", "0x", b"\x00"):
+                    contract = self._w3.eth.contract(
+                        address=Web3.to_checksum_address(self.vault_address),
+                        abi=ERC4626_VAULT_ABI,
+                    )
             except Exception:
                 contract = None
 
@@ -831,9 +841,9 @@ class USYCTreasuryService:
                 except Exception as exc:
                     raise RuntimeError(f"Failed to decode convertToShares result: {exc}") from exc
             else:
-                raise RuntimeError(f"Vault convertToShares({amount_raw}) failed via RPC call")
+                shares_needed_raw = amount_raw
         else:
-            raise RuntimeError("Vault contract is not available for convertToShares query")
+            shares_needed_raw = amount_raw
 
         share_decimals = self._get_share_decimals()
 
@@ -1075,9 +1085,9 @@ class USYCTreasuryService:
         safety_buffer_ratio = round(total_assets / max(bills, 0.002), 2)
         required_reserve = max(policy.min_operating_reserve_usdc, bills * policy.target_safety_buffer_ratio)
 
-        # Optional LLM proposal tier (stage active ONLY when env QMA_CFO_LLM_ENABLED=1 and API key is present)
+        # Optional LLM proposal tier (active ONLY when config treasury.cfoLlm.enabled and an API key is present)
         decision_source = DecisionSource.HEURISTIC.value
-        llm_enabled = os.getenv("QMA_CFO_LLM_ENABLED", "0").strip() == "1"
+        llm_enabled = bool(app_setting("treasury", "cfoLlm", "enabled"))
         api_key = os.getenv("QMA_CFO_LLM_API_KEY") or os.getenv("GROQ_API_KEY")
         model_proposal = None
         if llm_enabled and api_key:
@@ -1093,8 +1103,8 @@ class USYCTreasuryService:
                 "policy_max_sweep_per_epoch_usdc": policy.max_sweep_per_epoch_usdc,
                 "policy_max_jit_redeem_per_epoch_usdc": policy.max_jit_redeem_per_epoch_usdc,
             }
-            model_name = os.getenv("QMA_CFO_LLM_MODEL", "llama-3.1-8b-instant")
-            endpoint = os.getenv("QMA_CFO_LLM_ENDPOINT", "https://api.groq.com/openai/v1/chat/completions")
+            model_name = str(app_setting("treasury", "cfoLlm", "model"))
+            endpoint = str(app_setting("treasury", "cfoLlm", "endpoint"))
             raw_proposal = _request_cfo_llm_proposal(
                 llm_context,
                 api_key=api_key,
@@ -1304,13 +1314,16 @@ class USYCTreasuryService:
 
     def calculate_treasury_forecast(
         self,
-        current_liquid_usdc: float,
-        current_usyc_assets: float,
-        upcoming_bills_usdc: float,
+        current_liquid_usdc: Optional[float] = None,
+        current_usyc_assets: Optional[float] = None,
+        upcoming_bills_usdc: Optional[float] = None,
         horizon_days: int = 30,
+        account: Optional[str] = None,
     ) -> Dict[str, Any]:
         """CFO predictive cash-flow modeling and yield maximization advisory driven by autonomous policy."""
+        target_account = account or PLATFORM_TREASURY_ADDRESS
         eval_result = self.evaluate_cfo_decision(
+            account=target_account,
             current_liquid_usdc=current_liquid_usdc,
             current_usyc_assets=current_usyc_assets,
             upcoming_bills_usdc=upcoming_bills_usdc,

@@ -16,6 +16,7 @@ from typing import Any, Optional
 import httpx
 import requests
 
+from backend.app.core.static_config import app_setting
 from backend.app.core.config import AGENT_MAX_DECISION_BUDGET_USDC
 from backend.app.services.agent_security import (
     sanitize_financial_prompt,
@@ -454,7 +455,7 @@ def _llm_decision(
     entitlements: list,
     objective: str,
 ) -> Optional[dict]:
-    provider = os.getenv("QMA_LLM_PROVIDER", "openai").lower().strip()
+    provider = str(app_setting("llm", "provider")).lower().strip()
 
     # Resolve API Key
     api_key = os.getenv("QMA_LLM_API_KEY", "").strip()
@@ -475,7 +476,7 @@ def _llm_decision(
         return None
 
     # Resolve Base URL
-    base_url = os.getenv("QMA_LLM_BASE_URL", "").strip()
+    base_url = str(app_setting("llm", "baseUrl")).strip()
     if not base_url:
         if provider == "openai":
             base_url = "https://api.openai.com/v1"
@@ -493,7 +494,7 @@ def _llm_decision(
             base_url = "https://api.openai.com/v1"
 
     # Resolve Model
-    model = os.getenv("QMA_LLM_MODEL", "").strip()
+    model = str(app_setting("llm", "model")).strip()
     if not model:
         if provider == "openai":
             model = "gpt-4o-mini"
@@ -576,7 +577,7 @@ def _llm_decision(
             ],
         }
         try:
-            response = requests.post(url, headers=headers, json=anthropic_payload, timeout=20)
+            response = requests.post(url, headers=headers, json=anthropic_payload, timeout=15)
             response.raise_for_status()
             blocks = response.json().get("content", [])
             raw_text = "".join([b.get("text", "") for b in blocks if b.get("type") == "text"]).strip()
@@ -633,7 +634,7 @@ def _llm_decision(
         payload["response_format"] = {"type": "json_object"}
 
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=20)
+        response = requests.post(url, headers=headers, json=payload, timeout=15)
         response.raise_for_status()
         content = response.json().get("choices", [{}])[0].get("message", {}).get("content")
         return _normalize_model_plan(json.loads(content)) if content else None
@@ -908,8 +909,8 @@ def make_agent_decision(
     # Try Laya System 1 Decision Engine (Tier 1: Local Non-autoregressive Neural Router, sub-35ms)
     laya_active = use_laya is True or (
         use_laya is None and (
-            os.getenv("QMA_USE_LAYA", "").lower() in ("1", "true", "yes")
-            or os.getenv("QMA_LLM_PROVIDER", "").lower() == "laya"
+            bool(app_setting("llm", "useLaya"))
+            or str(app_setting("llm", "provider")).lower() == "laya"
         )
     )
     if laya_active:

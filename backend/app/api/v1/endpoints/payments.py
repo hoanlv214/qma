@@ -19,6 +19,7 @@ from backend.app.schemas import (
 )
 from backend.app.core.openapi_responses import documented_errors
 from backend.app.core.security_schemes import qma_invoice_secret_header
+from backend.app.core.emergency import assert_not_emergency_stopped
 
 
 router = APIRouter(tags=["Payments & settlement"])
@@ -73,6 +74,7 @@ def create_payments_router(deps: SimpleNamespace) -> APIRouter:
     @migrated.post("/api/v1/payment/invoice", response_model=PaymentInvoiceResponse, response_model_exclude_unset=True, tags=["Payments & settlement"], summary="Create a report invoice", responses=documented_errors(400, 404, 429, 500))
     def create_invoice(req: InvoiceRequest):
         """Creates a QMA invoice bound to a Circle x402 Arc Testnet payment."""
+        assert_not_emergency_stopped("Invoice creation operations")
         return deps.create_invoice(req)
 
     @migrated.get("/api/v1/payment/invoices/{invoice_id}/status", response_model=InvoicePaymentStateResponse, response_model_exclude_unset=True, tags=["Payments & settlement"], summary="Read invoice payment status", responses=documented_errors(400, 402, 403, 404, 429, 500))
@@ -94,6 +96,7 @@ def create_payments_router(deps: SimpleNamespace) -> APIRouter:
     @migrated.post("/api/v1/payment/verify", response_model=InvoicePaymentStateResponse, response_model_exclude_unset=True, tags=["Payments & settlement"], summary="Verify payment and GenLayer-gate report access", responses=documented_errors(400, 402, 403, 404, 409, 429, 500, 503))
     def verify_payment(invoice_id: str = Query(...), proof: Optional[PaymentVerifyRequest] = None):
         """Verifies one Circle x402 settlement, then requires a finalized GenLayer verdict for the bound report hash. VALID unlocks the report and schedules the creator share; INVALID blocks access and schedules a full payer refund. A GenLayer outage returns 503 and never issues access."""
+        assert_not_emergency_stopped("Payment verification operations")
         return deps.verify_payment(invoice_id=invoice_id, proof=proof)
 
     genlayer_status_cache: dict = {}
@@ -142,6 +145,7 @@ def create_payments_router(deps: SimpleNamespace) -> APIRouter:
     @migrated.post("/api/v1/payment/withdraw", response_model=WithdrawResponse, response_model_exclude_unset=True, tags=["Creator operations"], summary="Submit a creator withdrawal", responses=documented_errors(400, 403, 429, 500, 502, 503))
     def submit_withdraw(payload: WithdrawRequest):
         """Submits a signed BurnIntent authorization to Circle Gateway for withdrawal."""
+        assert_not_emergency_stopped("Withdrawal operations")
         return deps.submit_withdraw(payload.model_dump(by_alias=True, exclude_none=False))
 
     return migrated

@@ -10,10 +10,12 @@ import os
 import re
 from typing import Any, Dict, List, Optional
 
+from backend.app.core.static_config import app_setting
+
 logger = logging.getLogger("QMA-LayaDecision")
 
-DEFAULT_EN_PATH = os.getenv("QMA_LAYA_MODEL_PATH_EN", os.path.expanduser(r"~/.cache/laya_models/english"))
-DEFAULT_ML_PATH = os.getenv("QMA_LAYA_MODEL_PATH_ML", os.path.expanduser(r"~/.cache/laya_models/multilingual"))
+DEFAULT_EN_PATH = os.path.expanduser(str(app_setting("llm", "layaModelPathEn")))
+DEFAULT_ML_PATH = os.path.expanduser(str(app_setting("llm", "layaModelPathMl")))
 
 # Decision Questions for QMA System 1
 QMA_DECISION_QUESTIONS: Dict[str, Any] = {

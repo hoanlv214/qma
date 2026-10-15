@@ -136,7 +136,8 @@ def _get_agent_identity() -> dict:
 def _get_circle_service_card() -> dict:
     profile = NETWORKS_DATA.get("testnet" if IS_TESTNET else "mainnet", {})
     cross_chains = profile.get("crossChains", [])
-    networks = [c.get("id", "").replace("_", "-") for c in cross_chains] if cross_chains else ["arc-testnet", "base-sepolia", "arbitrum-sepolia", "ethereum-sepolia"]
+    fallback = ["arc-testnet", "base-sepolia", "arbitrum-sepolia", "ethereum-sepolia"] if IS_TESTNET else ["arc", "base", "arbitrum", "ethereum"]
+    networks = [c.get("id", "").replace("_", "-") for c in cross_chains] if cross_chains else fallback
     networks.sort(key=lambda x: 0 if "arc" in x else 1)
 
     return {
@@ -176,7 +177,7 @@ def _get_circle_service_card() -> dict:
             "url": "https://qma.vercel.app",
             "support_url": "https://qma.vercel.app/docs",
             "documentation_url": "https://qma.vercel.app/docs",
-            "health_check_url": "https://qma-api.onrender.com/healthz",
+            "health_check_url": "https://qma-api.onrender.com/health",
         },
         "example_prompts": [
             "Search funding rate arbitrage anomalies for BTC and ETH",
@@ -431,7 +432,8 @@ def create_agent_router(deps: SimpleNamespace) -> APIRouter:
     def get_delegate_status(owner_address: str | None = Query(None, description="Optional account owner wallet address")):
         profile = NETWORKS_DATA.get("testnet" if IS_TESTNET else "mainnet", {})
         cross_chains = profile.get("crossChains", [])
-        networks = [c.get("id", "").replace("_", "-") for c in cross_chains] if cross_chains else ["arc-testnet", "base-sepolia", "arbitrum-sepolia", "ethereum-sepolia"]
+        fallback = ["arc-testnet", "base-sepolia", "arbitrum-sepolia", "ethereum-sepolia"] if IS_TESTNET else ["arc", "base", "arbitrum", "ethereum"]
+        networks = [c.get("id", "").replace("_", "-") for c in cross_chains] if cross_chains else fallback
         networks.sort(key=lambda x: 0 if "arc" in x else 1)
         normalized_owner = normalize_address(owner_address) if owner_address else None
         return {

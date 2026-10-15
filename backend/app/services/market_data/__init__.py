@@ -3,6 +3,8 @@
 import os
 from typing import List, Optional
 
+from backend.app.core.static_config import app_setting
+
 from .base import MarketDataAdapter, fetch_json_or_none, safe_float
 from .mexc import MexcFuturesAdapter
 from .binance import BinanceFuturesAdapter
@@ -23,17 +25,17 @@ def create_market_data_adapter(source_id: str = "mexc_futures") -> MarketDataAda
     - "multi_exchange", "all": Concurrent multi-exchange anomaly aggregator
     """
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-    cache_dir = os.getenv("QMA_MARKET_DATA_CACHE_DIR") or os.path.join(root, "data", "cache")
-    funding_threshold = float(os.getenv("QMA_MEXC_FUNDING_THRESHOLD", os.getenv("QMA_FUNDING_THRESHOLD", "-0.0025")))
-    anomaly_limit = int(os.getenv("QMA_LIVE_ANOMALY_LIMIT", "12"))
+    cache_dir = os.path.join(root, "data", "cache")
+    funding_threshold = float(app_setting("marketData", "fundingThreshold"))
+    anomaly_limit = int(app_setting("marketData", "liveAnomalyLimit"))
 
     src = (source_id or "").strip().lower()
 
     if src in ("mexc_futures", "mexc"):
         return MexcFuturesAdapter(
             cache_dir=cache_dir,
-            fetch_coin_details=os.getenv("QMA_MEXC_FETCH_CONTRACT_DETAILS", "false").lower() in ("true", "1", "yes"),
-            detail_cache_ttl_seconds=int(os.getenv("QMA_MEXC_DETAIL_CACHE_TTL_SECONDS", str(6 * 60 * 60))),
+            fetch_coin_details=bool(app_setting("marketData", "mexcFetchContractDetails")),
+            detail_cache_ttl_seconds=int(app_setting("marketData", "mexcDetailCacheTtlSeconds")),
             anomaly_limit=anomaly_limit,
             funding_threshold=funding_threshold,
         )

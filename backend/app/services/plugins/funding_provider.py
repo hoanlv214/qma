@@ -4,6 +4,7 @@ import time
 from typing import Any, Dict
 
 from backend.app.core.provider_registry import ProviderPlugin
+from backend.app.core.static_config import app_setting
 from market_data import create_market_data_adapter
 from qma_engine import QMAEngine
 import paid_intelligence_kit as paid_kit
@@ -21,7 +22,7 @@ class FundingProviderV2(ProviderPlugin):
         self._owner_wallet = owner_wallet
         # The provider creates its own connection to MEXC. 
         # The platform no longer imports market_data_adapter.
-        self.market_data_adapter = create_market_data_adapter(os.getenv("QMA_MARKET_DATA_SOURCE", "multi_exchange"))
+        self.market_data_adapter = create_market_data_adapter(str(app_setting("marketData", "source")))
         self.engine = QMAEngine()
         
     @property
@@ -116,10 +117,9 @@ class FundingProviderV2(ProviderPlugin):
             return round(min(100.0, min(25.0, (volume / market_cap) * 100) + min(45.0, funding_pct * 18) + min(20.0, max(0.0, 1.0 - abs(circ - 0.65)) * 20) + min(10.0, ath / 10)), 1)
         
         score_val = local_complexity_score(context)
-        uplift_max = float(os.getenv("QMA_PRICE_COMPLEXITY_UPLIFT_MAX", "0"))
+        uplift_max = paid_kit.complexity_uplift_max()
         
-        env_key = f"QMA_PROVIDER_FUNDING_MEMORY_PRICE_{normalized.upper()}_USDC"
-        base = float(os.getenv(env_key, paid_kit.tier_price(normalized)))
+        base = paid_kit.tier_price(normalized)
         
         amount = paid_kit.compute_complexity_uplift(base, score_val, uplift_max)
         

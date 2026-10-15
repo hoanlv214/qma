@@ -9,6 +9,7 @@ from backend.app.schemas.stablefx import (
     StableFXSettleRequest,
     StableFXSettleResponse,
 )
+from backend.app.core.config import IS_TESTNET
 from backend.app.core.openapi_responses import documented_errors
 from backend.app.services.stablefx_service import (
     get_stablefx_quote,
@@ -36,7 +37,7 @@ def create_stablefx_router() -> APIRouter:
     )
     def list_stablefx_pairs():
         pairs = get_supported_pairs()
-        return {"supported_pairs": pairs, "active_network": "arc-testnet"}
+        return {"supported_pairs": pairs, "active_network": "arc-testnet" if IS_TESTNET else "arc"}
 
     @migrated.get(
         "/api/v1/stablefx/quote",

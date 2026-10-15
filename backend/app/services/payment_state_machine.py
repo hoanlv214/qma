@@ -1,16 +1,17 @@
 """Invoice/payment state-machine helpers."""
 
-import os
 import time
 from typing import Optional
+
+from backend.app.core.static_config import app_setting
 
 
 GATEWAY_ACCEPTED_STATUSES = {"received", "batched", "completed", "confirmed"}
 GATEWAY_FINAL_STATUSES = {"completed", "confirmed"}
 GATEWAY_FAILED_STATUSES = {
     s.strip().lower()
-    for s in os.getenv("QMA_GATEWAY_FAILED_STATUSES", "failed,rejected,cancelled,canceled,reverted,expired_unsettled").split(",")
-    if s.strip()
+    for s in app_setting("payment", "gatewayFailedStatuses")
+    if str(s).strip()
 }
 
 

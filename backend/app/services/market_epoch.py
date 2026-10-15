@@ -10,12 +10,13 @@ Fail-closed is preserved: report access still requires a VALID attestation,
 and an INVALID epoch is rotated (fresh snapshot) instead of being reused.
 """
 
-import os
 import threading
 import time
 from typing import Any, Callable, Dict, Optional
 
-EPOCH_SECONDS = max(60, int(os.getenv("QMA_GENLAYER_EPOCH_SECONDS", "300")))
+from backend.app.core.static_config import app_setting
+
+EPOCH_SECONDS = max(60, int(app_setting("genlayer", "epochSeconds")))
 _MAX_EPOCHS = 512
 
 _LOCK = threading.RLock()

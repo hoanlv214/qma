@@ -15,12 +15,15 @@ from typing import Any, Dict, List, Literal, Optional
 
 import requests
 
+from backend.app.core.static_config import app_setting
 from backend.app.core.config import (
+    DATA_DIR,
     ARC_CHAIN_ID,
     ARC_EURC_ADDRESS,
     ARC_EXPLORER,
     ARC_RPC_URL,
     ARC_USDC_ADDRESS,
+    IS_TESTNET,
     STABLEFX_EURC_USD_RATE,
     STABLEFX_QUOTE_TTL_SECONDS,
     STABLEFX_SPREAD_BPS,
@@ -91,9 +94,9 @@ def _resolve_usd_per_eur(force_refresh: bool = False) -> Dict[str, Any]:
         "evidence_url": "",
     }
 
-    if os.getenv("QMA_STABLEFX_LIVE_RATE", "1").strip().lower() not in {"0", "false", "off"}:
+    if bool(app_setting("stablefx", "liveRate")):
         try:
-            feed_id = os.getenv("QMA_PYTH_EURUSD_FEED_ID", "").strip() or PYTH_EURUSD_24_7_FEED_ID
+            feed_id = PYTH_EURUSD_24_7_FEED_ID
             url = f"https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x{feed_id}"
             headers = {}
             api_key = os.getenv("QMA_PYTH_HERMES_API_KEY", "").strip()
@@ -159,7 +162,7 @@ def get_supported_pairs() -> List[Dict]:
             "inverted_rate": usd_per_eur,
             "spread_bps": INSTITUTIONAL_SPREAD_BPS,
             "rate_source": fx["source"],
-            "settlement_chain": "arc-testnet",
+            "settlement_chain": "arc-testnet" if IS_TESTNET else "arc",
             "min_amount": 0.01,
             "max_amount": 100000.0,
         },
@@ -171,7 +174,7 @@ def get_supported_pairs() -> List[Dict]:
             "inverted_rate": eur_per_usd,
             "spread_bps": INSTITUTIONAL_SPREAD_BPS,
             "rate_source": fx["source"],
-            "settlement_chain": "arc-testnet",
+            "settlement_chain": "arc-testnet" if IS_TESTNET else "arc",
             "min_amount": 0.01,
             "max_amount": 100000.0,
         },
@@ -389,7 +392,7 @@ def _verify_desk_deposit(
 
 def _consumed_path():
     from pathlib import Path
-    return Path(os.getenv("QMA_DATA_DIR", "data")) / "stablefx_consumed_deposits.json"
+    return DATA_DIR / "stablefx_consumed_deposits.json"
 
 
 def _load_consumed() -> set:

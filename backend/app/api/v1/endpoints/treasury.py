@@ -29,6 +29,7 @@ from backend.app.core.config import PLATFORM_TREASURY_ADDRESS
 from backend.app.services.wallet_utils import normalize_address
 from backend.app.core.security_schemes import qma_admin_token_header
 from backend.app.services.security import require_admin_token
+from backend.app.core.emergency import assert_not_emergency_stopped
 
 router = APIRouter(tags=["Agent decisioning"])
 
@@ -73,6 +74,7 @@ def sweep_idle_cash(
     x_qma_admin_token: Optional[str] = Security(qma_admin_token_header),
 ) -> USYCSweepResponse:
     """Prepare and record an autonomous corporate treasury idle sweep."""
+    assert_not_emergency_stopped("Treasury sweep operations")
     if req.execute_onchain:
         require_admin_token(x_qma_admin_token)
     depositor = req.depositor or PLATFORM_TREASURY_ADDRESS
@@ -140,6 +142,7 @@ def jit_redeem_usyc(
     x_qma_admin_token: Optional[str] = Security(qma_admin_token_header),
 ) -> USYCJITRedeemResponse:
     """Prepare and record JIT redemption of USYC into liquid USDC for x402 bills."""
+    assert_not_emergency_stopped("Treasury redemption operations")
     if req.execute_onchain:
         require_admin_token(x_qma_admin_token)
     receiver = req.receiver or PLATFORM_TREASURY_ADDRESS
@@ -206,10 +209,11 @@ def jit_redeem_usyc(
     description="Predictive cash-flow forecasting and APY earnings projection for autonomous agents.",
 )
 def get_treasury_forecast(
-    liquid_usdc: float = Query(10.0, ge=0),
-    usyc_assets: float = Query(100.0, ge=0),
-    upcoming_bills_usdc: float = Query(5.0, ge=0),
+    liquid_usdc: Optional[float] = Query(None, ge=0, description="Override liquid USDC balance; defaults to live on-chain treasury balance"),
+    usyc_assets: Optional[float] = Query(None, ge=0, description="Override USYC vault assets; defaults to live on-chain vault position"),
+    upcoming_bills_usdc: Optional[float] = Query(None, ge=0, description="Override upcoming bills; defaults to active creator claims + baseline"),
     horizon_days: int = Query(30, ge=1, le=365),
+    account: Optional[str] = Query(None, description="Account address to forecast (defaults to platform treasury)"),
 ) -> USYCForecastResponse:
     """Predictive cash-flow forecasting and APY earnings projection."""
     data = usyc_treasury_service.calculate_treasury_forecast(
@@ -217,6 +221,7 @@ def get_treasury_forecast(
         current_usyc_assets=usyc_assets,
         upcoming_bills_usdc=upcoming_bills_usdc,
         horizon_days=horizon_days,
+        account=account,
     )
     return USYCForecastResponse(**data)
 

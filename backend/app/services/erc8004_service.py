@@ -19,6 +19,7 @@ from backend.app.core.config import (
     ERC8004_IDENTITY_REGISTRY,
     ERC8004_REPUTATION_REGISTRY,
     ERC8004_VALIDATION_REGISTRY,
+    IS_TESTNET,
 )
 
 logger = logging.getLogger(__name__)
@@ -138,7 +139,7 @@ def get_onchain_identity(agent_id: Optional[int] = None) -> Dict[str, Any]:
     result = {
         "standard": "ERC-8004",
         "chain_id": ARC_CHAIN_ID,
-        "network": "Arc Testnet",
+        "network": "Arc Testnet" if IS_TESTNET else "Arc Mainnet",
         "agent_id": target_id,
         "identity_registry": ERC8004_IDENTITY_REGISTRY,
         "reputation_registry": ERC8004_REPUTATION_REGISTRY,

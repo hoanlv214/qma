@@ -99,19 +99,36 @@ class BinanceFuturesAdapter(MarketDataAdapter):
         if not isinstance(prem_resp, list) or not prem_resp:
             return []
 
-        # Filter symbols with negative funding rates meeting threshold
+        # Filter symbols with funding rate dislocations meeting threshold (positive or negative)
+        abs_threshold = abs(self.funding_threshold)
         filtered = [
             item for item in prem_resp
             if isinstance(item, dict)
             and item.get("symbol", "").endswith("USDT")
-            and safe_float(item.get("lastFundingRate")) <= self.funding_threshold
+            and abs(safe_float(item.get("lastFundingRate"))) >= abs_threshold
         ]
 
-        # Sort by most negative funding rate
+        # Sort by largest absolute funding rate dislocation
         filtered = sorted(
             filtered,
-            key=lambda item: safe_float(item.get("lastFundingRate")),
+            key=lambda item: abs(safe_float(item.get("lastFundingRate"))),
+            reverse=True,
         )[: self.anomaly_limit]
+
+        # Prevent signal starvation on calm/sideways days
+        if len(filtered) < self.anomaly_limit:
+            existing_syms = {item.get("symbol") for item in filtered if isinstance(item, dict)}
+            all_sorted = sorted(
+                [
+                    item for item in prem_resp
+                    if isinstance(item, dict)
+                    and item.get("symbol", "").endswith("USDT")
+                    and item.get("symbol") not in existing_syms
+                ],
+                key=lambda item: abs(safe_float(item.get("lastFundingRate"))),
+                reverse=True,
+            )
+            filtered.extend(all_sorted[: self.anomaly_limit - len(filtered)])
 
         if not filtered:
             return []

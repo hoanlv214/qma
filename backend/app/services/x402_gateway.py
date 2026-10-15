@@ -21,7 +21,7 @@ def extract_settlement_tx_hash(settlement: dict) -> str | None:
 
 
 def _fetch_arc_onchain_settlement(tx_hash: str) -> dict:
-    from backend.app.core.config import ARC_RPC_URL, ARC_USDC_ADDRESS
+    from backend.app.core.config import ARC_RPC_URL, ARC_USDC_ADDRESS, IS_TESTNET
     from backend.app.services.wallet_utils import normalize_address
     try:
         from web3 import Web3
@@ -76,7 +76,7 @@ def _fetch_arc_onchain_settlement(tx_hash: str) -> dict:
         "toAddress": to_addr,
         "amount": str(amount_raw),
         "blockNumber": receipt.get("blockNumber"),
-        "network": "arc-testnet",
+        "network": "arc-testnet" if IS_TESTNET else "arc",
         "rail": "arc_onchain",
     }
 

@@ -100,7 +100,9 @@ class SpendLimitGuard:
     @staticmethod
     def _ledger_enabled() -> bool:
         """Kill switch so unit tests and offline runs never touch the ledger."""
-        return os.getenv("QMA_SPEND_GUARD_LEDGER", "1").strip().lower() not in {"0", "false", "off"}
+        from backend.app.core.static_config import app_setting
+
+        return bool(app_setting("treasury", "spendGuardLedger"))
 
     def _persist_event(
         self,

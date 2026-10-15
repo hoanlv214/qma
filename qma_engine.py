@@ -10,32 +10,24 @@ from sklearn.covariance import LedoitWolf
 from sklearn.cluster import KMeans
 from sklearn.neighbors import NearestNeighbors
 
+from backend.app.core.static_config import app_setting
+
 QMA_DIR = os.path.abspath(os.path.dirname(__file__))
 BASE_DIR = os.path.abspath(os.path.join(QMA_DIR, ".."))
 
-def default_data_path(env_name: str, full_path: str, sample_path: str) -> str:
-    configured = os.getenv(env_name)
-    if configured:
-        return configured
+def default_data_path(full_path: str, sample_path: str) -> str:
+    """Use the full local dataset when present, otherwise the configured sample dataset."""
     return full_path if os.path.exists(full_path) else sample_path
 
-HISTORICAL_DB_PATH = os.getenv(
-    "QMA_HISTORICAL_DB_PATH",
-    default_data_path(
-        "QMA_HISTORICAL_DB_PATH",
-        os.path.join(QMA_DIR, "tin_hieu", "json", "mexc", "funding_historical_analysis.csv"),
-        os.path.join(QMA_DIR, "data", "sample_funding_historical_analysis.csv"),
-    ),
+HISTORICAL_DB_PATH = default_data_path(
+    os.path.join(QMA_DIR, "tin_hieu", "json", "mexc", "funding_historical_analysis.csv"),
+    os.path.join(QMA_DIR, str(app_setting("engine", "historicalDbPath"))),
 )
-BACKTEST_OUTCOME_PATH = os.getenv(
-    "QMA_BACKTEST_OUTCOME_PATH",
-    default_data_path(
-        "QMA_BACKTEST_OUTCOME_PATH",
-        os.path.join(QMA_DIR, "tin_hieu", "json", "mexc", "trading_analysis.csv"),
-        os.path.join(QMA_DIR, "data", "sample_trading_analysis.csv"),
-    ),
+BACKTEST_OUTCOME_PATH = default_data_path(
+    os.path.join(QMA_DIR, "tin_hieu", "json", "mexc", "trading_analysis.csv"),
+    os.path.join(QMA_DIR, str(app_setting("engine", "backtestOutcomePath"))),
 )
-RANDOM_SEED = int(os.getenv("QMA_RANDOM_SEED", "42"))
+RANDOM_SEED = int(app_setting("engine", "randomSeed"))
 
 class QMAEngine:
     def __init__(self):

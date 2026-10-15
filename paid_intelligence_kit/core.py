@@ -7,19 +7,20 @@ import time
 import uuid
 from typing import Optional
 
+from backend.app.core.static_config import app_setting
 
+
+# Prices live in config/app.json -> "pricing" ("config_key" below).
 SUPPORTED_TIERS = {
     "preview": {
         "rank": 1,
         "label": "Preview",
-        "env": "QMA_PRICE_PREVIEW_USDC",
-        "default": "0.002",
+        "config_key": "previewUsdc",
     },
     "full": {
         "rank": 2,
         "label": "Full Report",
-        "env": "QMA_PRICE_FULL_USDC",
-        "default": "0.005",
+        "config_key": "fullUsdc",
     },
 }
 
@@ -44,14 +45,18 @@ def normalize_tier(value: Optional[str]) -> str:
 def tier_price(tier: Optional[str]) -> float:
     normalized = normalize_tier(tier)
     meta = SUPPORTED_TIERS[normalized]
-    return float(os.getenv(meta["env"], meta["default"]))
+    return float(app_setting("pricing", meta["config_key"]))
+
+
+def complexity_uplift_max() -> float:
+    return float(app_setting("pricing", "complexityUpliftMax"))
 
 
 def pricing_config() -> dict:
     return {
         "preview_base_usdc": tier_price("preview"),
         "full_base_usdc": tier_price("full"),
-        "complexity_uplift_max": float(os.getenv("QMA_PRICE_COMPLEXITY_UPLIFT_MAX", "0")),
+        "complexity_uplift_max": complexity_uplift_max(),
     }
 
 
@@ -110,7 +115,7 @@ def quote_tier_price(
         base_preview if normalized == "preview" else base_full
     ) is not None else tier_price(normalized)
     
-    uplift_max = float(os.getenv("QMA_PRICE_COMPLEXITY_UPLIFT_MAX", "0"))
+    uplift_max = complexity_uplift_max()
     return compute_complexity_uplift(base, complexity_score, uplift_max)
 
 

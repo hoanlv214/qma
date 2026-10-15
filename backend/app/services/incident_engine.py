@@ -25,7 +25,9 @@ _INCIDENTS_LOCK = threading.Lock()
 
 
 def _get_default_sessions_path() -> Path:
-    return Path(os.getenv("QMA_SESSIONS_PATH", "agent_sessions.json"))
+    from backend.app.core.config import DATA_DIR
+
+    return DATA_DIR / "agent_sessions.json"
 
 
 def _load_sessions_list(storage: Optional[Any] = None) -> tuple[List[Dict[str, Any]], Optional[Path]]:

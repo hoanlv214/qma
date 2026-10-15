@@ -12,6 +12,7 @@ from backend.app.core.config import (
     PLATFORM_TREASURY_ADDRESS,
 )
 from backend.app.core import state
+from backend.app.core.static_config import app_setting
 from backend.app.services.wallet_utils import normalize_address, same_address
 from backend.app.services.payment_state_machine import (
     has_fabricated_settlement,
@@ -40,8 +41,7 @@ def provider_revenue_wallet(provider) -> str:
 
 
 def configured_disabled_providers() -> set[str]:
-    raw = os.getenv("QMA_DISABLED_PROVIDERS", "")
-    return {item.strip() for item in raw.split(",") if item.strip()}
+    return {str(item).strip() for item in app_setting("providers", "disabled") if str(item).strip()}
 
 
 def compute_dynamic_creator_share_bps(base_bps: int = 8000, win_rate: float = 0.0, total_signals: int = 0) -> int:

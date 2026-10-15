@@ -79,8 +79,8 @@ class MultiExchangeAggregator(MarketDataAdapter):
 
         consolidated: list[dict] = []
         for sym, items in token_groups.items():
-            # Sort venues for this token by lowest (most extreme negative) funding rate
-            items_sorted = sorted(items, key=lambda x: safe_float(x.get("fundingRate")))
+            # Sort venues for this token by largest absolute funding rate dislocation
+            items_sorted = sorted(items, key=lambda x: abs(safe_float(x.get("fundingRate"))), reverse=True)
             primary = dict(items_sorted[0])  # Best/most extreme opportunity is primary
 
             # Build cross-exchange venues list
@@ -97,7 +97,8 @@ class MultiExchangeAggregator(MarketDataAdapter):
             primary["venues"] = venues
             primary["venues_count"] = len(venues)
             if len(venues) > 1:
-                spread = abs(safe_float(venues[-1]["fundingRate"]) - safe_float(venues[0]["fundingRate"]))
+                rates = [safe_float(v.get("fundingRate", 0.0)) for v in venues]
+                spread = abs(max(rates) - min(rates))
                 primary["funding_spread"] = round(spread, 6)
             else:
                 primary["funding_spread"] = 0.0
@@ -143,10 +144,11 @@ class MultiExchangeAggregator(MarketDataAdapter):
 
             consolidated.append(primary)
 
-        # Sort all unique tokens globally by their primary (most extreme) funding rate
+        # Sort all unique tokens globally by their primary (most extreme absolute dislocation) funding rate
         ranked = sorted(
             consolidated,
-            key=lambda x: safe_float(x.get("fundingRate")),
+            key=lambda x: abs(safe_float(x.get("fundingRate"))),
+            reverse=True,
         )
 
         return ranked[: self.anomaly_limit]
