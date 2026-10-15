@@ -21,10 +21,11 @@
    in styles/themes.css — the single per-theme source. This :root keeps structure
    only: fonts, the QMA paper family, type/radius/spacing/motion/layout scales. */
 :root {
-/* ----- Fonts ----- */
+    /* ----- Fonts ----- */
     --mono: 'JetBrains Mono', 'Fira Code', monospace;
     --sans: 'Inter', sans-serif;
-    --header-inset: max(16px, calc((100% - 1240px) / 2 + 16px)); /* aligns fixed + sticky headers to the 1240px content column */
+    --header-inset: max(16px, calc((100% - 1240px) / 2 + 16px));
+    /* aligns fixed + sticky headers to the 1240px content column */
 
     /* ----- Display serif (editorial headlines, receipt accents) ----- */
     --font-display: 'Newsreader', Georgia, 'Times New Roman', serif;
@@ -68,15 +69,24 @@
     --paper-refused: var(--qma-refused);
 
     /* ----- Typography scale ----- */
-    --text-2xs: 0.62rem;  /* labels, badges, eyebrows          */
-    --text-xs: 0.68rem;   /* secondary meta, table headers     */
-    --text-sm: 0.76rem;   /* body-small, descriptions          */
-    --text-base: 0.84rem; /* body, nav links                   */
-    --text-md: 0.92rem;   /* card body, readable prose         */
-    --text-lg: 1.02rem;   /* section titles, card headings     */
-    --text-xl: 1.12rem;   /* prominent card values             */
-    --text-2xl: 1.5rem;   /* page titles                       */
-    --text-3xl: clamp(2rem, 4.5vw, 3.1rem); /* hero headlines  */
+    --text-2xs: 0.62rem;
+    /* labels, badges, eyebrows          */
+    --text-xs: 0.68rem;
+    /* secondary meta, table headers     */
+    --text-sm: 0.76rem;
+    /* body-small, descriptions          */
+    --text-base: 0.84rem;
+    /* body, nav links                   */
+    --text-md: 0.92rem;
+    /* card body, readable prose         */
+    --text-lg: 1.02rem;
+    /* section titles, card headings     */
+    --text-xl: 1.12rem;
+    /* prominent card values             */
+    --text-2xl: 1.5rem;
+    /* page titles                       */
+    --text-3xl: clamp(2rem, 4.5vw, 3.1rem);
+    /* hero headlines  */
 
     /* ----- Border-radius scale (Concentric Optical Hierarchy) ----- */
     --radius-xs: 4px;
@@ -102,7 +112,7 @@
 
     /* ----- Shadow & glow: per-theme, see themes.css bridge ----- */
 
-/* ----- Glass & Luminous Elevation Tokens ----- */
+    /* ----- Glass & Luminous Elevation Tokens ----- */
     --glass-card: rgba(14, 19, 36, 0.72);
     --glass-card-hover: rgba(22, 30, 56, 0.85);
     --glass-border: rgba(255, 255, 255, 0.08);
@@ -166,6 +176,7 @@ button:active:not(:disabled),
 
 /* ----- Reduced motion: kill entrance animations & marquee, keep semantics ----- */
 @media (prefers-reduced-motion: reduce) {
+
     *,
     *::before,
     *::after {
@@ -179,6 +190,6 @@ button:active:not(:disabled),
 /* ----- Keyboard focus visibility (global baseline) ----- */
 :focus-visible {
     outline: none;
-    box-shadow: var(--focus-ring);
+    /* box-shadow: var(--focus-ring); */
     border-radius: var(--radius-sm);
 }

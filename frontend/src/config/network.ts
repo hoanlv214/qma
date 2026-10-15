@@ -6,13 +6,16 @@
  */
 
 import networksData from "../../../config/networks.json";
+import appData from "../../../config/app.json";
 
 export type NetworkMode = "testnet" | "mainnet";
 
+const configuredDefaultMode = (((appData as any)?.network?.defaultMode || "mainnet") as string).trim().toLowerCase();
+
 export const NETWORK_MODE: NetworkMode =
-  ((import.meta.env.VITE_NETWORK_MODE || "").trim().toLowerCase() === "mainnet")
-    ? "mainnet"
-    : "testnet";
+  ((import.meta.env.VITE_NETWORK_MODE || configuredDefaultMode).trim().toLowerCase() === "testnet")
+    ? "testnet"
+    : "mainnet";
 
 export const IS_TESTNET: boolean = NETWORK_MODE === "testnet";
 export const IS_MAINNET: boolean = NETWORK_MODE === "mainnet";

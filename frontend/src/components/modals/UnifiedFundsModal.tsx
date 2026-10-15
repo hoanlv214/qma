@@ -199,7 +199,7 @@ export function UnifiedFundsModal({
       .then((hexId) => {
         if (hexId) setCurrentChainId(parseInt(hexId, 16));
       })
-      .catch(() => {});
+      .catch(() => { });
 
     const handleChainChanged = (hexId: any) => {
       if (typeof hexId === "string") setCurrentChainId(parseInt(hexId, 16));
@@ -221,7 +221,7 @@ export function UnifiedFundsModal({
           setSelectedSourceChainId(overview.bestExternalChain.chainId);
         }
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [open, wallet]);
 
   const targetArcChainId = ARC_CHAIN.chainId;
@@ -493,8 +493,8 @@ export function UnifiedFundsModal({
                   {activeSubTab === "gateway"
                     ? safeFormatUsdc(fundGatewayBalance)
                     : activeSubTab === "agent"
-                    ? `$${agentWalletBalance.toFixed(2)}`
-                    : `$${(providerEarningsTotals.totalClaimable + providerEarningsTotals.gatewayAvailable).toFixed(2)}`}
+                      ? `$${agentWalletBalance.toFixed(2)}`
+                      : `$${(providerEarningsTotals.totalClaimable + providerEarningsTotals.gatewayAvailable).toFixed(2)}`}
                 </span>
                 <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface-3 border border-bdr">
                   <img src="/usdc-logo.svg" width={14} height={14} alt="USDC" className="w-3.5 h-3.5" />
@@ -690,11 +690,10 @@ export function UnifiedFundsModal({
                             fundReadinessTone === "ready" ? "bg-emerald-400" : "bg-amber-400"
                           )}
                           style={{
-                            width: `${
-                              requiredAmountNum > 0
+                            width: `${requiredAmountNum > 0
                                 ? Math.min((gatewayBalanceNum / requiredAmountNum) * 100, 100)
                                 : 0
-                            }%`,
+                              }%`,
                           }}
                         />
                       </div>
@@ -733,10 +732,10 @@ export function UnifiedFundsModal({
                               </button>
                             );
                           }) || (
-                            <span className="text-xs text-t3">
-                              {ARC_CHAIN.name} ({fundWalletUsdc})
-                            </span>
-                          )}
+                              <span className="text-xs text-t3">
+                                {ARC_CHAIN.name} ({fundWalletUsdc})
+                              </span>
+                            )}
                         </div>
                       </div>
 
@@ -755,17 +754,16 @@ export function UnifiedFundsModal({
                               {selectedSourceChainId === ARC_CHAIN.chainId
                                 ? fundChainStatus
                                 : multiChainOverview?.chains.find((c) => c.chainId === selectedSourceChainId)?.name ||
-                                  fundChainStatus}
+                                fundChainStatus}
                             </div>
                           </div>
                         </div>
                         <span className="text-xs font-bold text-emerald-400 font-mono">
                           {selectedSourceChainId === ARC_CHAIN.chainId
                             ? fundWalletUsdc
-                            : `${
-                                multiChainOverview?.chains.find((c) => c.chainId === selectedSourceChainId)
-                                  ?.balanceUsdc || "0.00"
-                              } USDC`}
+                            : `${multiChainOverview?.chains.find((c) => c.chainId === selectedSourceChainId)
+                              ?.balanceUsdc || "0.00"
+                            } USDC`}
                         </span>
                       </div>
 
@@ -886,11 +884,10 @@ export function UnifiedFundsModal({
                         {gatewayDepositLoading || crossChainLoading
                           ? "Depositing..."
                           : selectedSourceChainId !== ARC_CHAIN.chainId
-                          ? `Deposit from ${
-                              multiChainOverview?.chains.find((c) => c.chainId === selectedSourceChainId)?.name ||
-                              "External Chain"
+                            ? `Deposit from ${multiChainOverview?.chains.find((c) => c.chainId === selectedSourceChainId)?.name ||
+                            "External Chain"
                             }`
-                          : "Deposit to Gateway"}
+                            : "Deposit to Gateway"}
                       </button>
                     </div>
                   </form>
@@ -1040,7 +1037,7 @@ export function UnifiedFundsModal({
                   <div
                     className={cn(
                       "grid gap-3",
-                      isCreatorRole ? "grid-cols-3" : agentWalletAddress ? "grid-cols-2" : "grid-cols-1"
+                      isCreatorRole ? "grid-cols-2" : agentWalletAddress ? "grid-cols-2" : "grid-cols-1"
                     )}
                   >
                     <div

@@ -10,6 +10,9 @@
     "publicMcpUrl": "https://qma-three.vercel.app/mcp",
     "publicDocsUrl": "https://qma-three.vercel.app/docs"
   },
+  "network": {
+    "defaultMode": "mainnet"
+  },
   "brand": {
     "name": "QMA Intelligence Marketplace",
     "title": "QMA Intelligence & Payments API"

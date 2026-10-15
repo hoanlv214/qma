@@ -420,7 +420,7 @@ export async function executeStableFxSwap({
       userTxHash,
       settlementTxHash: settleData.settlement_tx_hash,
       txHash: settleData.settlement_tx_hash || userTxHash,
-      explorerUrl: `https://testnet.arcscan.app/tx/${userTxHash}`,
+      explorerUrl: `${ARC_CHAIN.explorerUrl}/tx/${userTxHash}`,
       settlementExplorerUrl: settleData.explorer_url,
     };
   } catch (err: any) {
@@ -432,7 +432,7 @@ export async function executeStableFxSwap({
  * Circle Earn Kit (Yield Vault) integration via Circle App Kit.
  * Connects directly to institutional yield-bearing vaults (such as USYC on Arc).
  */
-export async function getEarnVaults(vaultAddress?: string, chain = "Arc_Testnet") {
+export async function getEarnVaults(vaultAddress?: string, chain = IS_MAINNET ? "Arc" : "Arc_Testnet") {
   try {
     if (!vaultAddress) return [];
     const res = await circleAppKit.earn.getVaults({
@@ -448,7 +448,7 @@ export async function getEarnVaults(vaultAddress?: string, chain = "Arc_Testnet"
 export async function getEarnPosition({
   vaultAddress,
   provider,
-  chain = "Arc_Testnet",
+  chain = IS_MAINNET ? "Arc" : "Arc_Testnet",
 }: {
   vaultAddress: string;
   provider: Eip1193Provider;
@@ -473,7 +473,7 @@ export async function depositToEarnVault({
   vaultAddress,
   amount,
   provider,
-  chain = "Arc_Testnet",
+  chain = IS_MAINNET ? "Arc" : "Arc_Testnet",
 }: {
   vaultAddress: string;
   amount: string;
@@ -495,7 +495,7 @@ export async function withdrawFromEarnVault({
   vaultAddress,
   amount,
   provider,
-  chain = "Arc_Testnet",
+  chain = IS_MAINNET ? "Arc" : "Arc_Testnet",
 }: {
   vaultAddress: string;
   amount: string;

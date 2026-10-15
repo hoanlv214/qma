@@ -109,7 +109,8 @@ NETWORKS_DATA: dict = NETWORKS
 # Network Mode & Profiles (Testnet vs Mainnet)
 # ---------------------------------------------------------------------------
 # QMA_NETWORK_MODE="testnet" | "mainnet" is the ONLY network switch; everything else follows the profile.
-NETWORK_MODE: str = os.getenv("QMA_NETWORK_MODE", "testnet").strip().lower()
+_default_network_mode: str = str(app_setting("network", "defaultMode")).strip().lower()
+NETWORK_MODE: str = os.getenv("QMA_NETWORK_MODE", _default_network_mode).strip().lower()
 IS_TESTNET: bool = NETWORK_MODE != "mainnet"
 
 _active_profile = NETWORKS_DATA["testnet" if IS_TESTNET else "mainnet"]

@@ -61,11 +61,12 @@ function requireEnv(name: string): string {
   return value.replace(/\/$/, "");
 }
 
-export const isMainnet = (process.env.QMA_NETWORK_MODE ?? "").trim().toLowerCase() === "mainnet";
+const appConfig = readConfigJson<WorkerAppConfig>("app.json");
+const defaultNetworkMode = ((appConfig as any)?.network?.defaultMode ?? "mainnet") as string;
+export const isMainnet = (process.env.QMA_NETWORK_MODE ?? defaultNetworkMode).trim().toLowerCase() === "mainnet";
 
 const networks = readConfigJson<{ testnet: NetworkProfile; mainnet: NetworkProfile }>("networks.json");
 const networkProfile = isMainnet ? networks.mainnet : networks.testnet;
-const appConfig = readConfigJson<WorkerAppConfig>("app.json");
 
 export const workerConfig = {
   apiBaseUrl: requireEnv("QMA_API_URL"),

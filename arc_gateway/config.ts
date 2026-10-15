@@ -55,11 +55,12 @@ function readConfigJson<T>(fileName: string): T {
   return JSON.parse(fs.readFileSync(found, "utf8")) as T;
 }
 
-export const isMainnet = (process.env.QMA_NETWORK_MODE ?? "").trim().toLowerCase() === "mainnet";
+export const appConfig: AppConfig = readConfigJson<AppConfig>("app.json");
+const defaultNetworkMode = ((appConfig as any)?.network?.defaultMode ?? "mainnet") as string;
+export const isMainnet = (process.env.QMA_NETWORK_MODE ?? defaultNetworkMode).trim().toLowerCase() === "mainnet";
 
 const networks = readConfigJson<{ testnet: NetworkProfile; mainnet: NetworkProfile }>("networks.json");
 export const networkProfile: NetworkProfile = isMainnet ? networks.mainnet : networks.testnet;
-export const appConfig: AppConfig = readConfigJson<AppConfig>("app.json");
 
 /** Optional env value: secrets and deployment wiring that may legitimately be absent. */
 export function optionalEnv(name: string): string | undefined {

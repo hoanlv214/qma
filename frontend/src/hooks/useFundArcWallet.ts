@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { getWalletProvider, shortAddress, ensureArcTestnet } from "../services/wallet";
 import { extractGatewayBalanceUsdc, getOnChainUsdcBalance } from "../services/gatewayCrypto";
-import { ARC_CHAIN } from "../config/network";
+import { ARC_CHAIN, IS_TESTNET } from "../config/network";
 
 interface UseFundArcWalletOptions {
   wallet: string;
@@ -127,8 +127,8 @@ export function useFundArcWallet({ wallet, arcGatewayUrl }: UseFundArcWalletOpti
     } else {
       setFundReadinessStatus("Funding needed");
       setFundReadinessTone("warn");
-      setFundNextStep("Use Faucet or CCTP/App Kit, then retry. Arc uses USDC for gas and payment funding.");
-      setFundPrimaryAction({ action: "faucet", label: "Open Circle Faucet" });
+      setFundNextStep(IS_TESTNET ? "Use Faucet or CCTP/App Kit, then retry. Arc uses USDC for gas and payment funding." : "Bridge USDC via CCTP or deposit to Gateway, then retry. Arc uses USDC for gas.");
+      setFundPrimaryAction(IS_TESTNET ? { action: "faucet", label: "Open Circle Faucet" } : { action: "bridge", label: "Bridge USDC" });
     }
   }, [wallet, arcGatewayUrl]);
 
@@ -137,7 +137,7 @@ export function useFundArcWallet({ wallet, arcGatewayUrl }: UseFundArcWalletOpti
       await ensureArcTestnet();
       await refreshFundingReadiness();
     } catch (err) {
-      console.error("Failed to switch to Arc Testnet:", err);
+      console.error(`Failed to switch to ${ARC_CHAIN.name}:`, err);
       throw err;
     }
   }, [refreshFundingReadiness]);

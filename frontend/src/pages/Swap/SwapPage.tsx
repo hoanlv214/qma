@@ -4,7 +4,7 @@ import type { QmaRoute } from "@/app/routes";
 import { GlobalHeader } from "@/components/layout/GlobalHeader";
 import { WalletAppKitModal } from "@/components/modals/WalletAppKitModal";
 import { useWalletStore } from "@/state/walletStore";
-import { getWalletProvider, ensureArcTestnet, shortAddress } from "@/services/wallet";
+import { getWalletProvider, ensureArcNetwork, shortAddress } from "@/services/wallet";
 import {
   SUPPORTED_CCTP_CHAINS,
   executeCctpBridge,
@@ -88,9 +88,9 @@ function UsdcLogo({ size = 18 }: { size?: number }) {
 }
 
 const NETWORKS_LIST = [
-  { id: "base_sepolia", name: IS_TESTNET ? "Base Sepolia" : "Base", logo: <BaseLogo size={16} />, domain: 6, latency: "12s" },
-  { id: "arbitrum_sepolia", name: IS_TESTNET ? "Arbitrum Sepolia" : "Arbitrum One", logo: <ArbitrumLogo size={16} />, domain: 3, latency: "18s" },
-  { id: "ethereum_sepolia", name: IS_TESTNET ? "Ethereum Sepolia" : "Ethereum", logo: <EthereumLogo size={16} />, domain: 0, latency: "22s" },
+  { id: IS_TESTNET ? "base_sepolia" : "base", name: IS_TESTNET ? "Base Sepolia" : "Base", logo: <BaseLogo size={16} />, domain: 6, latency: "12s" },
+  { id: IS_TESTNET ? "arbitrum_sepolia" : "arbitrum", name: IS_TESTNET ? "Arbitrum Sepolia" : "Arbitrum One", logo: <ArbitrumLogo size={16} />, domain: 3, latency: "18s" },
+  { id: IS_TESTNET ? "ethereum_sepolia" : "ethereum", name: IS_TESTNET ? "Ethereum Sepolia" : "Ethereum", logo: <EthereumLogo size={16} />, domain: 0, latency: "22s" },
   { id: "arc", name: ARC_CHAIN.name, logo: <ArcLogo size={16} />, domain: ARC_CHAIN.cctpDomain, latency: "<1s" },
 ];
 
@@ -106,7 +106,7 @@ export function SwapPage({ onNavigate }: SwapProps) {
   const [switchingNetwork, setSwitchingNetwork] = useState(false);
 
   // Cross-Chain Transfer State (Wormhole / LayerZero style dropdown selectors)
-  const [originChain, setOriginChain] = useState("base_sepolia");
+  const [originChain, setOriginChain] = useState(IS_TESTNET ? "base_sepolia" : "base");
   const [destinationChain, setDestinationChain] = useState("arc");
   const [originDropdownOpen, setOriginDropdownOpen] = useState(false);
   const [destDropdownOpen, setDestDropdownOpen] = useState(false);
@@ -300,7 +300,7 @@ export function SwapPage({ onNavigate }: SwapProps) {
     if (!provider) return;
     setSwitchingNetwork(true);
     try {
-      await ensureArcTestnet(provider);
+      await ensureArcNetwork(provider);
       const hexId = await provider.request<string>({ method: "eth_chainId" });
       if (hexId) setCurrentChainId(parseInt(hexId, 16));
     } catch {
@@ -417,7 +417,7 @@ export function SwapPage({ onNavigate }: SwapProps) {
     setFxSettlementTxHash("");
 
     try {
-      await ensureArcTestnet(provider);
+      await ensureArcNetwork(provider);
       const toToken = fxFromToken === "EURC" ? "USDC" : "EURC";
 
       const res = await executeStableFxSwap({
@@ -662,7 +662,7 @@ export function SwapPage({ onNavigate }: SwapProps) {
                               <div className="chain-btn-logo">{originNetObj.logo}</div>
                               <div className="chain-btn-text">
                                 <span className="chain-btn-name">{originNetObj.name}</span>
-                                <span className="chain-btn-badge">Testnet</span>
+                                <span className="chain-btn-badge">{IS_TESTNET ? "Testnet" : "Mainnet"}</span>
                               </div>
                               <span className="chain-btn-caret">▾</span>
                             </button>
@@ -681,7 +681,7 @@ export function SwapPage({ onNavigate }: SwapProps) {
                                         onClick={() => {
                                           setOriginChain(net.id);
                                           if (destinationChain === net.id) {
-                                            setDestinationChain(net.id === "arc" ? "ethereum_sepolia" : "arc");
+                                            setDestinationChain(net.id === "arc" ? (IS_TESTNET ? "ethereum_sepolia" : "ethereum") : "arc");
                                           }
                                           setOriginDropdownOpen(false);
                                         }}
@@ -809,7 +809,7 @@ export function SwapPage({ onNavigate }: SwapProps) {
                               <div className="chain-btn-logo">{destNetObj.logo}</div>
                               <div className="chain-btn-text">
                                 <span className="chain-btn-name">{destNetObj.name}</span>
-                                <span className="chain-btn-badge">Testnet</span>
+                                <span className="chain-btn-badge">{IS_TESTNET ? "Testnet" : "Mainnet"}</span>
                               </div>
                               <span className="chain-btn-caret">▾</span>
                             </button>
@@ -828,7 +828,7 @@ export function SwapPage({ onNavigate }: SwapProps) {
                                         onClick={() => {
                                           setDestinationChain(net.id);
                                           if (originChain === net.id) {
-                                            setOriginChain(net.id === "arc" ? "base_sepolia" : "arc");
+                                            setOriginChain(net.id === "arc" ? (IS_TESTNET ? "base_sepolia" : "base") : "arc");
                                           }
                                           setDestDropdownOpen(false);
                                         }}
