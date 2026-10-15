@@ -21,6 +21,7 @@ import {
   SUPPORTED_CROSS_CHAINS,
   type SupportedCrossChain,
 } from "../config/network";
+import { PUBLIC_API_URL } from "../config/app";
 
 export { type SupportedCrossChain, ARC_TOKENS };
 
@@ -561,7 +562,7 @@ export async function executeGatewayDeposit({
       throw new Error("Invalid deposit amount");
     }
 
-    const gwUrl = "https://arc-gateway.onrender.com";
+    const gwUrl = import.meta.env.VITE_ARC_GATEWAY_URL || PUBLIC_API_URL;
     const res = await fetch(`${gwUrl}/api/deposit-calldata/${address}?amount=${amountNum.toFixed(6)}&approveAmount=${amountNum.toFixed(6)}`);
     if (res.ok) {
       const data = await res.json();

@@ -52,7 +52,13 @@ def load_env_file(path: Path) -> Dict[str, str]:
 
 
 def build_frontend_env(env: Dict[str, str]) -> Dict[str, str]:
-    api_url = env.get("QMA_API_PUBLIC_URL", "https://qma-api.onrender.com")
+    try:
+        with open("config/app.json", "r", encoding="utf-8") as f:
+            app_cfg = json.load(f)
+            default_api_url = app_cfg.get("deployments", {}).get("publicApiUrl", "https://qma-three.vercel.app")
+    except Exception:
+        default_api_url = "https://qma-three.vercel.app"
+    api_url = env.get("QMA_API_PUBLIC_URL", default_api_url)
     genlayer_contract = env.get("GENLAYER_CONTRACT_ADDRESS", "0x1e5B4d7Be22A3f7F4Ecb616bA65123cB03B7cc13")
     studio_url = env.get("GENLAYER_STUDIO_URL", "https://studio-next.genlayer.com")
     explorer_url = env.get("GENLAYER_EXPLORER_URL", "https://explorer-studio-dev.genlayer.com")

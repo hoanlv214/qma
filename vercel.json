@@ -121,6 +121,26 @@
       "destination": "https://driveway-expansive-onyx.ngrok-free.dev/api/:path*"
     },
     {
+      "source": "/mcp",
+      "destination": "https://driveway-expansive-onyx.ngrok-free.dev/mcp"
+    },
+    {
+      "source": "/mcp/:path*",
+      "destination": "https://driveway-expansive-onyx.ngrok-free.dev/mcp/:path*"
+    },
+    {
+      "source": "/health",
+      "destination": "https://driveway-expansive-onyx.ngrok-free.dev/health"
+    },
+    {
+      "source": "/healthz",
+      "destination": "https://driveway-expansive-onyx.ngrok-free.dev/healthz"
+    },
+    {
+      "source": "/docs",
+      "destination": "https://driveway-expansive-onyx.ngrok-free.dev/docs"
+    },
+    {
       "source": "/:path*",
       "destination": "/"
     }

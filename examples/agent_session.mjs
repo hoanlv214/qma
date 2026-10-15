@@ -32,7 +32,18 @@ function loadEnv() {
 }
 loadEnv();
 
-const apiUrl = String(argValue("api", process.env.QMA_API_URL || "https://qma-api.onrender.com")).replace(/\/$/, "");
+function getPublicApiUrl() {
+  try {
+    const p = path.resolve(process.cwd(), "config", "app.json");
+    if (fs.existsSync(p)) {
+      const data = JSON.parse(fs.readFileSync(p, "utf-8"));
+      if (data.deployments?.publicApiUrl) return data.deployments.publicApiUrl;
+    }
+  } catch {}
+  return "https://qma-three.vercel.app";
+}
+
+const apiUrl = String(argValue("api", process.env.QMA_API_URL || getPublicApiUrl())).replace(/\/$/, "");
 const executor = argValue("executor", process.env.QMA_AGENT_EXECUTOR || "local-private-key");
 const wallet = executor === "circle-agent-wallet"
   ? (process.env.CIRCLE_AGENT_WALLET_ADDRESS || process.env.QMA_CIRCLE_AGENT_WALLET_ADDRESS || argValue("wallet"))

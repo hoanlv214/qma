@@ -4,6 +4,12 @@
     "adminWallet": "0x1c684cd494d940418e271d51c889486e27c0aed0",
     "withdrawRelayerAddress": "0xe29d54cf74b3a3b0be7d2e2274e68539daab651b"
   },
+  "deployments": {
+    "publicApiUrl": "https://qma-three.vercel.app",
+    "publicAppUrl": "https://qma-three.vercel.app",
+    "publicMcpUrl": "https://qma-three.vercel.app/mcp",
+    "publicDocsUrl": "https://qma-three.vercel.app/docs"
+  },
   "brand": {
     "name": "QMA Intelligence Marketplace",
     "title": "QMA Intelligence & Payments API"
@@ -18,6 +24,8 @@
       "http://127.0.0.1:5173",
       "http://localhost:3000",
       "http://127.0.0.1:3000",
+      "https://qma-three.vercel.app",
+      "https://qma.vercel.app",
       "https://qma-api.onrender.com",
       "https://qma-arc-gateway.onrender.com",
       "*"

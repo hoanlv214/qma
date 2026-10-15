@@ -36,6 +36,7 @@ from backend.app.core.static_config import app_setting
 from backend.app.core.config import (
     settings,
     load_local_env,
+    PUBLIC_API_URL,
     # Payment / pricing
     PAYMENT_AMOUNT_USDC,
     PAYMENT_RESOURCE_TYPE,
@@ -393,7 +394,7 @@ app = FastAPI(
     version="1.0.0",
     servers=[
         {"url": "http://127.0.0.1:8000", "description": "Local development API"},
-        {"url": "https://qma-api.onrender.com", "description": "Production API"},
+        {"url": PUBLIC_API_URL, "description": "Production API"},
     ],
     openapi_tags=OPENAPI_TAGS,
     docs_url=None,

@@ -403,20 +403,20 @@ def test_dynamic_url_resolution_on_render_or_forwarded_headers():
     )))
     test_client = TestClient(app)
 
-    # Request with forwarded headers mimicking reverse proxy / Render
+    # Request with forwarded headers mimicking reverse proxy / Vercel
     headers = {
         "x-forwarded-proto": "https",
-        "x-forwarded-host": "qma-api.onrender.com",
+        "x-forwarded-host": "qma-three.vercel.app",
     }
     meta = test_client.get("/.well-known/oauth-authorization-server", headers=headers).json()
-    assert meta["issuer"] == "https://qma-api.onrender.com"
-    assert meta["token_endpoint"] == "https://qma-api.onrender.com/api/v1/oauth/token"
-    assert meta["registration_endpoint"] == "https://qma-api.onrender.com/api/v1/oauth/register"
-    assert meta["authorization_endpoint"] == "https://qma.vercel.app/connect"
+    assert meta["issuer"] == "https://qma-three.vercel.app"
+    assert meta["token_endpoint"] == "https://qma-three.vercel.app/api/v1/oauth/token"
+    assert meta["registration_endpoint"] == "https://qma-three.vercel.app/api/v1/oauth/register"
+    assert meta["authorization_endpoint"] == "https://qma-three.vercel.app/connect"
 
     resource_meta = test_client.get("/.well-known/oauth-protected-resource/mcp", headers=headers).json()
-    assert resource_meta["resource"] == "https://qma-api.onrender.com/mcp"
-    assert resource_meta["authorization_servers"] == ["https://qma-api.onrender.com"]
+    assert resource_meta["resource"] == "https://qma-three.vercel.app/mcp"
+    assert resource_meta["authorization_servers"] == ["https://qma-three.vercel.app"]
 
 
 def test_root_and_favicon_routes():

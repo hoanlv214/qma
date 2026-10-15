@@ -57,6 +57,12 @@ BRAND_DESCRIPTION: str = (
 INTERNAL_QUANT_ENGINE: str = "QMA"  # Internal market-memory & anomaly matching engine
 INTERNAL_TREASURY_MODULE: str = "QMA Treasury Engine"  # Internal corporate treasury & liquidity engine
 
+# Centralized deployment URLs loaded from config/app.json (Single Source of Truth)
+PUBLIC_API_URL: str = str(os.getenv("QMA_PUBLIC_API_URL") or app_setting("deployments", "publicApiUrl"))
+PUBLIC_APP_URL: str = str(os.getenv("QMA_PUBLIC_APP_URL") or app_setting("deployments", "publicAppUrl"))
+PUBLIC_MCP_URL: str = str(os.getenv("QMA_MCP_PUBLIC_URL") or app_setting("deployments", "publicMcpUrl"))
+PUBLIC_DOCS_URL: str = str(os.getenv("QMA_PUBLIC_DOCS_URL") or app_setting("deployments", "publicDocsUrl"))
+
 
 @dataclass(frozen=True)
 class Settings:

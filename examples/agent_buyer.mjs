@@ -17,7 +17,18 @@ import path from "node:path";
 import { createPublicClient, createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
-const DEFAULT_API = "https://qma-api.onrender.com";
+function getPublicApiUrl() {
+  try {
+    const p = path.resolve(process.cwd(), "config", "app.json");
+    if (fs.existsSync(p)) {
+      const data = JSON.parse(fs.readFileSync(p, "utf-8"));
+      if (data.deployments?.publicApiUrl) return data.deployments.publicApiUrl;
+    }
+  } catch {}
+  return "https://qma-three.vercel.app";
+}
+
+const DEFAULT_API = process.env.QMA_API_URL || getPublicApiUrl();
 const ARC_CHAIN_ID = 5042002;
 const ARC_TESTNET_CHAIN = {
   id: ARC_CHAIN_ID,

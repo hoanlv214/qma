@@ -17,7 +17,12 @@ import path from "node:path";
 import { createPublicClient, createWalletClient, encodeFunctionData, http, parseUnits, formatUnits } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
-const DEFAULT_API = "https://qma-api.onrender.com";
+const appConfigPath = [
+  path.resolve(process.cwd(), "config", "app.json"),
+  path.resolve(process.cwd(), "..", "config", "app.json"),
+].find((p) => fs.existsSync(p));
+const appConfigData = appConfigPath ? JSON.parse(fs.readFileSync(appConfigPath, "utf8")) : null;
+const DEFAULT_API = process.env.QMA_API_URL || appConfigData?.deployments?.publicApiUrl || "https://qma-three.vercel.app";
 
 const networksPath = [
   path.resolve(process.cwd(), "config", "networks.json"),

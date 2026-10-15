@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from backend.app.main import app
+from backend.app.core.config import PUBLIC_API_URL
 
 
 class OpenApiDocsTests(unittest.TestCase):
@@ -79,7 +80,7 @@ class OpenApiDocsTests(unittest.TestCase):
             self.schema["servers"],
             [
                 {"url": "http://127.0.0.1:8000", "description": "Local development API"},
-                {"url": "https://qma-api.onrender.com", "description": "Production API"},
+                {"url": PUBLIC_API_URL, "description": "Production API"},
             ],
         )
 

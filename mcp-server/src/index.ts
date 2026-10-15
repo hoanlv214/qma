@@ -3,13 +3,15 @@
  * the hosted QMA MCP server (Streamable HTTP).
  *
  * Env:
- *   QMA_MCP_URL    hosted MCP endpoint (default https://qma-api.onrender.com/mcp)
+ *   QMA_MCP_URL    hosted MCP endpoint (default https://qma-three.vercel.app/mcp)
  *   QMA_MCP_TOKEN  MCP connection token (OAuth scope "mcp", 30-day TTL)
  *
  * The token carries the owner's spend caps; every tools/call is re-validated
  * server-side, and revoking the connection on qma.market cuts access instantly.
  */
 
+import fs from "node:fs";
+import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -19,7 +21,22 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-const MCP_URL = process.env.QMA_MCP_URL || "https://qma-api.onrender.com/mcp";
+function getPublicMcpUrl(): string {
+  try {
+    for (const p of [
+      path.resolve(process.cwd(), "config", "app.json"),
+      path.resolve(process.cwd(), "..", "config", "app.json"),
+    ]) {
+      if (fs.existsSync(p)) {
+        const data = JSON.parse(fs.readFileSync(p, "utf-8"));
+        if (data.deployments?.publicMcpUrl) return data.deployments.publicMcpUrl;
+      }
+    }
+  } catch {}
+  return "https://qma-three.vercel.app/mcp";
+}
+
+const MCP_URL = process.env.QMA_MCP_URL || getPublicMcpUrl();
 const MCP_TOKEN = process.env.QMA_MCP_TOKEN || "";
 
 export async function run(): Promise<void> {

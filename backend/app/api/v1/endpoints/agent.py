@@ -34,6 +34,9 @@ from backend.app.schemas.agent import (
 )
 from backend.app.services.agent_decision import make_agent_decision
 from backend.app.core.config import (
+    PUBLIC_API_URL,
+    PUBLIC_APP_URL,
+    PUBLIC_DOCS_URL,
     ARC_CHAIN_ID,
     ARC_EXPLORER,
     ARC_GATEWAY_WALLET,
@@ -174,10 +177,10 @@ def _get_circle_service_card() -> dict:
         ],
         "provider": {
             "name": "QMA Labs",
-            "url": "https://qma.vercel.app",
-            "support_url": "https://qma.vercel.app/docs",
-            "documentation_url": "https://qma.vercel.app/docs",
-            "health_check_url": "https://qma-api.onrender.com/health",
+            "url": PUBLIC_APP_URL,
+            "support_url": PUBLIC_DOCS_URL,
+            "documentation_url": PUBLIC_DOCS_URL,
+            "health_check_url": f"{PUBLIC_API_URL}/health",
         },
         "example_prompts": [
             "Search funding rate arbitrage anomalies for BTC and ETH",
