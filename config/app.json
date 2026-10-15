@@ -1,0 +1,171 @@
+{
+  "platform": {
+    "treasuryAddress": "0x23e7c029a287a83d80b2e084e008211658dda11d",
+    "adminWallet": "0x1c684cd494d940418e271d51c889486e27c0aed0",
+    "withdrawRelayerAddress": "0xe29d54cf74b3a3b0be7d2e2274e68539daab651b"
+  },
+  "brand": {
+    "name": "QMA Intelligence Marketplace",
+    "title": "QMA Intelligence & Payments API"
+  },
+  "services": {
+    "arcGatewayPort": 3000,
+    "workerPort": 10000,
+    "workerMaxConcurrentSessions": 10,
+    "workerPollIntervalMs": 5000,
+    "corsAllowedOrigins": [
+      "http://localhost:5173",
+      "http://127.0.0.1:5173",
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+      "https://qma-api.onrender.com",
+      "https://qma-arc-gateway.onrender.com",
+      "*"
+    ]
+  },
+  "providers": {
+    "ownerWallets": {
+      "funding": "0xb40971a5d88f31c7b8d88bf93f7d044f1383bf01",
+      "openInterest": "0x2222222222222222222222222222222222222222",
+      "polymarket": "0x3333333333333333333333333333333333333333",
+      "pyth": "0x4444444444444444444444444444444444444444"
+    },
+    "disabled": [],
+    "signalVerifiabilityGate": true
+  },
+  "pricing": {
+    "previewUsdc": 0.002,
+    "fullUsdc": 0.005,
+    "complexityUpliftMax": 0
+  },
+  "payment": {
+    "resourceType": "qma_signal_report",
+    "settlementRail": "circle_gateway_x402",
+    "defaultSettlementMode": "x402_direct_split",
+    "invoiceTtlSeconds": 900,
+    "splitInvoiceTtlSeconds": 1800,
+    "accessTokenTtlSeconds": 300,
+    "walletProfileTokenTtlSeconds": 3600,
+    "requireCompletedSettlement": false,
+    "gatewayFailedStatuses": ["failed", "rejected", "cancelled", "canceled", "reverted", "expired_unsettled"],
+    "arcSettlementReconcileSeconds": 30,
+    "paymentEventRefreshTtlSeconds": 90,
+    "arcBatchTxCacheTtlSeconds": 60
+  },
+  "gateway": {
+    "defaultDepositUsdc": 1.0,
+    "defaultApproveUsdc": 10.0,
+    "maxFeeRaw": "2010000"
+  },
+  "withdraw": {
+    "mode": "seller_wallet",
+    "minUsdc": 0,
+    "relayDailyLimit": 1
+  },
+  "creatorClaims": {
+    "minUsdc": 0.05,
+    "intentTtlSeconds": 600
+  },
+  "stablefx": {
+    "eurcUsdRate": 1.085,
+    "spreadBps": 5,
+    "quoteTtlSeconds": 60,
+    "liveRate": true
+  },
+  "swap": {
+    "enabled": true,
+    "executionMode": "dry_run",
+    "quoteTtlSeconds": 60,
+    "slippageBps": 50,
+    "maxAnchorDiversionBps": 300,
+    "quoteTimeoutSeconds": 4.0,
+    "feeBps": 5,
+    "feeMinUsdc": 0.001,
+    "maxSingleUsdc": 1000.0,
+    "executeGasLimit": 400000,
+    "spreadSamplerEnabled": true,
+    "spreadSamplerIntervalSeconds": 300
+  },
+  "treasury": {
+    "opsBillsUsdc": 5.0,
+    "decideIntervalSeconds": 0,
+    "positionCacheTtlSeconds": 15,
+    "spendGuardLedger": true,
+    "cfoLlm": {
+      "enabled": false,
+      "model": "llama-3.1-8b-instant",
+      "endpoint": "https://api.groq.com/openai/v1/chat/completions"
+    }
+  },
+  "earn": {
+    "snapshotSampler": true,
+    "snapshotIntervalSeconds": 3600,
+    "onchainMetrics": true
+  },
+  "genlayer": {
+    "network": "studio-next",
+    "rpcEndpoint": "https://studio-next.genlayer.com/api",
+    "studioUrl": "https://studio-next.genlayer.com",
+    "explorerUrl": "https://explorer-studio-dev.genlayer.com",
+    "contractAddress": "0x2143EA5800c08356d3b2de3bFacE1c2431F7eD69",
+    "slaCacheTtlSeconds": 900,
+    "maxInflightSubmissions": 12,
+    "submitQueueTimeoutSeconds": 240,
+    "queueCooldownSeconds": 90,
+    "resubmitAfterSeconds": 600,
+    "epochSeconds": 300
+  },
+  "mcp": {
+    "tokenTtlSeconds": 2592000,
+    "maxBudgetUsdc": 50,
+    "maxPriceUsdc": 5,
+    "agentMaxDecisionBudgetUsdc": 1.0
+  },
+  "llm": {
+    "provider": "gemini",
+    "model": "gemini-2.5-flash",
+    "baseUrl": "",
+    "useLaya": false,
+    "layaModelPathEn": "~/.cache/laya_models/english",
+    "layaModelPathMl": "~/.cache/laya_models/multilingual"
+  },
+  "marketData": {
+    "source": "multi_exchange",
+    "fundingThreshold": -0.0025,
+    "liveAnomalyLimit": 12,
+    "mexcFetchContractDetails": false,
+    "mexcDetailCacheTtlSeconds": 21600
+  },
+  "engine": {
+    "historicalDbPath": "data/sample_funding_historical_analysis.csv",
+    "backtestOutcomePath": "data/sample_trading_analysis.csv",
+    "randomSeed": 42
+  },
+  "rateLimit": {
+    "enabled": true,
+    "windowSeconds": 60,
+    "perMinute": {
+      "paymentVerify": 8,
+      "invoice": 20,
+      "oauth": 20,
+      "mcp": 60,
+      "report": 30,
+      "publicMarket": 120,
+      "creatorApply": 6,
+      "treasuryAgent": 15,
+      "auditVerify": 12,
+      "spendIntent": 20,
+      "swapQuote": 60,
+      "sessions": 30,
+      "apiDefault": 240
+    }
+  },
+  "onramp": {
+    "baseUrl": "https://api.circle.com",
+    "widgetBaseUrl": "https://onramp.arc.io",
+    "referrerDomain": ""
+  },
+  "walletConnect": {
+    "projectId": "b56e18d47c72ab683b10814fe9495694"
+  }
+}

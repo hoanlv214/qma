@@ -9,8 +9,7 @@ import os
 import time
 
 
-ROOT_DIR = Path(__file__).resolve().parents[3]
-
+from backend.app.core.static_config import NETWORKS, ROOT_DIR, app_setting
 
 def load_local_env(env_path: Path | None = None) -> None:
     """Load root .env values without overriding real environment variables."""
@@ -23,7 +22,14 @@ def load_local_env(env_path: Path | None = None) -> None:
             if not line or line.startswith("#") or "=" not in line:
                 continue
             key, value = line.split("=", 1)
-            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+            key_clean = key.strip()
+            if key_clean in ("DATABASE_URL", "POSTGRES_URL", "QMA_DATABASE_URL") and (
+                "PYTEST_CURRENT_TEST" in os.environ
+                or "PYTEST_VERSION" in os.environ
+                or os.getenv("QMA_STORAGE_BACKEND") == "json"
+            ):
+                continue
+            os.environ.setdefault(key_clean, value.strip().strip('"').strip("'"))
 
 
 # Load env FIRST so all os.getenv() calls below see .env values
@@ -37,9 +43,9 @@ DATA_DIR = Path(os.getenv("QMA_DATA_DIR") or ROOT_DIR)
 # Intelligence, Decisions, Receipts. Code identifiers (QMA_* env prefix,
 # qma_* tables, the qma CLI, GenQMAShield) are intentionally unchanged.
 # ---------------------------------------------------------------------------
-BRAND_NAME: str = os.getenv("APP_BRAND_NAME", "QMA Intelligence Marketplace")
+BRAND_NAME: str = str(app_setting("brand", "name"))
 BRAND_CODENAME: str = "QMA"
-BRAND_TITLE: str = os.getenv("APP_BRAND_TITLE", "QMA Intelligence & Payments API")
+BRAND_TITLE: str = str(app_setting("brand", "title"))
 BRAND_TAGLINE: str = "Intelligence, decisions, receipts: per-query market memory for autonomous agents on Arc"
 BRAND_DESCRIPTION: str = (
     "QMA sells intelligence: historical analog evidence for live market dislocations, "
@@ -80,18 +86,7 @@ class Settings:
 
     @property
     def cors_allowed_origins(self) -> list[str]:
-        raw = os.getenv("QMA_CORS_ALLOWED_ORIGINS", "")
-        if raw:
-            return [o.strip() for o in raw.split(",") if o.strip()]
-        return [
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-            "http://localhost:3000",
-            "http://127.0.0.1:3000",
-            "https://qma-api.onrender.com",
-            "https://qma-arc-gateway.onrender.com",
-            "*",
-        ]
+        return [str(origin) for origin in app_setting("services", "corsAllowedOrigins")]
 
 
 settings = Settings()
@@ -100,66 +95,36 @@ settings = Settings()
 # ---------------------------------------------------------------------------
 # Payment / pricing constants
 # ---------------------------------------------------------------------------
-import json
-
-# Load shared network configuration from Single Source of Truth: config/networks.json
+# Per-network public chain data lives in config/networks.json (see static_config).
 NETWORKS_CONFIG_PATH = ROOT_DIR / "config" / "networks.json"
-NETWORKS_DATA: dict = {}
-if NETWORKS_CONFIG_PATH.exists():
-    try:
-        with NETWORKS_CONFIG_PATH.open("r", encoding="utf-8") as _net_file:
-            NETWORKS_DATA = json.load(_net_file)
-    except Exception:
-        NETWORKS_DATA = {}
+NETWORKS_DATA: dict = NETWORKS
 
 # ---------------------------------------------------------------------------
 # Network Mode & Profiles (Testnet vs Mainnet)
 # ---------------------------------------------------------------------------
-# Set QMA_NETWORK_MODE="testnet" or "mainnet" to automatically switch all canonical defaults
+# QMA_NETWORK_MODE="testnet" | "mainnet" is the ONLY network switch; everything else follows the profile.
 NETWORK_MODE: str = os.getenv("QMA_NETWORK_MODE", "testnet").strip().lower()
 IS_TESTNET: bool = NETWORK_MODE != "mainnet"
 
-_active_profile = NETWORKS_DATA.get("testnet" if IS_TESTNET else "mainnet", {})
-_arc_preset = _active_profile.get("arc", {})
-_contracts_preset = _active_profile.get("contracts", {})
+_active_profile = NETWORKS_DATA["testnet" if IS_TESTNET else "mainnet"]
+_arc_preset = _active_profile["arc"]
+_contracts_preset = _active_profile["contracts"]
 
-# Canonical default presets sourced directly from config/networks.json
-_DEFAULT_ARC_CHAIN_ID = _arc_preset.get("chainId", 5042002 if IS_TESTNET else 5042)
-_DEFAULT_ARC_RPC = _arc_preset.get("rpcUrl", "https://rpc.testnet.arc.network" if IS_TESTNET else "https://rpc.arc.network")
-_DEFAULT_ARC_EXPLORER = _arc_preset.get("explorerUrl", "https://testnet.arcscan.app" if IS_TESTNET else "https://arcscan.app")
-_DEFAULT_GATEWAY_API = _contracts_preset.get("gatewayApiUrl", "https://gateway-api-testnet.circle.com" if IS_TESTNET else "https://gateway-api.circle.com")
-_DEFAULT_GATEWAY_WALLET = _contracts_preset.get("gatewayWallet", "0x0077777d7EBA4688BDeF3E311b846F25870A19B9" if IS_TESTNET else "0x77777777Dcc4d5A8B6E418Fd04D8997ef11000eE")
-_DEFAULT_GATEWAY_MINTER = _contracts_preset.get("gatewayMinter", "0x0022222ABE238Cc2C7Bb1f21003F0a260052475B" if IS_TESTNET else "0x2222222d7164433c4C09B0b0D809a9b52C04C205")
-_DEFAULT_CCTP_TOKEN_MESSENGER = _contracts_preset.get("cctpTokenMessenger", "0x9f3B8679c73C2Fef8b59B4f3444d4e156fb70AA5" if IS_TESTNET else "0xbd3fa81b58ba92a82136038b25adec7066af3155")
-_DEFAULT_NETWORK_NAME = _arc_preset.get("name", "Arc Testnet" if IS_TESTNET else "Arc Mainnet")
-
-# ---------------------------------------------------------------------------
-# Arc Network & Smart Contracts (Configurable for Testnet or Mainnet)
-# ---------------------------------------------------------------------------
-_raw_chain = os.getenv("QMA_ARC_CHAIN_ID") or os.getenv("ARC_CHAIN_ID")
-ARC_CHAIN_ID: int = _DEFAULT_ARC_CHAIN_ID if (not _raw_chain or (not IS_TESTNET and _raw_chain == "5042002")) else int(_raw_chain)
-
-_raw_rpc = os.getenv("QMA_ARC_RPC_URL") or os.getenv("ARC_RPC_URL")
-ARC_RPC_URL: str = _DEFAULT_ARC_RPC if (not _raw_rpc or (not IS_TESTNET and "testnet" in _raw_rpc)) else _raw_rpc
-
-_raw_explorer = os.getenv("QMA_ARC_EXPLORER") or os.getenv("ARC_EXPLORER")
-ARC_EXPLORER: str = _DEFAULT_ARC_EXPLORER if (not _raw_explorer or (not IS_TESTNET and "testnet" in _raw_explorer)) else _raw_explorer
+# Sourced directly from config/networks.json based on NETWORK_MODE
+ARC_CHAIN_ID: int = int(_arc_preset["chainId"])
+ARC_RPC_URL: str = str(_arc_preset["rpcUrl"])
+ARC_EXPLORER: str = str(_arc_preset["explorerUrl"])
 ARC_EXPLORER_URL: str = ARC_EXPLORER  # Backward-compatible alias
 
-ARC_USDC_ADDRESS: str = os.getenv("QMA_ARC_USDC_ADDRESS", "0x3600000000000000000000000000000000000000")
+ARC_USDC_ADDRESS: str = str(_arc_preset["usdcAddress"])
 ARC_TESTNET_USDC: str = ARC_USDC_ADDRESS  # Backward-compatible alias
-ARC_EURC_ADDRESS: str = os.getenv("QMA_ARC_EURC_ADDRESS", "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a")
-
-# USYC Vault Address
-ARC_USYC_VAULT_ADDRESS: str = os.getenv(
-    "ARC_USYC_VAULT_ADDRESS",
-    os.getenv("QMA_ARC_USYC_VAULT_ADDRESS", "0x934e7309d7fca371db946b0643f2136cc0a0fcb2"),
-)
+ARC_EURC_ADDRESS: str = str(_arc_preset["eurcAddress"])
+ARC_USYC_VAULT_ADDRESS: str = str(_arc_preset["usycVaultAddress"])
 
 # StableFX Configuration
-STABLEFX_EURC_USD_RATE: float = float(os.getenv("QMA_STABLEFX_EURC_USD_RATE", "1.0850"))
-STABLEFX_SPREAD_BPS: int = int(os.getenv("QMA_STABLEFX_SPREAD_BPS", "5"))
-STABLEFX_QUOTE_TTL_SECONDS: int = int(os.getenv("QMA_STABLEFX_QUOTE_TTL_SECONDS", "60"))
+STABLEFX_EURC_USD_RATE: float = float(app_setting("stablefx", "eurcUsdRate"))
+STABLEFX_SPREAD_BPS: int = int(app_setting("stablefx", "spreadBps"))
+STABLEFX_QUOTE_TTL_SECONDS: int = int(app_setting("stablefx", "quoteTtlSeconds"))
 
 # ---------------------------------------------------------------------------
 # Emergency Circuit Breaker & Operations Pause
@@ -169,7 +134,7 @@ STABLEFX_QUOTE_TTL_SECONDS: int = int(os.getenv("QMA_STABLEFX_QUOTE_TTL_SECONDS"
 _raw_halt = os.getenv("QMA_TREASURY_HALTED", os.getenv("QMA_TREASURY_HALT", "false")).strip().lower()
 QMA_TREASURY_HALTED: bool = _raw_halt in ("1", "true", "yes", "on")
 QMA_TREASURY_HALT: bool = QMA_TREASURY_HALTED  # Canonical backward-compatible alias
-EMERGENCY_HALT_FLAG_FILE: Path = Path(os.getenv("QMA_DATA_DIR", "data")) / "EMERGENCY_HALT"
+EMERGENCY_HALT_FLAG_FILE: Path = DATA_DIR / "EMERGENCY_HALT"
 EMERGENCY_HALT_FLAG_NAME = "EMERGENCY_HALT"
 
 
@@ -346,110 +311,97 @@ def enforce_single_instance_topology_guard() -> None:
 
 
 
-# Swap Router (headless DEX aggregation on Arc; addresses per
-# docs/arc-dex-aggregator-feasibility.md — all TESTNET contracts)
+# Swap Router (headless DEX aggregation on Arc). DEX contract addresses are per-network
+# in config/networks.json ("swap"); a network without DEX contracts disables the router.
 # ---------------------------------------------------------------------------
-SWAP_ROUTER_KILL_SWITCH: bool = os.getenv("QMA_SWAP_ROUTER", "1").strip().lower() not in {"0", "false", "off"}
-# Execution is dry-run (unsigned calldata only) unless BOTH flags are set.
-SWAP_EXECUTION_MODE: str = os.getenv("QMA_SWAP_EXECUTION_MODE", "dry_run").strip().lower()
+_swap_preset: Optional[Dict[str, Any]] = _active_profile.get("swap")
+SWAP_ROUTER_KILL_SWITCH: bool = bool(app_setting("swap", "enabled")) and _swap_preset is not None
+# Execution is dry-run (unsigned calldata only) unless BOTH the config mode is "live" AND the
+# operator sets the QMA_SWAP_EXECUTION_LIVE env confirmation (deliberate second key).
+SWAP_EXECUTION_MODE: str = str(app_setting("swap", "executionMode")).strip().lower()
 SWAP_EXECUTION_LIVE_CONFIRM: bool = os.getenv("QMA_SWAP_EXECUTION_LIVE", "0").strip().lower() in {"1", "true", "yes"}
-SWAP_QUOTE_TTL_SECONDS: int = int(os.getenv("QMA_SWAP_QUOTE_TTL_SECONDS", "60"))
-SWAP_SLIPPAGE_BPS: int = int(os.getenv("QMA_SWAP_SLIPPAGE_BPS", "50"))
-SWAP_MAX_ANCHOR_DIVERSION_BPS: int = int(os.getenv("QMA_SWAP_MAX_ANCHOR_DIVERSION_BPS", "300"))
-SWAP_QUOTE_TIMEOUT_SECONDS: float = float(os.getenv("QMA_SWAP_QUOTE_TIMEOUT_SECONDS", "4.0"))
-SWAP_FEE_BPS: int = int(os.getenv("QMA_SWAP_FEE_BPS", "5"))
-SWAP_FEE_MIN_USDC: float = float(os.getenv("QMA_SWAP_FEE_MIN_USDC", "0.001"))
-SWAP_MAX_SINGLE_USDC: float = float(os.getenv("QMA_SWAP_MAX_SINGLE_USDC", "1000.0"))
-SWAP_UNISWAP_V2_ROUTER: str = os.getenv("QMA_SWAP_UNISWAP_V2_ROUTER", "0xe27d5d256b370604f1ff060fb489c6a8e3f8a6d9")
-SWAP_UNISWAP_V2_FACTORY: str = os.getenv("QMA_SWAP_UNISWAP_V2_FACTORY", "0x7483847d46db2920dd64efa676cf72dcf765814f")
-SWAP_WETH9_ADDRESS: str = os.getenv("QMA_SWAP_WETH9_ADDRESS", "0x6be2c68117ca58086bd6a14e525835584d7f721e")
-SWAP_XYLO_STABLE_POOL: str = os.getenv("QMA_SWAP_XYLO_STABLE_POOL", "0x3DF3966F5138143dce7a9cFDdC2c0310ce083BB1")
-SWAP_LUNEX_SWAP_POOL: str = os.getenv("QMA_SWAP_LUNEX_SWAP_POOL", "0x181DA777C301Bc37B078DEf57569685678e59eD0")
+SWAP_QUOTE_TTL_SECONDS: int = int(app_setting("swap", "quoteTtlSeconds"))
+SWAP_SLIPPAGE_BPS: int = int(app_setting("swap", "slippageBps"))
+SWAP_MAX_ANCHOR_DIVERSION_BPS: int = int(app_setting("swap", "maxAnchorDiversionBps"))
+SWAP_QUOTE_TIMEOUT_SECONDS: float = float(app_setting("swap", "quoteTimeoutSeconds"))
+SWAP_FEE_BPS: int = int(app_setting("swap", "feeBps"))
+SWAP_FEE_MIN_USDC: float = float(app_setting("swap", "feeMinUsdc"))
+SWAP_MAX_SINGLE_USDC: float = float(app_setting("swap", "maxSingleUsdc"))
+SWAP_UNISWAP_V2_ROUTER: str = str((_swap_preset or {}).get("uniswapV2Router", ""))
+SWAP_UNISWAP_V2_FACTORY: str = str((_swap_preset or {}).get("uniswapV2Factory", ""))
+SWAP_WETH9_ADDRESS: str = str((_swap_preset or {}).get("weth9", ""))
+SWAP_XYLO_STABLE_POOL: str = str((_swap_preset or {}).get("xyloStablePool", ""))
+SWAP_LUNEX_SWAP_POOL: str = str((_swap_preset or {}).get("lunexSwapPool", ""))
 # Arc gotcha: eth_estimateGas is unreliable — every write needs explicit gas.
-SWAP_EXECUTE_GAS_LIMIT: int = int(os.getenv("QMA_SWAP_EXECUTE_GAS_LIMIT", "400000"))
-SWAP_SPREAD_SAMPLER_ENABLED: bool = os.getenv("QMA_SWAP_SPREAD_SAMPLER", "1").strip().lower() not in {"0", "false", "off"}
-SWAP_SPREAD_SAMPLER_INTERVAL_SECONDS: int = int(os.getenv("QMA_SWAP_SPREAD_SAMPLER_INTERVAL_SECONDS", "300"))
+SWAP_EXECUTE_GAS_LIMIT: int = int(app_setting("swap", "executeGasLimit"))
+SWAP_SPREAD_SAMPLER_ENABLED: bool = bool(app_setting("swap", "spreadSamplerEnabled")) and SWAP_ROUTER_KILL_SWITCH
+SWAP_SPREAD_SAMPLER_INTERVAL_SECONDS: int = int(app_setting("swap", "spreadSamplerIntervalSeconds"))
 
-PAYMENT_AMOUNT_USDC = float(os.getenv("QMA_PAYMENT_AMOUNT_USDC", os.getenv("QMA_PRICE_FULL_USDC", "0.005")))
-PAYMENT_RESOURCE_TYPE = os.getenv("QMA_PAYMENT_RESOURCE_TYPE", "qma_signal_report")
-_raw_pay_net = os.getenv("QMA_PAYMENT_NETWORK")
-PAYMENT_NETWORK = f"eip155:{ARC_CHAIN_ID}" if (not _raw_pay_net or (not IS_TESTNET and _raw_pay_net == "eip155:5042002")) else _raw_pay_net
+PAYMENT_AMOUNT_USDC = float(app_setting("pricing", "fullUsdc"))
+PAYMENT_RESOURCE_TYPE = str(app_setting("payment", "resourceType"))
+PAYMENT_NETWORK: str = f"eip155:{ARC_CHAIN_ID}"
+PAYMENT_NETWORK_NAME: str = str(_arc_preset["name"])
 
-_raw_pay_name = os.getenv("QMA_PAYMENT_NETWORK_NAME")
-PAYMENT_NETWORK_NAME = _DEFAULT_NETWORK_NAME if (not _raw_pay_name or (not IS_TESTNET and _raw_pay_name == "Arc Testnet")) else _raw_pay_name
-
-PAYMENT_WALLET_ADDRESS = os.getenv("QMA_ARC_SELLER_ADDRESS", "0x23e7c029a287a83d80b2e084e008211658dda11d")
-PLATFORM_TREASURY_ADDRESS = os.getenv("QMA_PLATFORM_TREASURY_ADDRESS", PAYMENT_WALLET_ADDRESS)
+# The platform treasury is also the x402 seller (same address on testnet and mainnet).
+PLATFORM_TREASURY_ADDRESS: str = str(app_setting("platform", "treasuryAddress"))
+PAYMENT_WALLET_ADDRESS: str = PLATFORM_TREASURY_ADDRESS
 
 # ---------------------------------------------------------------------------
 # Arc / Circle Gateway & Contracts
 # ---------------------------------------------------------------------------
-ARC_GATEWAY_BASE_URL = os.getenv("QMA_ARC_GATEWAY_URL", "http://127.0.0.1:3000")
+# Deployment wiring: URL of the qma-arc-gateway service (differs per environment).
+ARC_GATEWAY_BASE_URL = os.getenv("QMA_ARC_GATEWAY_URL", "").strip().rstrip("/")
+ARC_GATEWAY_API: str = str(_contracts_preset["gatewayApiUrl"])
+ARC_GATEWAY_WALLET: str = str(_contracts_preset["gatewayWallet"])
+ARC_GATEWAY_MINTER: str = str(_contracts_preset["gatewayMinter"])
+ARC_GATEWAY_DOMAIN: int = int(_arc_preset["cctpDomain"])
 
-_raw_gw_api = os.getenv("QMA_CIRCLE_GATEWAY_API")
-ARC_GATEWAY_API = _DEFAULT_GATEWAY_API if (not _raw_gw_api or (not IS_TESTNET and "testnet" in _raw_gw_api)) else _raw_gw_api
-
-_raw_gw_wallet = os.getenv("QMA_ARC_GATEWAY_WALLET")
-ARC_GATEWAY_WALLET = _DEFAULT_GATEWAY_WALLET if (not _raw_gw_wallet or (not IS_TESTNET and _raw_gw_wallet == "0x0077777d7EBA4688BDeF3E311b846F25870A19B9")) else _raw_gw_wallet
-
-_raw_gw_minter = os.getenv("QMA_ARC_GATEWAY_MINTER")
-ARC_GATEWAY_MINTER = _DEFAULT_GATEWAY_MINTER if (not _raw_gw_minter or (not IS_TESTNET and _raw_gw_minter == "0x0022222ABE238Cc2C7Bb1f21003F0a260052475B")) else _raw_gw_minter
-
-ARC_GATEWAY_DOMAIN: int = int(os.getenv("QMA_ARC_GATEWAY_DOMAIN", "26"))
-MAINNET_GATEWAY_WALLET = os.getenv("QMA_MAINNET_GATEWAY_WALLET", "0x77777777Dcc4d5A8B6E418Fd04D8997ef11000eE")
-SHIELD_CONTRACT_ADDRESS = os.getenv("QMA_SHIELD_CONTRACT_ADDRESS", "0x367728bf66Cf962Ce15fD2b65193b7a1466f087c")
-ARC_HEDGE_RELAYER_CONTRACT = os.getenv("QMA_ARC_HEDGE_RELAYER_CONTRACT", ARC_GATEWAY_WALLET)
+MAINNET_GATEWAY_WALLET: str = str(NETWORKS_DATA["mainnet"]["contracts"]["gatewayWallet"])
+SHIELD_CONTRACT_ADDRESS: str = str(_arc_preset["shieldContractAddress"])
+ARC_HEDGE_RELAYER_CONTRACT = ARC_GATEWAY_WALLET
 ARC_GATEWAY_INTERNAL_SECRET = os.getenv("QMA_ARC_GATEWAY_INTERNAL_SECRET", "")
 
 # ---------------------------------------------------------------------------
-# ERC-8004 AI Agent Registry & Identity (Arc Testnet)
+# ERC-8004 AI Agent Registry & Identity
 # ---------------------------------------------------------------------------
 _erc8004_preset = _arc_preset.get("erc8004", {})
-ERC8004_AGENT_ID: int = int(os.getenv("QMA_ERC8004_AGENT_ID", str(_erc8004_preset.get("agentId", 896885))))
-ERC8004_IDENTITY_REGISTRY: str = os.getenv(
-    "QMA_ERC8004_IDENTITY_REGISTRY",
-    _erc8004_preset.get("identityRegistry", "0x8004A818BFB912233c491871b3d84c89A494BD9e"),
-)
-ERC8004_REPUTATION_REGISTRY: str = os.getenv(
-    "QMA_ERC8004_REPUTATION_REGISTRY",
-    _erc8004_preset.get("reputationRegistry", "0x8004B663056A597Dffe9eCcC1965A193B7388713"),
-)
-ERC8004_VALIDATION_REGISTRY: str = os.getenv(
-    "QMA_ERC8004_VALIDATION_REGISTRY",
-    _erc8004_preset.get("validationRegistry", "0x8004Cb1BF31DAf7788923b405b754f57acEB4272"),
-)
+ERC8004_AGENT_ID: int = int(_erc8004_preset.get("agentId", 896885))
+ERC8004_IDENTITY_REGISTRY: str = str(_erc8004_preset["identityRegistry"])
+ERC8004_REPUTATION_REGISTRY: str = str(_erc8004_preset["reputationRegistry"])
+ERC8004_VALIDATION_REGISTRY: str = str(_erc8004_preset["validationRegistry"])
+
+ARC_STABLEFX_ESCROW: str = str(_contracts_preset["stableFxEscrow"])
 
 # ---------------------------------------------------------------------------
 # Withdraw
 # ---------------------------------------------------------------------------
-WITHDRAW_MODE = os.getenv("QMA_WITHDRAW_MODE", "seller_wallet").strip().lower()
-WITHDRAW_RELAYER_ADDRESS = os.getenv("QMA_WITHDRAW_RELAYER_ADDRESS", "")
-WITHDRAW_MIN_USDC = float(os.getenv("QMA_MIN_PROVIDER_WITHDRAW_USDC", "0"))
-WITHDRAW_RELAY_DAILY_LIMIT = int(os.getenv("QMA_PROVIDER_WITHDRAW_DAILY_LIMIT", "1"))
+WITHDRAW_MODE = str(app_setting("withdraw", "mode")).strip().lower()
+WITHDRAW_RELAYER_ADDRESS = str(app_setting("platform", "withdrawRelayerAddress"))
+WITHDRAW_MIN_USDC = float(app_setting("withdraw", "minUsdc"))
+WITHDRAW_RELAY_DAILY_LIMIT = int(app_setting("withdraw", "relayDailyLimit"))
 
 # ---------------------------------------------------------------------------
 # Creator claims
 # ---------------------------------------------------------------------------
-CREATOR_CLAIM_MIN_USDC = float(os.getenv("QMA_CREATOR_CLAIM_MIN_USDC", "0.05"))
-CREATOR_CLAIM_INTENT_TTL_SECONDS = int(os.getenv("QMA_CREATOR_CLAIM_INTENT_TTL_SECONDS", "600"))
+CREATOR_CLAIM_MIN_USDC = float(app_setting("creatorClaims", "minUsdc"))
+CREATOR_CLAIM_INTENT_TTL_SECONDS = int(app_setting("creatorClaims", "intentTtlSeconds"))
 
 # ---------------------------------------------------------------------------
 # Settlement
 # ---------------------------------------------------------------------------
-import paid_intelligence_kit as paid_kit  # noqa: E402 — needed for DEFAULT_SETTLEMENT_RAIL
-
-DEFAULT_SETTLEMENT_MODE = os.getenv("QMA_DEFAULT_SETTLEMENT_MODE", "seller_wallet").strip().lower()
-SPLIT_INVOICE_TTL_SECONDS = int(os.getenv("QMA_SPLIT_INVOICE_TTL_SECONDS", "1800"))
-SETTLEMENT_RAIL = os.getenv("QMA_SETTLEMENT_RAIL", paid_kit.DEFAULT_SETTLEMENT_RAIL)
+DEFAULT_SETTLEMENT_MODE = str(app_setting("payment", "defaultSettlementMode")).strip().lower()
+SPLIT_INVOICE_TTL_SECONDS = int(app_setting("payment", "splitInvoiceTtlSeconds"))
+SETTLEMENT_RAIL = str(app_setting("payment", "settlementRail"))
 SETTLEMENT_CURRENCY = "USDC"
 SUPPORTED_SETTLEMENT_ASSETS = ["USDC"]
-INVOICE_TTL_SECONDS = int(os.getenv("QMA_INVOICE_TTL_SECONDS", "900"))
+INVOICE_TTL_SECONDS = int(app_setting("payment", "invoiceTtlSeconds"))
 
 # ---------------------------------------------------------------------------
 # Access tokens
 # ---------------------------------------------------------------------------
-ACCESS_TOKEN_TTL_SECONDS = int(os.getenv("QMA_ACCESS_TOKEN_TTL_SECONDS", "300"))
-WALLET_PROFILE_TOKEN_TTL_SECONDS = int(os.getenv("QMA_WALLET_PROFILE_TOKEN_TTL_SECONDS", "3600"))
+ACCESS_TOKEN_TTL_SECONDS = int(app_setting("payment", "accessTokenTtlSeconds"))
+WALLET_PROFILE_TOKEN_TTL_SECONDS = int(app_setting("payment", "walletProfileTokenTtlSeconds"))
+# Secrets (env only). The demo value is a local-dev placeholder that _assert_production_secrets refuses in prod.
 ACCESS_TOKEN_SECRET = os.getenv("QMA_ACCESS_TOKEN_SECRET") or os.getenv("QMA_SESSION_SECRET") or "qma-local-demo-secret-change-me"
 SPLIT_LEG_URL_SECRET = os.getenv("QMA_SPLIT_LEG_URL_SECRET") or f"split-url:{ACCESS_TOKEN_SECRET}"
 SPLIT_RECEIPT_SECRET = os.getenv("QMA_SPLIT_RECEIPT_SECRET") or f"split-receipt:{ACCESS_TOKEN_SECRET}"
@@ -475,47 +427,49 @@ _assert_production_secrets()
 # ---------------------------------------------------------------------------
 # Hosted MCP server / OAuth 2.1 for connector clients
 # ---------------------------------------------------------------------------
-MCP_TOKEN_TTL_SECONDS = int(os.getenv("QMA_MCP_TOKEN_TTL_SECONDS", str(30 * 24 * 3600)))
-MCP_MAX_BUDGET_USDC = float(os.getenv("QMA_MCP_MAX_BUDGET_USDC", "50"))
-MCP_MAX_PRICE_USDC = float(os.getenv("QMA_MCP_MAX_PRICE_USDC", "5"))
-AGENT_MAX_DECISION_BUDGET_USDC = float(os.getenv("QMA_AGENT_MAX_DECISION_BUDGET_USDC", "1.0"))
-MCP_CONNECT_BASE_URL = os.getenv("QMA_MCP_CONNECT_BASE_URL") or ("https://qma.vercel.app" if os.getenv("RENDER_EXTERNAL_URL") else "http://localhost:5173")
-MCP_API_BASE_URL = os.getenv("QMA_MCP_API_BASE_URL") or os.getenv("RENDER_EXTERNAL_URL") or "http://127.0.0.1:8000"
+MCP_TOKEN_TTL_SECONDS = int(app_setting("mcp", "tokenTtlSeconds"))
+MCP_MAX_BUDGET_USDC = float(app_setting("mcp", "maxBudgetUsdc"))
+MCP_MAX_PRICE_USDC = float(app_setting("mcp", "maxPriceUsdc"))
+AGENT_MAX_DECISION_BUDGET_USDC = float(app_setting("mcp", "agentMaxDecisionBudgetUsdc"))
+# Deployment wiring: public URLs of the frontend and this API (set per environment;
+# RENDER_EXTERNAL_URL is injected by the platform). oauth.py handles the local-dev case.
+MCP_CONNECT_BASE_URL = os.getenv("QMA_MCP_CONNECT_BASE_URL", "").strip()
+MCP_API_BASE_URL = (os.getenv("QMA_MCP_API_BASE_URL") or os.getenv("RENDER_EXTERNAL_URL") or "").strip()
 
 # ---------------------------------------------------------------------------
 # Admin
 # ---------------------------------------------------------------------------
 ADMIN_TOKEN = os.getenv("QMA_ADMIN_TOKEN", "")
-ADMIN_WALLET_ADDRESS = os.getenv("QMA_ADMIN_WALLET", PAYMENT_WALLET_ADDRESS)
+ADMIN_WALLET_ADDRESS = str(app_setting("platform", "adminWallet"))
 
 # ---------------------------------------------------------------------------
 # Rate limiting & Origin Shield
 # ---------------------------------------------------------------------------
-RATE_LIMIT_ENABLED = os.getenv("QMA_RATE_LIMIT_ENABLED", "true").lower() not in ("false", "0", "no")
-RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("QMA_RATE_LIMIT_WINDOW_SECONDS", "60"))
+RATE_LIMIT_ENABLED = bool(app_setting("rateLimit", "enabled"))
+RATE_LIMIT_WINDOW_SECONDS = int(app_setting("rateLimit", "windowSeconds"))
 ORIGIN_SHIELD_SECRET = os.getenv("QMA_ORIGIN_SHIELD_SECRET", "").strip()
 
 
 # ---------------------------------------------------------------------------
 # Settlement verification
 # ---------------------------------------------------------------------------
-REQUIRE_COMPLETED_SETTLEMENT = os.getenv("QMA_REQUIRE_COMPLETED_SETTLEMENT", "false").lower() in ("true", "1", "yes")
+REQUIRE_COMPLETED_SETTLEMENT = bool(app_setting("payment", "requireCompletedSettlement"))
 
 # ---------------------------------------------------------------------------
 # Gateway deposit / batch
 # ---------------------------------------------------------------------------
-GATEWAY_DEFAULT_DEPOSIT_USDC = float(os.getenv("QMA_ARC_DEFAULT_DEPOSIT_USDC", "1.00"))
-GATEWAY_DEFAULT_APPROVE_USDC = float(os.getenv("QMA_ARC_DEFAULT_APPROVE_USDC", "10.00"))
-ARC_BATCH_TX_CACHE_TTL_SECONDS = int(os.getenv("QMA_ARC_BATCH_TX_CACHE_TTL_SECONDS", "60"))
-PAYMENT_EVENT_REFRESH_TTL_SECONDS = int(os.getenv("QMA_PAYMENT_EVENT_REFRESH_TTL_SECONDS", "90"))
+GATEWAY_DEFAULT_DEPOSIT_USDC = float(app_setting("gateway", "defaultDepositUsdc"))
+GATEWAY_DEFAULT_APPROVE_USDC = float(app_setting("gateway", "defaultApproveUsdc"))
+ARC_BATCH_TX_CACHE_TTL_SECONDS = int(app_setting("payment", "arcBatchTxCacheTtlSeconds"))
+PAYMENT_EVENT_REFRESH_TTL_SECONDS = int(app_setting("payment", "paymentEventRefreshTtlSeconds"))
 
 # ---------------------------------------------------------------------------
 # Circle Onramp Kit (Fiat-to-USDC)
 # ---------------------------------------------------------------------------
 CIRCLE_ONRAMP_API_KEY = os.getenv("CIRCLE_ONRAMP_API_KEY") or os.getenv("CIRCLE_CONSOLE_API_KEY") or ""
-CIRCLE_ONRAMP_BASE_URL = os.getenv("CIRCLE_ONRAMP_BASE_URL", "https://api.circle.com")
-CIRCLE_ONRAMP_WIDGET_BASE_URL = os.getenv("CIRCLE_ONRAMP_WIDGET_BASE_URL", "https://onramp.arc.io")
-CIRCLE_ONRAMP_REFERRER_DOMAIN = os.getenv("CIRCLE_ONRAMP_REFERRER_DOMAIN", "")
+CIRCLE_ONRAMP_BASE_URL = str(app_setting("onramp", "baseUrl"))
+CIRCLE_ONRAMP_WIDGET_BASE_URL = str(app_setting("onramp", "widgetBaseUrl"))
+CIRCLE_ONRAMP_REFERRER_DOMAIN = str(app_setting("onramp", "referrerDomain"))
 
 # ---------------------------------------------------------------------------
 # Cache
