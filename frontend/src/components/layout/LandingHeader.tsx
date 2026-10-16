@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { FileText, Menu, X } from "lucide-react";
 import type { QmaRoute } from "../../app/routes";
 import { QmaLogo } from "../ui/QmaLogo";
+import { NetworkBadge } from "./NetworkBadge";
 import "./LandingHeader.css";
 
 export interface LandingHeaderProps {
@@ -104,6 +105,7 @@ export function LandingHeader({ onNavigate }: LandingHeaderProps) {
         </div>
 
         <div className="landing-nav-right">
+          <NetworkBadge />
           <a className="landing-icon-link" href="/docs" target="_blank" rel="noopener noreferrer" aria-label="API documentation" title="API Docs">
             <FileText size={15} strokeWidth={2} aria-hidden="true" />
           </a>

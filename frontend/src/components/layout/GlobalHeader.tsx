@@ -5,6 +5,7 @@ import type { QmaRoute } from "../../app/routes";
 import { useAgentWalletStore } from "../../state/agentWalletStore";
 import { QmaLogo } from "../ui/QmaLogo";
 import { NotificationDropdown } from "./NotificationDropdown";
+import { NetworkBadge } from "./NetworkBadge";
 import "./GlobalHeader.css";
 
 export interface GlobalHeaderProps {
@@ -132,6 +133,7 @@ export function GlobalHeader({
       <div className="global-nav-right">
         {rightControls && <div className="global-nav-context">{rightControls}</div>}
 
+        <NetworkBadge />
 
         <NotificationDropdown
           walletAddress={walletAddress}

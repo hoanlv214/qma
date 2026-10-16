@@ -1,0 +1,87 @@
+.qma-network-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  user-select: none;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: help;
+  backdrop-filter: blur(8px);
+}
+
+.qma-network-badge.is-testnet {
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  color: #10b981;
+}
+
+.qma-network-badge.is-testnet:hover {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.45);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.2);
+}
+
+.qma-network-badge.is-mainnet {
+  background: rgba(6, 182, 212, 0.08);
+  border: 1px solid rgba(6, 182, 212, 0.28);
+  color: #06b6d4;
+}
+
+.qma-network-badge.is-mainnet:hover {
+  background: rgba(6, 182, 212, 0.15);
+  border-color: rgba(6, 182, 212, 0.45);
+  box-shadow: 0 0 12px rgba(6, 182, 212, 0.2);
+}
+
+.qma-network-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.is-testnet .qma-network-dot {
+  background-color: #10b981;
+  box-shadow: 0 0 8px #10b981;
+  animation: qma-pulse-testnet 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.is-mainnet .qma-network-dot {
+  background-color: #06b6d4;
+  box-shadow: 0 0 8px #06b6d4;
+  animation: qma-pulse-mainnet 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes qma-pulse-testnet {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.85);
+  }
+}
+
+@keyframes qma-pulse-mainnet {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.85);
+  }
+}
+
+@media (max-width: 640px) {
+  .qma-network-badge {
+    padding: 3px 8px;
+    font-size: 10px;
+  }
+}
