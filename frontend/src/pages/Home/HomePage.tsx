@@ -357,7 +357,7 @@ export function HomePage({ onNavigate }: HomeProps) {
                                 </div>
                             </div>
                             <div className="landing-proof-card animate-on-scroll delay-200">
-                                <div className="landing-proof-item"><span className="landing-proof-label">Active Providers</span><strong className="landing-proof-value">Funding Memory, OI Memory, Pyth</strong></div>
+                                <div className="landing-proof-item"><span className="landing-proof-label">Active Providers</span><strong className="landing-proof-value">Funding Disparity, OI Regime</strong></div>
                                 <div className="landing-proof-item"><span className="landing-proof-label">Approach</span><strong className="landing-proof-value">Match live anomalies to historical regimes</strong></div>
                                 <div className="landing-proof-item"><span className="landing-proof-label">Pricing</span><strong className="landing-proof-value">Pay per query ($0.002 preview / $0.005 full)</strong></div>
                                 <div className="landing-proof-item"><span className="landing-proof-label">Budget Safety</span><strong className="landing-proof-value">Strict session spending caps in USDC</strong></div>

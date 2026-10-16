@@ -1489,7 +1489,7 @@ export function SwapPage({ onNavigate }: SwapProps) {
                         )}
                         {routerQuote.best.anchor_exceeded && (
                           <div style={{ fontSize: "11px", color: "var(--red)", background: "rgba(239, 68, 68, 0.08)", padding: "4px 8px", borderRadius: "4px" }}>
-                            Caution: Quote diverges significantly from Pyth/NAV anchor ({routerQuote.best.anchor_divergence_bps} bps).
+                            Caution: Quote diverges significantly from Oracle/NAV anchor ({routerQuote.best.anchor_divergence_bps} bps).
                           </div>
                         )}
                       </div>

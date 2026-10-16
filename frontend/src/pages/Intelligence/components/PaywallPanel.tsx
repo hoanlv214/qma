@@ -84,13 +84,9 @@ export function PaywallPanel(props: PaywallPanelProps) {
       ? "Bybit"
       : rawEvidenceUrl && rawEvidenceUrl.includes("binance.com")
         ? "Binance"
-        : rawEvidenceUrl && rawEvidenceUrl.includes("polymarket.com")
-          ? "Polymarket"
-          : rawEvidenceUrl && rawEvidenceUrl.includes("pyth.network")
-            ? "Pyth"
-            : rawEvidenceUrl && rawEvidenceUrl.includes("mexc.com")
-              ? "MEXC"
-              : String((currentInvoice?.query as any)?.exchange || (currentInvoice as any)?.exchange || (activeQuery as any)?.exchange || "MEXC").toUpperCase();
+        : rawEvidenceUrl && rawEvidenceUrl.includes("mexc.com")
+          ? "MEXC"
+          : String((currentInvoice?.query as any)?.exchange || (currentInvoice as any)?.exchange || (activeQuery as any)?.exchange || "MEXC").toUpperCase();
 
   const getFallbackEvidenceUrl = (exchange: string, sym: string) => {
     const ex = exchange.toUpperCase();
@@ -99,12 +95,6 @@ export function PaywallPanel(props: PaywallPanelProps) {
     }
     if (ex === "BINANCE") {
       return `https://api.binance.com/api/v3/ticker/24hr?symbol=${sym}USDT`;
-    }
-    if (ex === "POLYMARKET") {
-      return `https://gamma-api.polymarket.com/events?limit=5&active=true`;
-    }
-    if (ex === "PYTH") {
-      return `https://hermes.pyth.network/v2/updates/price/latest?ids[]=0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace`;
     }
     return `https://contract.mexc.com/api/v1/contract/funding_rate/${sym}_USDT`;
   };

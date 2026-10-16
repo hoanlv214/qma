@@ -185,18 +185,18 @@ export function TractionPage({ onNavigate }: TractionProps) {
                 <div className="traction-headline-card card-streams">
                   <div className="traction-headline-header">
                     <span className="traction-headline-label">Report Families</span>
-                    <span className="chip chip-info">3 in production</span>
+                    <span className="chip chip-info">2 in production</span>
                   </div>
-                  <strong className="traction-headline-val">3 Report Families</strong>
+                  <strong className="traction-headline-val">2 Quantitative Models</strong>
                   <p className="traction-headline-desc">
-                    Funding &amp; Liquidity · Cross-Market Basis · Oracle Volatility
-                    <InfoHint text="Three report families sold by independent creators. Every report is a per-query statistical evidence pack priced in USDC." />
+                    Funding Rate Disparity · Open Interest Regime &amp; Liquidation Radar
+                    <InfoHint text="Two quantitative intelligence models backed by historical derivative orderbooks. Every report is a per-query statistical evidence pack priced in USDC." />
                   </p>
                   <div className="traction-headline-footer">
                     <div className="traction-tag-list">
                       <span className="traction-tag">MEXC</span>
-                      <span className="traction-tag">Polymarket</span>
-                      <span className="traction-tag">Pyth Network</span>
+                      <span className="traction-tag">Binance</span>
+                      <span className="traction-tag">Arc Testnet</span>
                     </div>
                     <small className="text-xs text-[var(--t3)] font-mono">
                       {snapshot ? `${snapshot.providers.length} providers with settled sales (live)` : "provider sales load with the ledger"}

@@ -4,10 +4,9 @@ info:
   description: '# QMA Intelligence & Payments API
 
 
-    QMA is a provider marketplace for quantitative market intelligence. Clients
-    discover live signals, select a provider-bound report, create a query-bound invoice,
-    verify Circle Gateway x402 settlement, and retrieve the resulting preview or full
-    report.
+    QMA is a provider marketplace for quantitative market intelligence. Clients discover
+    live signals, select a provider-bound report, create a query-bound invoice, verify
+    Circle Gateway x402 settlement, and retrieve the resulting preview or full report.
 
 
     ## Recommended buyer flow
@@ -62,16 +61,16 @@ info:
     name: QMA Agent Support
     email: agent-support@qma.com
     url: https://qma-three.vercel.app/
-  x-guidance: 'QMA is an AI agent marketplace for real-time quantitative market
-    intelligence, anomaly detection, funding rate arbitrage signals, and prediction
-    market analytics with on-chain GenLayer SLA settlement verification.
+  x-guidance: 'QMA is an AI agent marketplace for real-time quantitative market intelligence,
+    anomaly detection, funding rate arbitrage signals, and open interest regime analytics
+    with on-chain GenLayer SLA settlement verification.
 
 
     ### How and When to Call
 
     - Call when autonomous trading agents or risk engines require verified market
     anomalies (e.g. extreme CEX funding rate disparities, sudden open-interest shifts,
-    or Polymarket/Pyth divergences) before executing on-chain trades.
+    or liquidation clusterings) before executing on-chain trades.
 
     - Create an invoice, pay its Gateway resource on the configured payment network,
     then verify the settlement. Request the report with invoice_id and X-QMA-Access-Token.
@@ -94,8 +93,7 @@ info:
 
     ### Inputs
 
-    - Path param: `provider_id` (string, e.g. ''funding_memory'', ''polymarket_orderbook'',
-    ''pyth_entropy'').
+    - Path param: `provider_id` (string, e.g. ''funding_memory'', ''oi_memory'').
 
     - Body (application/json): `symbol` (required, string, 1-32 chars, e.g. ''BTC_USDT''),
     optional technical parameters (`fundingRate`, `openInterest`, `volume24h`, `price`,
@@ -3299,14 +3297,6 @@ paths:
         schema:
           type: string
           title: Invoice Id
-      - name: invoice_secret
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Invoice Secret
       - name: refresh
         in: query
         required: false
@@ -3461,6 +3451,42 @@ paths:
       - agent
       - public
       - wallet
+  /api/v1/genlayer/status:
+    get:
+      tags:
+      - Payments & settlement
+      summary: Read GenLayer verification service health
+      description: "Liveness probe for the GenLayer Shield verification path. Performs\
+        \ a cached single-node contract view read (60s TTL) and reports `operational`,\
+        \ `degraded` (contract unreachable \u2014 verifications stay pending and fail\
+        \ closed) or `unconfigured`.\n\n**Authentication:** Public route. Purely observational:\
+        \ never gates access and never fabricates verdicts."
+      operationId: get_genlayer_status_api_v1_genlayer_status_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenlayerStatusResponse'
+        '429':
+          description: The request was rate limited. Retry after the indicated delay.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateLimitErrorResponse'
+        '503':
+          description: A required service or configuration is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-qma-access: public
+      x-qma-audiences:
+      - admin
+      - agent
+      - public
+      - wallet
   /api/v1/payment/withdraw:
     post:
       tags:
@@ -3547,12 +3573,12 @@ paths:
         schema:
           type: string
           description: Quantitative intelligence provider identifier (e.g. 'funding_memory',
-            'polymarket_orderbook', 'pyth_entropy').
+            'oi_memory').
           examples:
           - funding_memory
           title: Provider Id
         description: Quantitative intelligence provider identifier (e.g. 'funding_memory',
-          'polymarket_orderbook', 'pyth_entropy').
+          'oi_memory').
       - name: invoice_id
         in: query
         required: false
@@ -3706,12 +3732,12 @@ paths:
         schema:
           type: string
           description: Quantitative intelligence provider identifier (e.g. 'funding_memory',
-            'polymarket_orderbook', 'pyth_entropy').
+            'oi_memory').
           examples:
           - funding_memory
           title: Provider Id
         description: Quantitative intelligence provider identifier (e.g. 'funding_memory',
-          'polymarket_orderbook', 'pyth_entropy').
+          'oi_memory').
       - name: invoice_id
         in: query
         required: false
@@ -5538,8 +5564,10 @@ paths:
       tags:
       - Agent decisioning
       summary: Autonomous sweep of idle USDC cash into USYC
-      description: Prepare and record an autonomous corporate treasury idle sweep
-        into USYC yielding vault.
+      description: Prepare an autonomous corporate treasury idle sweep into the USYC
+        yielding vault. Without execute_onchain the response carries an unpersisted
+        DRY_RUN_SIMULATED preview record; on-chain execution requires the platform
+        administrator token and is recorded in the Euthyna trail.
       operationId: sweep_idle_cash_api_v1_treasury_usyc_sweep_post
       requestBody:
         content:
@@ -5560,7 +5588,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-      x-qma-access: public
+      security:
+      - x-qma-admin-token: []
+      - {}
+      x-qma-access: public-optional-auth
       x-qma-audiences:
       - agent
       - public
@@ -5569,8 +5600,10 @@ paths:
       tags:
       - Agent decisioning
       summary: Just-In-Time USYC redemption for bill payment
-      description: Prepare and record JIT redemption of USYC into liquid USDC for
-        x402 bills.
+      description: Prepare JIT redemption of USYC into liquid USDC for x402 bills.
+        Without execute_onchain the response carries an unpersisted DRY_RUN_SIMULATED
+        preview record; on-chain execution requires the platform administrator token
+        and is recorded in the Euthyna trail.
       operationId: jit_redeem_usyc_api_v1_treasury_usyc_jit_redeem_post
       requestBody:
         content:
@@ -5591,7 +5624,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-      x-qma-access: public
+      security:
+      - x-qma-admin-token: []
+      - {}
+      x-qma-access: public-optional-auth
       x-qma-audiences:
       - agent
       - public
@@ -5608,26 +5644,40 @@ paths:
         in: query
         required: false
         schema:
-          type: number
-          minimum: 0
-          default: 10.0
+          anyOf:
+          - type: number
+            minimum: 0
+          - type: 'null'
+          description: Override liquid USDC balance; defaults to live on-chain treasury
+            balance
           title: Liquid Usdc
+        description: Override liquid USDC balance; defaults to live on-chain treasury
+          balance
       - name: usyc_assets
         in: query
         required: false
         schema:
-          type: number
-          minimum: 0
-          default: 100.0
+          anyOf:
+          - type: number
+            minimum: 0
+          - type: 'null'
+          description: Override USYC vault assets; defaults to live on-chain vault
+            position
           title: Usyc Assets
+        description: Override USYC vault assets; defaults to live on-chain vault position
       - name: upcoming_bills_usdc
         in: query
         required: false
         schema:
-          type: number
-          minimum: 0
-          default: 5.0
+          anyOf:
+          - type: number
+            minimum: 0
+          - type: 'null'
+          description: Override upcoming bills; defaults to active creator claims
+            + baseline
           title: Upcoming Bills Usdc
+        description: Override upcoming bills; defaults to active creator claims +
+          baseline
       - name: horizon_days
         in: query
         required: false
@@ -5637,6 +5687,16 @@ paths:
           minimum: 1
           default: 30
           title: Horizon Days
+      - name: account
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Account address to forecast (defaults to platform treasury)
+          title: Account
+        description: Account address to forecast (defaults to platform treasury)
       responses:
         '200':
           description: Successful Response
@@ -5761,12 +5821,22 @@ paths:
       description: Update administrative risk limits and autonomous CFO operating
         parameters. Requires platform administrator token.
       operationId: update_treasury_policy_api_v1_treasury_policy_post
+      security:
+      - x-qma-admin-token: []
+      parameters:
+      - name: acknowledge_active_incidents
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Acknowledge Active Incidents
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/CorporateTreasuryPolicy'
-        required: true
       responses:
         '200':
           description: Successful Response
@@ -5780,8 +5850,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - x-qma-admin-token: []
       x-qma-access: admin
       x-qma-audiences:
       - agent
@@ -5793,7 +5861,9 @@ paths:
       summary: Autonomous corporate CFO agent evaluation and execution
       description: Trigger comprehensive autonomous multi-factor CFO evaluation against
         active administrative policy bounds, liquidity runways, solvency constraints,
-        and yield optimization targets.
+        and yield optimization targets. Without execute_if_authorized this is a stateless
+        simulation (no audit record, audit_record_id is null); on-chain execution
+        requires the platform administrator token and is recorded in the Euthyna trail.
       operationId: trigger_cfo_decision_api_v1_treasury_agent_decide_post
       requestBody:
         content:
@@ -5814,7 +5884,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-      x-qma-access: public
+      security:
+      - x-qma-admin-token: []
+      - {}
+      x-qma-access: public-optional-auth
       x-qma-audiences:
       - agent
       - public
@@ -6004,6 +6077,221 @@ paths:
       x-qma-access: public
       x-qma-audiences:
       - public
+  /api/v1/swap/pairs:
+    get:
+      tags:
+      - Swap routing
+      summary: List swap tokens and aggregated venues
+      description: Returns the token registry and every venue the headless router
+        aggregates on Arc testnet, with network metadata. Read-only; never moves funds.
+      operationId: list_swap_pairs_api_v1_swap_pairs_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SwapPairsResponse'
+      x-qma-access: public
+      x-qma-audiences:
+      - public
+  /api/v1/swap/quote:
+    get:
+      tags:
+      - Swap routing
+      summary: Quote a swap across all venues and select the best route
+      description: Fan-out quotes across Uniswap V2, XyloNet StableSwap, Lunex, the
+        USYC NAV redemption path, and the StableFX desk; returns every venue's outcome
+        (unavailable venues include reasons), the winning route with a slippage-protected
+        min_out, an oracle-anchor divergence flag, and a quote_id with a TTL that
+        the execution endpoint requires. Read-only; never moves funds.
+      operationId: get_swap_quote_api_v1_swap_quote_get
+      parameters:
+      - name: from_token
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 2
+          maxLength: 16
+          description: Input token symbol (e.g. USDC).
+          title: From Token
+        description: Input token symbol (e.g. USDC).
+      - name: to_token
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 2
+          maxLength: 16
+          description: Output token symbol (e.g. EURC).
+          title: To Token
+        description: Output token symbol (e.g. EURC).
+      - name: amount
+        in: query
+        required: true
+        schema:
+          type: number
+          exclusiveMinimum: 0
+          description: Input amount in human token units.
+          title: Amount
+        description: Input amount in human token units.
+      - name: slippage_bps
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            maximum: 3000
+            minimum: 0
+          - type: 'null'
+          description: Slippage tolerance in bps (default config).
+          title: Slippage Bps
+        description: Slippage tolerance in bps (default config).
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SwapQuoteResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      x-qma-access: public
+      x-qma-audiences:
+      - public
+  /api/v1/swap/spread:
+    get:
+      tags:
+      - Swap routing
+      summary: Measure venue-vs-oracle spread for a pair
+      description: "Telemetry snapshot: how far each venue's quote for the requested\
+        \ pair sits from the oracle anchor (Forex EUR/USD for stables, ERC-4626 NAV\
+        \ for USYC). Measurement only \u2014 divergence is not a realized or guaranteed\
+        \ profit."
+      operationId: get_swap_spread_api_v1_swap_spread_get
+      parameters:
+      - name: from_token
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 2
+          maxLength: 16
+          description: Input token symbol.
+          title: From Token
+        description: Input token symbol.
+      - name: to_token
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 2
+          maxLength: 16
+          description: Output token symbol.
+          title: To Token
+        description: Output token symbol.
+      - name: amount
+        in: query
+        required: true
+        schema:
+          type: number
+          exclusiveMinimum: 0
+          description: Reference input amount in human units.
+          title: Amount
+        description: Reference input amount in human units.
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SwapSpreadResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      x-qma-access: public
+      x-qma-audiences:
+      - public
+  /api/v1/swap/execute:
+    post:
+      tags:
+      - Swap routing
+      summary: Execute (or dry-run) the route stored under a quote_id
+      description: Admin-gated execution of a router quote. Dry-run mode (default)
+        returns the unsigned calldata and target contract without signing; live mode
+        additionally requires QMA_SWAP_EXECUTION_MODE=live and QMA_SWAP_EXECUTION_LIVE=1,
+        signs with the relayer EOA, enforces the quote's min_out on-chain, verifies
+        the receipt and the post-trade balance floor, and records the swap in the
+        Euthyna audit trail. The StableFX desk venue is not executable here (use /api/v1/stablefx/settle).
+        Spend-guard caps and the treasury halt flag apply.
+      operationId: execute_swap_api_v1_swap_execute_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SwapExecuteRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SwapExecuteResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - x-qma-admin-token: []
+      x-qma-access: admin
+      x-qma-audiences:
+      - private
+  /api/v1/swap/fund-gateway-plan:
+    post:
+      tags:
+      - Swap routing
+      summary: Build a non-custodial conversion plan to fund the buyer's Circle Gateway
+        balance with USDC
+      description: "For buyers holding EURC/USYC instead of USDC: quotes the best\
+        \ executable route and returns an ordered bundle of UNSIGNED calldata steps\
+        \ (token approval, venue swap with a slippage-protected min_out, Circle Gateway\
+        \ deposit) for the buyer to sign with their own wallet. The backend never\
+        \ touches funds on this path \u2014 fully non-custodial. After the Gateway\
+        \ deposit lands, the normal USDC x402 invoice payment flow applies unchanged."
+      operationId: create_fund_gateway_plan_api_v1_swap_fund_gateway_plan_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FundGatewayPlanRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FundGatewayPlanResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      x-qma-access: public
+      x-qma-audiences:
+      - public
   /api/v1/onramp/session:
     post:
       tags:
@@ -6144,8 +6432,12 @@ paths:
         session
       description: Trigger immediate emergency pause, resume, or termination on an
         autonomous agent session, linked into the Athenian Euthyna immutable audit
-        trail.
+        trail. Requires the session owner's X-QMA-Wallet-Token or the platform x-qma-admin-token;
+        the audit actor is the verified credential holder.
       operationId: control_agent_session_api_v1_agent_sessions__session_id__control_post
+      security:
+      - x-qma-admin-token: []
+      - X-QMA-Wallet-Token: []
       parameters:
       - name: session_id
         in: path
@@ -6174,6 +6466,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: The caller is not authorized for this resource.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: The requested resource was not found.
           content:
@@ -6192,19 +6490,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-      x-qma-access: public
+      x-qma-access: protected
       x-qma-audiences:
       - agent
-      - public
+      - private
       - wallet
   /api/v1/agent/incidents/{incident_id}/resolve:
     post:
       tags:
       - Agent sessions
       summary: Mark an agent safety incident as resolved with audit reasoning
-      description: Resolve or override an open safety incident with administrator
-        notes and cryptographic Euthyna audit logging.
+      description: 'Resolve or override an open safety incident with administrator
+        notes and cryptographic Euthyna audit logging. Requires the platform x-qma-admin-token:
+        open P1 incidents gate lifting the treasury emergency halt.'
       operationId: resolve_agent_incident_api_v1_agent_incidents__incident_id__resolve_post
+      security:
+      - x-qma-admin-token: []
       parameters:
       - name: incident_id
         in: path
@@ -6233,6 +6534,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: The caller is not authorized for this resource.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: The requested resource was not found.
           content:
@@ -6245,16 +6552,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: A required service or configuration is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '422':
           description: Validation Error
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-      x-qma-access: public
+      x-qma-access: admin
       x-qma-audiences:
       - agent
-      - public
+      - private
       - wallet
 components:
   schemas:
@@ -6445,6 +6758,33 @@ components:
         decision_source:
           type: string
           title: Decision Source
+        guardrail_blocked:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Guardrail Blocked
+        guardrail_rule:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Guardrail Rule
+        guardrail_message:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Guardrail Message
+        guardrail_detail:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Guardrail Detail
+        model_proposal:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Model Proposal
       additionalProperties: true
       type: object
       required:
@@ -6687,6 +7027,33 @@ components:
             type: string
           type: array
           title: Rejected Candidate Ids
+        guardrail_blocked:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Guardrail Blocked
+        guardrail_rule:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Guardrail Rule
+        guardrail_message:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Guardrail Message
+        guardrail_detail:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Guardrail Detail
+        model_proposal:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Model Proposal
       additionalProperties: true
       type: object
       required:
@@ -6739,6 +7106,12 @@ components:
           additionalProperties: true
           type: object
           title: Live
+        sla:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Sla
       additionalProperties: true
       type: object
       required:
@@ -7179,6 +7552,11 @@ components:
           title: Decision
           description: 'Autonomous decision action: SWEEP_IDLE, JIT_REDEEM, HOLD_AND_EARN,
             COOLDOWN_ACTIVE, or INSOLVENCY_ALERT'
+        decision_source:
+          type: string
+          title: Decision Source
+          description: 'Provenance of decision: heuristic or model'
+          default: heuristic
         amount_usdc:
           type: number
           title: Amount Usdc
@@ -7633,6 +8011,24 @@ components:
           title: Target Apy Baseline
           description: Target baseline annualized yield
           default: 0.05
+        yield_rail:
+          type: string
+          title: Yield Rail
+          description: 'Target yield rail: EARN_KIT_MORPHO (Arc Morpho Lending Vault)
+            or USYC (Institutional USYC Treasury)'
+          default: EARN_KIT_MORPHO
+        target_earn_vault:
+          type: string
+          title: Target Earn Vault
+          description: Default Earn Kit vault ID on Arc
+          default: morpho_arc_usdc_core
+        treasury_halted:
+          type: boolean
+          title: Treasury Halted
+          description: 'Operator emergency halt: when true, every on-chain treasury
+            execution (sweep, JIT redeem) is refused until the policy is updated with
+            treasury_halted=false'
+          default: false
       type: object
       title: CorporateTreasuryPolicy
     CreatorApplicationRequest:
@@ -7852,7 +8248,7 @@ components:
           title: Provider Id
           description: Intelligence provider identifier
           examples:
-          - polymarket_divergence
+          - funding_memory
         query:
           additionalProperties: true
           type: object
@@ -8263,6 +8659,109 @@ components:
       - tampered_records
       - treasury_anchor
       title: EuthynaIntegrityResponse
+    FundGatewayPlanRequest:
+      properties:
+        from_token:
+          type: string
+          title: From Token
+          description: Source token the buyer already holds (EURC, USYC, ...).
+        amount:
+          type: number
+          exclusiveMinimum: 0.0
+          title: Amount
+          description: Source amount in human token units.
+        wallet_address:
+          type: string
+          title: Wallet Address
+          description: Buyer wallet that owns the source tokens and will fund its
+            own Circle Gateway balance.
+        slippage_bps:
+          anyOf:
+          - type: integer
+            maximum: 3000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Slippage Bps
+          description: Optional slippage tolerance in bps.
+      type: object
+      required:
+      - from_token
+      - amount
+      - wallet_address
+      title: FundGatewayPlanRequest
+    FundGatewayPlanResponse:
+      properties:
+        available:
+          type: boolean
+          title: Available
+          description: False when no route exists for the requested conversion.
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+          description: Why the plan is unavailable (set when available is false).
+        from_token:
+          type: string
+          title: From Token
+          description: Source token symbol.
+        to_token:
+          type: string
+          title: To Token
+          description: Output token symbol (always USDC for Gateway funding).
+        amount_in:
+          type: number
+          title: Amount In
+          description: Source amount in human units.
+        estimated_out:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Estimated Out
+          description: Estimated USDC out per the best route.
+        min_out_raw:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Min Out Raw
+          description: Slippage-protected floor used in the swap calldata.
+        quote_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Quote Id
+          description: Quote identifier backing this plan.
+        steps:
+          items:
+            $ref: '#/components/schemas/SwapCalldataStep'
+          type: array
+          title: Steps
+          description: Unsigned calldata steps for the buyer's wallet, in order.
+        non_custodial:
+          type: boolean
+          title: Non Custodial
+          description: 'True: every step is signed by the buyer; the backend never
+            touches funds.'
+        expires_at:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Expires At
+          description: Unix epoch after which the underlying quote expires.
+        note:
+          type: string
+          title: Note
+          description: Usage guidance and promptness warning (quotes are TTL-bound).
+      type: object
+      required:
+      - available
+      - from_token
+      - to_token
+      - amount_in
+      - steps
+      - non_custodial
+      - note
+      title: FundGatewayPlanResponse
     GatewayBalanceResponse:
       properties:
         address:
@@ -8410,6 +8909,44 @@ components:
       - arc_testnet
       - notes
       title: GatewayInfoResponse
+    GenlayerStatusResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+        network:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Network
+        contract_address:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Contract Address
+        configured:
+          type: boolean
+          title: Configured
+          default: false
+        probe:
+          additionalProperties: true
+          type: object
+          title: Probe
+        cached_verdicts_count:
+          type: integer
+          title: Cached Verdicts Count
+          default: 0
+        checked_at:
+          type: number
+          title: Checked At
+      additionalProperties: true
+      type: object
+      required:
+      - status
+      - probe
+      - checked_at
+      title: GenlayerStatusResponse
+      description: Health snapshot of the GenLayer Shield verification path.
     HTTPValidationError:
       properties:
         detail:
@@ -8516,6 +9053,11 @@ components:
           - type: string
           - type: 'null'
           title: Status
+        sla_state:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Sla State
         access_status:
           anyOf:
           - type: string
@@ -8876,6 +9418,13 @@ components:
           title: Run Source
           examples:
           - cli-agent
+        plan:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Plan
+          description: Optional agent decision plan to bind price ceiling
       additionalProperties: true
       type: object
       required:
@@ -9319,41 +9868,6 @@ components:
       additionalProperties: true
       type: object
       title: Page[PayerBreakdownItem]
-    Page_PaymentEventItem_:
-      properties:
-        page:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          title: Page
-        page_size:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          title: Page Size
-        total:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          title: Total
-        total_pages:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          title: Total Pages
-        has_next:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          title: Has Next
-        has_prev:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          title: Has Prev
-      additionalProperties: true
-      type: object
-      title: Page[PaymentEventItem]
     PayerBreakdownItem:
       properties:
         payer_address:
@@ -9605,6 +10119,12 @@ components:
         query_hash:
           type: string
           title: Query Hash
+        query:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Query
         payment_requirement:
           additionalProperties: true
           type: object
@@ -9900,7 +10420,7 @@ components:
           type: array
           title: Recent Payments
         recent_payments_page:
-          $ref: '#/components/schemas/Page_PaymentEventItem_'
+          $ref: '#/components/schemas/backend__app__schemas__wallet_responses__Page[PaymentEventItem]'
       additionalProperties: true
       type: object
       required:
@@ -10187,6 +10707,18 @@ components:
           - type: 'null'
           title: Provider Specific Data
           description: Provider-specific report data (Legacy).
+        risk_flags:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Risk Flags
+        effective_sample_size:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Effective Sample Size
       additionalProperties: true
       type: object
       title: ProviderReportResponse
@@ -11136,6 +11668,584 @@ components:
       - recipient_address
       - explorer_url
       title: StableFXSettleResponse
+    SwapAnchorInfo:
+      properties:
+        rate:
+          type: number
+          title: Rate
+          description: Oracle rate expressed as output-per-input.
+        source:
+          type: string
+          title: Source
+          description: Oracle provenance (e.g. PYTH_EURUSD_24_7_INDEX).
+        expected_out:
+          type: number
+          title: Expected Out
+          description: Oracle-expected output for the quoted amount.
+        max_divergence_bps:
+          type: integer
+          title: Max Divergence Bps
+          description: Configured divergence tolerance in basis points.
+      type: object
+      required:
+      - rate
+      - source
+      - expected_out
+      - max_divergence_bps
+      title: SwapAnchorInfo
+    SwapBestRoute:
+      properties:
+        venue_id:
+          type: string
+          title: Venue Id
+          description: Winning venue identifier.
+        venue:
+          type: string
+          title: Venue
+          description: Winning venue name.
+        amount_out:
+          type: number
+          title: Amount Out
+          description: Best quoted output in human units.
+        amount_out_raw:
+          type: integer
+          title: Amount Out Raw
+          description: Best quoted output in raw units.
+        min_out_raw:
+          type: integer
+          title: Min Out Raw
+          description: Minimum acceptable output (slippage-protected) that execution
+            must enforce.
+        anchor_divergence_bps:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Anchor Divergence Bps
+          description: Best quote's deviation from the oracle anchor in bps.
+        anchor_exceeded:
+          type: boolean
+          title: Anchor Exceeded
+          description: "True when |divergence| exceeds QMA_SWAP_MAX_ANCHOR_DIVERSION_BPS\
+            \ \u2014 execution should refuse."
+        path:
+          items:
+            type: string
+          type: array
+          title: Path
+          description: On-chain token path of the winning route.
+        gas_units_estimate:
+          type: integer
+          title: Gas Units Estimate
+          description: Estimated gas units for the winning swap.
+      type: object
+      required:
+      - venue_id
+      - venue
+      - amount_out
+      - amount_out_raw
+      - min_out_raw
+      - anchor_exceeded
+      - path
+      - gas_units_estimate
+      title: SwapBestRoute
+    SwapCalldataStep:
+      properties:
+        step:
+          type: integer
+          title: Step
+          description: 1-based execution order (approve, swap, gateway deposit).
+        action:
+          type: string
+          title: Action
+          description: Human-readable step name.
+        to_address:
+          type: string
+          title: To Address
+          description: Contract the buyer signs this transaction against.
+        calldata:
+          type: string
+          title: Calldata
+          description: Unsigned ABI calldata for the buyer's wallet to sign.
+        gas_units_estimate:
+          type: integer
+          title: Gas Units Estimate
+          description: 'Explicit gas override (Arc: eth_estimateGas is unreliable).'
+      type: object
+      required:
+      - step
+      - action
+      - to_address
+      - calldata
+      - gas_units_estimate
+      title: SwapCalldataStep
+    SwapExecuteRequest:
+      properties:
+        quote_id:
+          type: string
+          title: Quote Id
+          description: Quote identifier returned by GET /api/v1/swap/quote.
+        executor_address:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Executor Address
+          description: Relayer/owner wallet executing the swap; defaults to the configured
+            relayer EOA.
+        idempotency_key:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Idempotency Key
+          description: Optional client idempotency key to prevent duplicate execution
+            on retry.
+      type: object
+      required:
+      - quote_id
+      title: SwapExecuteRequest
+    SwapExecuteResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          description: Whether the swap (or dry-run) completed without error.
+        receipt:
+          anyOf:
+          - $ref: '#/components/schemas/SwapExecutionReceipt'
+          - type: 'null'
+          description: Execution receipt when success is true.
+        error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error
+          description: Failure reason when success is false.
+        network:
+          $ref: '#/components/schemas/SwapNetworkInfo'
+          description: Arc network the swap executed on.
+      type: object
+      required:
+      - success
+      - network
+      title: SwapExecuteResponse
+    SwapExecutionReceipt:
+      properties:
+        quote_id:
+          type: string
+          title: Quote Id
+          description: Quote that was executed.
+        venue_id:
+          type: string
+          title: Venue Id
+          description: Venue the winning route executed on.
+        from_token:
+          type: string
+          title: From Token
+          description: Input token symbol.
+        to_token:
+          type: string
+          title: To Token
+          description: Output token symbol.
+        amount_in:
+          type: number
+          title: Amount In
+          description: Input amount in human units.
+        min_out_raw:
+          type: integer
+          title: Min Out Raw
+          description: Slippage floor enforced on-chain.
+        mode:
+          type: string
+          title: Mode
+          description: 'Execution mode: dry_run or live.'
+        calldata:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Calldata
+          description: Unsigned calldata preview (dry_run mode).
+        to_address:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: To Address
+          description: Contract the calldata targets (dry_run mode).
+        tx_hash:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tx Hash
+          description: Arc transaction hash (live mode).
+        explorer_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Explorer Url
+          description: Arcscan URL for the live transaction.
+        audit_ref:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Audit Ref
+          description: Euthyna audit entry reference for the execution.
+        executed_at:
+          type: integer
+          title: Executed At
+          description: Unix epoch of execution.
+      type: object
+      required:
+      - quote_id
+      - venue_id
+      - from_token
+      - to_token
+      - amount_in
+      - min_out_raw
+      - mode
+      - executed_at
+      title: SwapExecutionReceipt
+    SwapNetworkInfo:
+      properties:
+        chain_id:
+          type: integer
+          title: Chain Id
+          description: Arc chain ID (5042002 testnet).
+        name:
+          type: string
+          title: Name
+          description: Network display name.
+        payment_network:
+          type: string
+          title: Payment Network
+          description: CAIP-2 payment network identifier.
+      type: object
+      required:
+      - chain_id
+      - name
+      - payment_network
+      title: SwapNetworkInfo
+    SwapPairsResponse:
+      properties:
+        tokens:
+          items:
+            $ref: '#/components/schemas/SwapTokenEntry'
+          type: array
+          title: Tokens
+          description: Tokens the router can quote.
+        venues:
+          items:
+            $ref: '#/components/schemas/SwapVenueEntry'
+          type: array
+          title: Venues
+          description: Venues the router aggregates.
+        network:
+          $ref: '#/components/schemas/SwapNetworkInfo'
+          description: Arc network this router serves.
+      type: object
+      required:
+      - tokens
+      - venues
+      - network
+      title: SwapPairsResponse
+    SwapQuoteResponse:
+      properties:
+        available:
+          type: boolean
+          title: Available
+          description: False when no venue quoted a usable route.
+        from_token:
+          type: string
+          title: From Token
+          description: Input token symbol.
+        to_token:
+          type: string
+          title: To Token
+          description: Output token symbol.
+        amount_in:
+          type: number
+          title: Amount In
+          description: Input amount in human units.
+        amount_in_raw:
+          type: integer
+          title: Amount In Raw
+          description: Input amount in raw token units.
+        slippage_bps:
+          type: integer
+          title: Slippage Bps
+          description: Slippage tolerance applied to derive min_out.
+        anchor:
+          anyOf:
+          - $ref: '#/components/schemas/SwapAnchorInfo'
+          - type: 'null'
+          description: Oracle anchor for the pair, when one exists.
+        quotes:
+          items:
+            $ref: '#/components/schemas/SwapVenueQuote'
+          type: array
+          title: Quotes
+          description: Every venue's outcome, including unavailable ones with reasons.
+        best:
+          anyOf:
+          - $ref: '#/components/schemas/SwapBestRoute'
+          - type: 'null'
+          description: Winning route when available is true.
+        quote_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Quote Id
+          description: Quote identifier required by the execution endpoint.
+        expires_at:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Expires At
+          description: Unix epoch after which the quote can no longer be executed.
+        ttl_seconds:
+          type: integer
+          title: Ttl Seconds
+          description: Quote time-to-live in seconds.
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+          description: Why no route was available (set when available is false).
+        network:
+          $ref: '#/components/schemas/SwapNetworkInfo'
+          description: Arc network this quote was computed on.
+        quoted_at:
+          type: integer
+          title: Quoted At
+          description: Unix epoch when the quote was computed.
+      type: object
+      required:
+      - available
+      - from_token
+      - to_token
+      - amount_in
+      - amount_in_raw
+      - slippage_bps
+      - quotes
+      - ttl_seconds
+      - network
+      - quoted_at
+      title: SwapQuoteResponse
+    SwapSpreadResponse:
+      properties:
+        from_token:
+          type: string
+          title: From Token
+          description: Input token symbol.
+        to_token:
+          type: string
+          title: To Token
+          description: Output token symbol.
+        amount_in:
+          type: number
+          title: Amount In
+          description: Reference input amount.
+        anchor_rate:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Anchor Rate
+          description: Oracle anchor rate (output-per-input).
+        anchor_source:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Anchor Source
+          description: Oracle provenance.
+        best_venue_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Best Venue Id
+          description: Best venue at measurement time.
+        best_amount_out:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Best Amount Out
+          description: Best output at measurement time.
+        best_divergence_bps:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Best Divergence Bps
+          description: Best venue's anchor divergence in bps.
+        best_divergence_exceeded:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Best Divergence Exceeded
+          description: Whether best divergence breached tolerance.
+        venues:
+          items:
+            $ref: '#/components/schemas/SwapSpreadVenue'
+          type: array
+          title: Venues
+          description: Per-venue measurement snapshot.
+        measured_at:
+          type: integer
+          title: Measured At
+          description: Unix epoch of the measurement.
+        note:
+          type: string
+          title: Note
+          description: 'Honesty note: measurement only, not a realized or guaranteed
+            profit.'
+      type: object
+      required:
+      - from_token
+      - to_token
+      - amount_in
+      - venues
+      - measured_at
+      - note
+      title: SwapSpreadResponse
+    SwapSpreadVenue:
+      properties:
+        venue_id:
+          type: string
+          title: Venue Id
+          description: Venue identifier.
+        venue:
+          type: string
+          title: Venue
+          description: Venue name.
+        available:
+          type: boolean
+          title: Available
+          description: Whether the venue quoted.
+        amount_out:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Amount Out
+          description: Quoted output in human units.
+        anchor_divergence_bps:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Anchor Divergence Bps
+          description: Deviation from the oracle anchor in bps.
+      type: object
+      required:
+      - venue_id
+      - venue
+      - available
+      title: SwapSpreadVenue
+    SwapTokenEntry:
+      properties:
+        symbol:
+          type: string
+          title: Symbol
+          description: Token symbol (USDC, EURC, USYC, WETH).
+        address:
+          type: string
+          title: Address
+          description: Arc testnet contract address.
+        decimals:
+          type: integer
+          title: Decimals
+          description: ERC-20 decimals for raw unit conversion.
+      type: object
+      required:
+      - symbol
+      - address
+      - decimals
+      title: SwapTokenEntry
+    SwapVenueEntry:
+      properties:
+        venue_id:
+          type: string
+          title: Venue Id
+          description: Stable venue identifier used in quotes and execution requests.
+        name:
+          type: string
+          title: Name
+          description: Human-readable venue name.
+        kind:
+          type: string
+          title: Kind
+          description: 'Venue type: constant_product, stableswap, erc4626_redemption,
+            relayer_desk.'
+      type: object
+      required:
+      - venue_id
+      - name
+      - kind
+      title: SwapVenueEntry
+    SwapVenueQuote:
+      properties:
+        venue_id:
+          type: string
+          title: Venue Id
+          description: Venue identifier.
+        venue:
+          type: string
+          title: Venue
+          description: Human-readable venue name.
+        kind:
+          type: string
+          title: Kind
+          description: Venue type.
+        available:
+          type: boolean
+          title: Available
+          description: Whether this venue returned a usable non-zero quote.
+        amount_out:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Amount Out
+          description: Quoted output amount in human units.
+        amount_out_raw:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Amount Out Raw
+          description: Quoted output in raw token units.
+        anchor_divergence_bps:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Anchor Divergence Bps
+          description: Percent deviation of this quote from the oracle anchor, in
+            basis points.
+        gas_units_estimate:
+          type: integer
+          title: Gas Units Estimate
+          description: Rough gas units the venue's swap consumes (Arc needs explicit
+            gas).
+        path:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Path
+          description: Token contract path used by the venue call.
+        note:
+          type: string
+          title: Note
+          description: Implementation detail or unavailability reason.
+          default: ''
+        rate_source:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Rate Source
+          description: Oracle source when the venue is oracle-priced (e.g. StableFX
+            desk).
+      type: object
+      required:
+      - venue_id
+      - venue
+      - kind
+      - available
+      - gas_units_estimate
+      title: SwapVenueQuote
     SweepRequest:
       properties:
         amount_usdc:
@@ -11599,7 +12709,7 @@ components:
           type: array
           title: Recent Payments
         recent_payments_page:
-          $ref: '#/components/schemas/Page_PaymentEventItem_'
+          $ref: '#/components/schemas/backend__app__schemas__wallet_responses__Page[PaymentEventItem]'
       additionalProperties: true
       type: object
       required:
@@ -11633,7 +12743,7 @@ components:
           type: array
           title: Recent Payments
         recent_payments_page:
-          $ref: '#/components/schemas/Page_PaymentEventItem_'
+          $ref: '#/components/schemas/backend__app__schemas__wallet_responses__Page[PaymentEventItem]'
       additionalProperties: true
       type: object
       required:
@@ -11883,6 +12993,41 @@ components:
       - withdraw_owner
       title: WithdrawResponse
       description: Withdraw response with dynamic Gateway/relayer fields preserved.
+    backend__app__schemas__wallet_responses__Page[PaymentEventItem]:
+      properties:
+        page:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Page
+        page_size:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Page Size
+        total:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Total
+        total_pages:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Total Pages
+        has_next:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Has Next
+        has_prev:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Has Prev
+      additionalProperties: true
+      type: object
+      title: Page[PaymentEventItem]
   securitySchemes:
     x-qma-admin-token:
       type: apiKey

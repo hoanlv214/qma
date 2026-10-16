@@ -15,12 +15,6 @@ export function getFallbackEvidenceUrl(exchange: string, sym: string): string {
   if (ex === "OKX") {
     return `https://www.okx.com/api/v5/public/funding-rate?instId=${cleanSym}-USDT-SWAP`;
   }
-  if (ex === "POLYMARKET") {
-    return `https://gamma-api.polymarket.com/events?limit=5&active=true`;
-  }
-  if (ex === "PYTH") {
-    return `https://hermes.pyth.network/v2/updates/price/latest?ids[]=0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace`;
-  }
   return `https://contract.mexc.com/api/v1/contract/funding_rate/${cleanSym}_USDT`;
 }
 

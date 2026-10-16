@@ -3,14 +3,12 @@
   "service_id": "qma-market-intelligence",
   "name": "QMA - Quantitative Market Anomaly & Intelligence",
   "category": "market-intelligence",
-  "description": "Sub-second Pyth volatility stress bands, Polymarket arbitrage divergence, and funding anomaly feeds on Arc with instant Circle USDC micropayments and zero-gas execution.",
+  "description": "Institutional funding rate disparity and open interest regime modeling on Arc with instant Circle USDC micropayments and zero-gas execution.",
   "payment_rail": "x402",
   "currency": "USDC",
   "pricing": {
     "funding_memory": "0.002",
     "oi_memory": "0.002",
-    "polymarket_divergence": "0.002",
-    "pyth_stress_band": "0.003",
     "preview_report": "0.002",
     "full_report": "0.005"
   },
@@ -82,7 +80,7 @@
   "example_prompts": [
     "Search funding rate arbitrage anomalies for BTC and ETH",
     "Inspect quantitative analogs and win-rate diagnostics for MBOX",
-    "Get Polymarket event divergence signal vs perpetual futures",
+    "Analyze open interest liquidation cascade risks",
     "Underwrite collateral credit risk score on Arc"
   ],
   "x402_specification": {

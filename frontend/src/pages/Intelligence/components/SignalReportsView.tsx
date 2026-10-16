@@ -143,66 +143,22 @@ export function SignalReportsView(props: SignalReportsViewProps) {
                   )}
                 </div>
 
-                {pick.provider_id === "polymarket_divergence" ? (
-                  <div className="xp-card-facts">
-                    <div className="xp-fact">
-                      <span className="xp-fact-lbl">Market Odds</span>
-                      <span className="xp-fact-val">
-                        {((Number(pick.live?.market_probability ?? pick.query?.market_probability ?? 0.5)) * 100).toFixed(1)}%
-                      </span>
-                    </div>
-                    <div className="xp-fact">
-                      <span className="xp-fact-lbl">Deriv Implied</span>
-                      <span className="xp-fact-val">
-                        {((Number(pick.live?.implied_derivative_prob ?? pick.query?.implied_derivative_prob ?? 0.5)) * 100).toFixed(1)}%
-                      </span>
-                    </div>
-                    <div className="xp-fact">
-                      <span className="xp-fact-lbl">Arb Spread</span>
-                      <span className="xp-fact-val is-positive">
-                        +{((Number(pick.live?.divergence_delta ?? pick.query?.divergence_delta ?? 0.12)) * 100).toFixed(1)}%
-                      </span>
-                    </div>
+                <div className="xp-card-facts">
+                  <div className="xp-fact">
+                    <span className="xp-fact-lbl">Funding</span>
+                    <span className={`xp-fact-val ${funding < 0 ? "is-negative" : funding > 0 ? "is-positive" : ""}`}>
+                      {funding < 0 ? "" : "+"}{(funding * 100).toFixed(3)}%
+                    </span>
                   </div>
-                ) : pick.provider_id === "pyth_stress_band" ? (
-                  <div className="xp-card-facts">
-                    <div className="xp-fact">
-                      <span className="xp-fact-lbl">Pyth Median</span>
-                      <span className="xp-fact-val">
-                        ${Number(pick.live?.price ?? pick.query?.price ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
-                      </span>
-                    </div>
-                    <div className="xp-fact">
-                      <span className="xp-fact-lbl">Conf Band</span>
-                      <span className="xp-fact-val">
-                        ±{Number(pick.live?.confidence_spread_bps ?? pick.query?.confidence_spread_bps ?? 4.5).toFixed(1)} bps
-                      </span>
-                    </div>
-                    <div className="xp-fact">
-                      <span className="xp-fact-lbl">Stress Regime</span>
-                      <span className={`xp-fact-val ${String(pick.live?.stress_level || "CALM") !== "CALM" ? "is-negative" : ""}`}>
-                        {String(pick.live?.stress_level || "CALM").replace("_", " ")}
-                      </span>
-                    </div>
+                  <div className="xp-fact">
+                    <span className="xp-fact-lbl">Edge</span>
+                    <span className="xp-fact-val">{pick.estimated_value || "In report"}</span>
                   </div>
-                ) : (
-                  <div className="xp-card-facts">
-                    <div className="xp-fact">
-                      <span className="xp-fact-lbl">Funding</span>
-                      <span className={`xp-fact-val ${funding < 0 ? "is-negative" : funding > 0 ? "is-positive" : ""}`}>
-                        {funding < 0 ? "" : "+"}{(funding * 100).toFixed(3)}%
-                      </span>
-                    </div>
-                    <div className="xp-fact">
-                      <span className="xp-fact-lbl">Edge</span>
-                      <span className="xp-fact-val">{pick.estimated_value || "In report"}</span>
-                    </div>
-                    <div className="xp-fact">
-                      <span className="xp-fact-lbl">Volume 24h</span>
-                      <span className="xp-fact-val">{volume > 0 ? formatCompactMoney(volume) : "—"}</span>
-                    </div>
+                  <div className="xp-fact">
+                    <span className="xp-fact-lbl">Volume 24h</span>
+                    <span className="xp-fact-val">{volume > 0 ? formatCompactMoney(volume) : "—"}</span>
                   </div>
-                )}
+                </div>
 
                 {reasons[0] && <p className="xp-card-reason">{reasons[0]}</p>}
 
