@@ -9,6 +9,8 @@ Run with:
 
 import os
 import asyncio
+import concurrent.futures
+import threading
 import time
 import logging
 import hashlib
@@ -30,7 +32,7 @@ import paid_intelligence_kit as paid_kit
 from market_data import create_market_data_adapter
 from qma_engine import QMAEngine
 
-from storage import create_storage_backend
+from backend.app.infrastructure.storage import create_storage_backend
 
 from backend.app.core.static_config import app_setting
 from backend.app.core.config import (
@@ -172,13 +174,31 @@ from backend.app.services.invoice_builder import (
     invoice_payment_schema,
     hydrate_payment_schema,
     allocate_split_legs_raw,
-    settlement_id_already_claimed,
+    settlement_id_already_claimed as _base_settlement_id_already_claimed,
     issue_invoice_access_token,
     invoice_payment_state_response,
     payment_requirement,
     paid_invoice_event,
     get_invoice_or_402,
 )
+
+
+def settlement_id_already_claimed(
+    settlement_id,
+    *,
+    exclude_invoice_id=None,
+    load_invoices_fn=None,
+    invoices_db=None,
+    storage_backend=None,
+):
+    from backend.app import main as _main
+    return _base_settlement_id_already_claimed(
+        settlement_id,
+        exclude_invoice_id=exclude_invoice_id,
+        load_invoices_fn=load_invoices_fn or getattr(_main, "load_invoices", getattr(_main, "_load_invoices", None)),
+        invoices_db=invoices_db if invoices_db is not None else getattr(_main, "invoices_db", state.invoices_db),
+        storage_backend=storage_backend,
+    )
 from backend.app.services.market_epoch import (
     begin_or_get_epoch,
     get_epoch,
@@ -224,10 +244,16 @@ from backend.app.services.settlement_validation import (
 )
 from backend.app.services.payment_events_service import (
     build_traction_snapshot,
-    summarize_payment_events,
+    summarize_payment_events as _base_summarize_payment_events,
     merge_payment_sources,
     load_platform_payment_events,
 )
+
+
+def summarize_payment_events(events, provider_split_metadata_fn=None):
+    from backend.app import main as _main
+    fn = provider_split_metadata_fn or (lambda pid, fo: provider_split_metadata(getattr(_main, "provider_registry", None), pid, fo))
+    return _base_summarize_payment_events(events, provider_split_metadata_fn=fn)
 from backend.app.services.agent_recommendations import build_agent_recommendations
 from backend.app.repositories import storage as repo
 
@@ -536,62 +562,13 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     )
 
 
-AUDIENCE_TAGS = {
-    "agent": {"Agent decisioning", "Agent sessions", "MCP", "Market data", "Provider discovery", "Payments & settlement", "Reports", "System"},
-    "wallet": {"Agent sessions", "Wallet & entitlements", "Traction & analytics", "System", "Payments & settlement", "Creator operations", "Report chat", "Reports"},
-    "admin": {"Admin / operations", "Provider discovery", "Traction & analytics", "System", "Internal gateway", "Payments & settlement"},
-}
-
-DOCUMENTATION_AUDIENCES = {"public", "agent", "wallet", "admin", "private"}
-SIGNED_PAYLOAD_OPERATIONS = {
-    ("post", "/api/v1/creators/claim"),
-    ("post", "/api/v1/payment/withdraw"),
-    ("post", "/api/v1/wallets/{address}/session"),
-}
-
-
-def _operation_access(path: str, method: str, operation: dict) -> str:
-    if (method, path) in SIGNED_PAYLOAD_OPERATIONS:
-        return "signed-payload"
-
-    requirements = operation.get("security") or []
-    if not requirements:
-        return "public"
-    if {} in requirements:
-        return "public-optional-auth"
-
-    schemes = {
-        scheme
-        for requirement in requirements
-        if isinstance(requirement, dict)
-        for scheme in requirement
-    }
-    if schemes == {"X-QMA-Access-Token"}:
-        return "paid-access"
-    if schemes == {"X-QMA-Wallet-Token"}:
-        return "wallet-owner"
-    if schemes == {"X-QMA-Invoice-Secret"}:
-        return "invoice-owner"
-    if schemes == {"x-qma-admin-token"}:
-        return "admin"
-    if schemes == {"x-qma-internal-secret"}:
-        return "internal-worker"
-    if schemes == {"X-QMA-Wallet-Token", "x-qma-internal-secret"}:
-        return "wallet-or-worker"
-    return "protected"
-
-
-def _operation_audiences(path: str, method: str, operation: dict, access: str) -> list[str]:
-    tags = set(operation.get("tags") or [])
-    audiences = {
-        audience
-        for audience, allowed_tags in AUDIENCE_TAGS.items()
-        if tags.intersection(allowed_tags)
-    }
-    if access == "internal-worker":
-        audiences.discard("wallet")
-    audiences.add("public" if access in {"public", "public-optional-auth"} else "private")
-    return sorted(audiences)
+from backend.app.core.openapi import (
+    AUDIENCE_TAGS,
+    DOCUMENTATION_AUDIENCES,
+    SIGNED_PAYLOAD_OPERATIONS,
+    _operation_access,
+    _operation_audiences,
+)
 
 
 @app.get("/openapi/{audience}.json", include_in_schema=False)
@@ -655,154 +632,8 @@ _default_openapi = app.openapi
 
 def qma_openapi():
     """Add optional-auth semantics, OpenAPI 3.1.0 metadata, and x402 payment specifications."""
-    if app.openapi_schema:
-        return app.openapi_schema
-
-    schema = _default_openapi()
-    schema["openapi"] = "3.1.0"
-    info = schema.setdefault("info", {})
-    info["contact"] = {
-        "name": "QMA Agent Support",
-        "email": "agent-support@qma.com",
-        "url": "https://qma-three.vercel.app/",
-    }
-    info["x-guidance"] = AGENT_GUIDANCE
-    info["x-capabilities"] = [
-        "dualRail",
-        "circleGateway",
-        "proofOfHuman",
-        "siwx",
-        "multiChain",
-        "bazaarSchema",
-    ]
-    info["x-payment-rails"] = ["x402", "mpp"]
-    schema["externalDocs"] = {
-        "description": "QMA Documentation and Agent Integration Guide",
-        "url": "https://qma-three.vercel.app/docs",
-    }
-
-    components = schema.setdefault("components", {})
-    security_schemes = components.setdefault("securitySchemes", {})
-    security_schemes.setdefault(
-        "x-qma-internal-secret",
-        {
-            "type": "apiKey",
-            "in": "header",
-            "name": "x-qma-internal-secret",
-            "description": "Internal gateway secret. Internal routes are intentionally hidden from the public schema.",
-        },
-    )
-    security_schemes.setdefault(
-        "walletAuth",
-        {
-            "type": "http",
-            "scheme": "bearer",
-            "bearerFormat": "SIWE",
-            "description": "Wallet authentication via EIP-4361 (Sign-In with Ethereum). Authenticate using verified wallet session token in Authorization: Bearer <token> or X-QMA-Wallet-Token header.",
-        },
-    )
-    security_schemes.setdefault(
-        "x402",
-        {
-            "type": "apiKey",
-            "in": "header",
-            "name": "X-PAYMENT",
-            "description": "x402 v2 payment authorization header (or PAYMENT-SIGNATURE) providing signed exact USDC transfer intent on supported multi-chain networks.",
-        },
-    )
-
-    optional_security = {
-        "/api/v1/metrics/wallet/{address}": "X-QMA-Wallet-Token",
-        "/api/v1/wallets/{address}/payments": "X-QMA-Wallet-Token",
-        "/api/v1/entitlements/wallet/{address}": "X-QMA-Wallet-Token",
-        "/api/v1/providers": "x-qma-admin-token",
-        "/api/v1/providers/{provider_id}": "x-qma-admin-token",
-        "/api/v1/providers/{provider_id}/stats": "x-qma-admin-token",
-        "/api/v1/creators/applications": "x-qma-admin-token",
-        "/api/v1/treasury/agent/decide": "x-qma-admin-token",
-        "/api/v1/treasury/usyc/sweep": "x-qma-admin-token",
-        "/api/v1/treasury/usyc/jit-redeem": "x-qma-admin-token",
-    }
-    for path in optional_security:
-        for operation in schema.get("paths", {}).get(path, {}).values():
-            if not isinstance(operation, dict) or "security" not in operation:
-                continue
-            requirements = operation["security"]
-            if {} not in requirements:
-                requirements.append({})
-
-    for path, path_item in schema.get("paths", {}).items():
-        for method, operation in path_item.items():
-            if method not in {"get", "post", "put", "delete", "patch", "options", "head", "trace"}:
-                continue
-            access = _operation_access(path, method, operation)
-            operation["x-qma-access"] = access
-            operation["x-qma-audiences"] = _operation_audiences(path, method, operation, access)
-            if access == "paid-access":
-                operation["x-payment-info"] = X_PAYMENT_INFO
-                operation["x-capabilities"] = [
-                    "dualRail",
-                    "circleGateway",
-                    "proofOfHuman",
-                    "siwx",
-                    "multiChain",
-                    "bazaarSchema",
-                ]
-                responses = operation.setdefault("responses", {})
-                responses["402"] = {
-                    "description": "Payment Required. Returns an x402 challenge with accepts[] containing supported multi-chain networks and Bazaar schema.",
-                    "headers": {
-                        "PAYMENT-REQUIRED": {
-                            "description": "Base64-encoded x402 payment challenge JSON with multi-network accepts[] array and Bazaar schema",
-                            "schema": {"type": "string"},
-                        },
-                        "WWW-Authenticate": {
-                            "description": "Payment challenge realm, requirements, and supported schemes",
-                            "schema": {"type": "string"},
-                        },
-                    },
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/ErrorResponse"},
-                            "example": {
-                                "error": "payment_required",
-                                "message": "Payment required: $0.005000 USDC over x402 / Circle Gateway to access report.",
-                                "status_code": 402,
-                                "price": {
-                                    "mode": "fixed",
-                                    "currency": "USDC",
-                                    "amount": "0.005000",
-                                },
-                                "x402Version": 2,
-                                "protocols": X_PAYMENT_INFO.get("protocols", []),
-                                "rails": ["x402", "mpp"],
-                                "dualRail": True,
-                                "multiChain": True,
-                                "auth": {
-                                    "scheme": "siwx",
-                                    "type": "wallet",
-                                    "standards": ["EIP-4361", "CAIP-122"],
-                                },
-                                "proofOfHuman": {
-                                    "enabled": True,
-                                    "provider": "world-id",
-                                },
-                                "schema": BAZAAR_EXTENSIONS["bazaar"]["schema"],
-                                "bazaarSchema": BAZAAR_EXTENSIONS["bazaar"]["schema"],
-                                "accepts": X_PAYMENT_INFO.get("accepts", []),
-                                "extensions": {
-                                    **BAZAAR_EXTENSIONS,
-                                    "siwx": {"enabled": True, "standards": ["EIP-4361", "CAIP-122"]},
-                                    "proofOfHuman": {"enabled": True, "provider": "world-id"},
-                                },
-                            },
-                        }
-                    },
-                }
-
-    app.openapi_schema = schema
-    return schema
-
+    from backend.app.core.openapi import generate_qma_openapi
+    return generate_qma_openapi(app, _default_openapi)
 
 
 app.openapi = qma_openapi
@@ -836,6 +667,9 @@ storage_backend = create_storage_backend(
     provider_controls_path=str(settings.provider_controls_path),
 )
 state.storage_backend = storage_backend
+invoices_db = state.invoices_db
+payment_events = state.payment_events
+paid_reports = state.paid_reports
 
 # Fail-closed guard: production must never run on uncoordinated local JSON files
 _is_prod_env = (
@@ -843,100 +677,111 @@ _is_prod_env = (
     or os.getenv("RENDER", "").lower() == "true"
     or os.getenv("NODE_ENV", "").lower() == "production"
 )
-if _is_prod_env and storage_backend.__class__.__name__ != "PostgresStorage":
+if _is_prod_env and storage_backend.__class__.__name__ not in ("PostgresStorage", "SupabaseStorage"):
     raise RuntimeError(
         "FATAL CONFIGURATION ERROR: Production environment detected (ENVIRONMENT=production or RENDER=true). "
-        "Production deployments MUST configure a valid DATABASE_URL and use PostgresStorage. "
+        "Production deployments MUST configure a valid DATABASE_URL/SUPABASE_URL and use PostgresStorage or SupabaseStorage. "
         "Fallback to local JsonStorage is strictly forbidden in production."
     )
 
 from backend.app.core.provider_registry import ProviderRegistryV2
 from backend.app.services.plugins.funding_provider import FundingProviderV2
 from backend.app.services.plugins.oi_provider import OpenInterestMemoryProviderV2
-from backend.app.services.plugins.polymarket_provider import PolymarketDivergenceProviderV2
-from backend.app.services.plugins.pyth_provider import PythStressBandProviderV2
 from backend.app.services.providers_meta import provider_metadata
 
 provider_registry = ProviderRegistryV2()
 _provider_owner_wallets = app_setting("providers", "ownerWallets")
 provider_registry.register(FundingProviderV2(owner_wallet=str(_provider_owner_wallets["funding"])))
 provider_registry.register(OpenInterestMemoryProviderV2(owner_wallet=str(_provider_owner_wallets["openInterest"])))
-provider_registry.register(PolymarketDivergenceProviderV2(owner_wallet=str(_provider_owner_wallets["polymarket"])))
-provider_registry.register(PythStressBandProviderV2(owner_wallet=str(_provider_owner_wallets["pyth"])))
 CREATOR_CLAIMS_PATH = str(settings.creator_claims_path)
 
 
 # ---------------------------------------------------------------------------
-# Bound persistence functions (close over storage_backend)
+# Bound persistence functions (resolve dynamically over active storage_backend)
 # ---------------------------------------------------------------------------
+def _current_storage():
+    from backend.app import main as _main
+    mod_store = getattr(_main, "storage_backend", None)
+    if mod_store is not None:
+        return mod_store
+    return getattr(state, "storage_backend", storage_backend)
+
 def _load_payment_ledger():
-    return repo.load_payment_ledger(storage_backend)
+    return repo.load_payment_ledger(_current_storage())
 
 def _load_payment_events_for_wallet(address):
-    return repo.load_payment_events_for_wallet(storage_backend, address, normalize_address)
+    return repo.load_payment_events_for_wallet(_current_storage(), address, normalize_address)
 
 def _load_payment_event_summaries(limit=5000):
-    return repo.load_payment_event_summaries(storage_backend, limit=limit)
+    return repo.load_payment_event_summaries(_current_storage(), limit=limit)
 
 def _save_payment_ledger(events):
-    repo.save_payment_ledger(storage_backend, events)
+    repo.save_payment_ledger(_current_storage(), events)
 
 def _save_single_payment_event(event):
-    repo.save_single_payment_event(storage_backend, event)
+    repo.save_single_payment_event(_current_storage(), event)
 
 def _load_paid_reports():
-    return repo.load_paid_reports(storage_backend)
+    return repo.load_paid_reports(_current_storage())
 
 def _load_paid_reports_for_wallet(address, *, symbol=None, provider_id=None):
-    return repo.load_paid_reports_for_wallet(storage_backend, address, normalize_address, symbol=symbol, provider_id=provider_id)
+    return repo.load_paid_reports_for_wallet(_current_storage(), address, normalize_address, symbol=symbol, provider_id=provider_id)
 
 def _load_wallet_entitlements(address):
     return paid_kit.list_wallet_entitlements(_load_paid_reports_for_wallet(address), address)
 
 def _load_paid_report_summaries_for_wallet(address, *, symbol=None, provider_id=None):
-    return repo.load_paid_report_summaries_for_wallet(storage_backend, address, normalize_address, symbol=symbol, provider_id=provider_id)
+    return repo.load_paid_report_summaries_for_wallet(_current_storage(), address, normalize_address, symbol=symbol, provider_id=provider_id)
 
 def _load_paid_report_summaries(limit=5000):
-    return repo.load_paid_report_summaries(storage_backend, limit=limit)
+    return repo.load_paid_report_summaries(_current_storage(), limit=limit)
 
 def _load_paid_report_by_id(address, entitlement_id):
-    return repo.load_paid_report_by_id(storage_backend, address, entitlement_id, normalize_address)
+    return repo.load_paid_report_by_id(_current_storage(), address, entitlement_id, normalize_address)
 
 def _save_paid_reports(reports):
     try:
-        repo.save_paid_reports(storage_backend, reports)
+        repo.save_paid_reports(_current_storage(), reports)
     except Exception as exc:
         import fastapi
         raise fastapi.HTTPException(status_code=503, detail={"error": "persistence_unavailable", "message": "Failed to persist report entitlement"}) from exc
 
 def _save_single_paid_report(entitlement_id, record):
     try:
-        repo.save_single_paid_report(storage_backend, entitlement_id, record)
+        repo.save_single_paid_report(_current_storage(), entitlement_id, record)
     except Exception as exc:
         import fastapi
         raise fastapi.HTTPException(status_code=503, detail={"error": "persistence_unavailable", "message": "Failed to persist report entitlement"}) from exc
 
 def _load_invoices():
-    return repo.load_invoices(storage_backend)
+    return repo.load_invoices(_current_storage())
 
 def _count_invoices() -> int:
     try:
-        return int(storage_backend.count_invoices())
+        return int(_current_storage().count_invoices())
     except Exception:
         return len(state.invoices_db)
 
 def _load_paid_invoices_for_wallet(address):
-    return repo.load_paid_invoices_for_wallet(storage_backend, address, normalize_address)
+    return repo.load_paid_invoices_for_wallet(_current_storage(), address, normalize_address)
 
 def _save_invoice(invoice):
+    inv_id = invoice.get("invoice_id") if isinstance(invoice, dict) else None
     try:
-        repo.save_invoice(storage_backend, invoice)
-        if isinstance(invoice, dict) and invoice.get("invoice_id"):
-            state.invoices_db[invoice["invoice_id"]] = invoice
+        repo.save_invoice(_current_storage(), invoice)
+        if inv_id:
+            state.invoices_db[inv_id] = invoice
     except Exception as exc:
-        # Do not leave a failed write cached as an authoritative paid invoice.
-        state.invoices_db.pop(invoice.get("invoice_id"), None)
+        if inv_id:
+            state.invoices_db.pop(inv_id, None)
         raise HTTPException(status_code=503, detail="Invoice persistence failed; retry the same invoice.") from exc
+
+save_invoice = _save_invoice
+load_invoices = _load_invoices
+save_payment_ledger = _save_payment_ledger
+load_payment_ledger = _load_payment_ledger
+save_paid_reports = _save_paid_reports
+load_paid_reports = _load_paid_reports
 
 def _load_creator_applications():
     return repo.load_creator_applications(storage_backend)
@@ -986,6 +831,9 @@ def reload_persistent_state(include_reports=True, include_invoices=False):
 # ---------------------------------------------------------------------------
 # Rate limit middleware
 # ---------------------------------------------------------------------------
+_RATE_LIMIT_LOCK = threading.Lock()
+
+
 @app.middleware("http")
 async def qma_rate_limit_middleware(request: Request, call_next):
     if request.method == "OPTIONS":
@@ -1030,13 +878,14 @@ async def qma_rate_limit_middleware(request: Request, call_next):
         or request.headers.get("x-qma-wallet-token")
         or request.headers.get("x-qma-api-key")
     )
-    is_authorized = has_vercel_proxy or has_origin_secret or has_internal_sec or has_admin_tok or has_api_auth
+    is_authenticated = has_origin_secret or has_internal_sec or has_admin_tok or has_api_auth
+    is_tunnel_authorized = is_authenticated or has_vercel_proxy
 
     # Detect public development tunnels (e.g. ngrok, cloudflare tunnel, localtunnel)
     host_hdr = request.headers.get("host", "").lower()
     is_tunnel = any(t in host_hdr for t in ("ngrok-free.dev", "ngrok.io", "ngrok-free.app", "trycloudflare.com", "loca.lt"))
 
-    if is_tunnel and not is_loopback and not is_health and not is_authorized:
+    if is_tunnel and not is_loopback and not is_health and not is_tunnel_authorized:
         return JSONResponse(
             status_code=403,
             content={
@@ -1047,7 +896,7 @@ async def qma_rate_limit_middleware(request: Request, call_next):
             },
         )
 
-    if ORIGIN_SHIELD_SECRET and not is_loopback and not is_health and not is_authorized:
+    if ORIGIN_SHIELD_SECRET and not is_loopback and not is_health and not is_authenticated:
         return JSONResponse(
             status_code=403,
             content={
@@ -1072,32 +921,37 @@ async def qma_rate_limit_middleware(request: Request, call_next):
         return await call_next(request)
     now = time.time()
     key = f"{scope}:{client_ip}"
-    bucket = state.rate_limit_buckets[key]
-    while bucket and now - bucket[0] > RATE_LIMIT_WINDOW_SECONDS:
-        bucket.popleft()
-    if len(bucket) >= limit:
-        retry_after = max(1, int(RATE_LIMIT_WINDOW_SECONDS - (now - bucket[0])))
-        return JSONResponse(
-            status_code=429,
-            content={
-                "error": "rate_limited",
-                "message": "Request rate limit exceeded.",
-                "status_code": 429,
-                "detail": "rate_limited",
-                "scope": scope,
-                "limit": limit,
-                "window_seconds": RATE_LIMIT_WINDOW_SECONDS,
-                "retry_after_seconds": retry_after,
-            },
-            headers={"Retry-After": str(retry_after)},
-        )
-    bucket.append(now)
+    with _RATE_LIMIT_LOCK:
+        bucket = state.rate_limit_buckets[key]
+        while bucket and now - bucket[0] > RATE_LIMIT_WINDOW_SECONDS:
+            bucket.popleft()
+        if len(bucket) >= limit:
+            retry_after = max(1, int(RATE_LIMIT_WINDOW_SECONDS - (now - bucket[0])))
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": "rate_limited",
+                    "message": "Request rate limit exceeded.",
+                    "status_code": 429,
+                    "detail": "rate_limited",
+                    "scope": scope,
+                    "limit": limit,
+                    "window_seconds": RATE_LIMIT_WINDOW_SECONDS,
+                    "retry_after_seconds": retry_after,
+                },
+                headers={"Retry-After": str(retry_after)},
+            )
+        bucket.append(now)
 
-    # Periodic cleanup to prevent unbound memory growth from high IP cardinality
-    if len(state.rate_limit_buckets) > 1000:
-        stale_keys = [k for k, b in state.rate_limit_buckets.items() if not b or (now - b[-1] > RATE_LIMIT_WINDOW_SECONDS)]
-        for k in stale_keys:
-            del state.rate_limit_buckets[k]
+        # Thread-safe periodic cleanup with bounded memory cap to prevent IP explosion
+        if len(state.rate_limit_buckets) > 1000:
+            stale_keys = [k for k, b in list(state.rate_limit_buckets.items()) if not b or (now - b[-1] > RATE_LIMIT_WINDOW_SECONDS)]
+            for k in stale_keys:
+                del state.rate_limit_buckets[k]
+            if len(state.rate_limit_buckets) > 2000:
+                overflow_count = len(state.rate_limit_buckets) - 2000
+                for k in list(state.rate_limit_buckets.keys())[:overflow_count]:
+                    del state.rate_limit_buckets[k]
 
     return await call_next(request)
 
@@ -1192,1462 +1046,50 @@ def allocate_creator_claim(provider_ids, amount_usdc):
 # ---------------------------------------------------------------------------
 # High-level business functions (create_invoice, verify_payment, etc.)
 # ---------------------------------------------------------------------------
-def create_invoice(req: InvoiceRequest):
-    req_data = model_to_dict(req)
-    provider_id = req_data.pop("provider_id", "funding_memory")
-    buyer_type = req_data.pop("buyer_type", "human")
-    tier = paid_kit.normalize_tier(req_data.pop("tier", "full"))
-    resource_type = req_data.pop("resource_type", PAYMENT_RESOURCE_TYPE) or PAYMENT_RESOURCE_TYPE
-    synthetic = bool(req_data.pop("synthetic", False))
-    agent_label = req_data.pop("agent_label", None)
-    run_source = req_data.pop("run_source", None)
-    buyer_wallet_address = req_data.pop("buyer_wallet_address", None)
-    buyer_wallet_address = normalize_address(buyer_wallet_address) if buyer_wallet_address else None
-    plan = req_data.pop("plan", None)
-    if plan is None and hasattr(req, "plan"):
-        plan = getattr(req, "plan", None)
-    req_data.pop("candidate_id", None)
-    req_data.pop("expected_price_usdc", None)
-    provider = get_provider_or_404(provider_registry, provider_id)
-    req_data = normalize_query_for_provider(provider, req_data)
-
-    # Sale-time verifiability gate: never sell a signal GenLayer could not
-    # verify. Failing here means nothing was charged; settling first would
-    # only produce a locked report and a refund.
-    _ensure_signal_verifiable(provider.provider_id, req_data)
-
-    # Verified market-state epoch: freeze the query (and, via the snapshot
-    # report) the report content once per (provider, symbol) window so every
-    # purchase inside the window shares one query_hash/report_hash and a
-    # single GenLayer attestation pre-verifies them all. The buyer still pays
-    # per query; the shared object is the market snapshot, never entitlement.
-    epoch_snapshot = None
-    try:
-        epoch_snapshot = begin_or_get_epoch(
-            provider.provider_id,
-            str(req_data.get("symbol") or ""),
-            create_snapshot=lambda: _build_epoch_snapshot(provider, dict(req_data), tier),
-        )
-        req_data = dict(epoch_snapshot["query"])
-    except Exception as exc:
-        logger.debug("Market epoch snapshot unavailable for %s: %s", req_data.get("symbol"), exc)
-        epoch_snapshot = None
-    
-    if hasattr(provider, "score"):
-        # V2 Provider Interface
-        context = {"query": req_data, "tier": tier}
-        score_result = provider.score(context)
-        amount_usdc = score_result["amount_usdc"]
-        complexity_score = score_result.get("complexity_score", 0)
-        base_usdc = amount_usdc  # Approximate for V2
-        _score_cache_key = score_result.get("_score_cache_key")
-        declared_confidence = score_result.get("declared_confidence")
-    else:
-        # V1 Provider Interface fallback
-        quote = provider.quote_price(req_data, tier)
-        amount_usdc = quote["amount_usdc"]
-        complexity_score = quote["complexity_score"]
-        base_usdc = quote["base_usdc"]
-        _score_cache_key = None
-        declared_confidence = None
-
-    if run_source and str(run_source).startswith("agent_session_") and hasattr(storage_backend, "_request"):
-        session_id = str(run_source).replace("agent_session_", "")
-        import uuid
-        is_uuid = False
-        try:
-            uuid.UUID(session_id)
-            is_uuid = True
-        except ValueError:
-            pass
-            
-        if is_uuid:
-            session_rows = storage_backend._request("GET", "agent_sessions", params={"id": f"eq.{session_id}", "limit": "1"})
-            if session_rows:
-                sess_status = str(session_rows[0].get("status") or "").lower()
-                if sess_status in ("paused", "stopped", "completed", "failed"):
-                    raise HTTPException(
-                        status_code=403,
-                        detail=f"Agent session {session_id} is in status '{sess_status}'. Zero-spend invariant prevents creating invoices."
-                    )
-                if session_rows[0].get("budget_usdc") is not None:
-                    budget = float(session_rows[0]["budget_usdc"])
-                    invoices = _load_invoices()
-                    total_spent = sum(
-                        float(inv.get("amount") or 0)
-                        for inv in invoices.values()
-                        if inv.get("run_source") == run_source and inv.get("status") in ("paid", "pending")
-                    )
-                    if total_spent + float(amount_usdc) > budget:
-                        raise HTTPException(
-                            status_code=402,
-                            detail=f"Session budget exceeded. Limit: {budget} USDC. Spent/Pending: {total_spent} USDC. Requested: {amount_usdc} USDC."
-                        )
-
-    invoice, requirement = paid_kit.create_invoice(
-        query=req_data,
-        tier=tier,
-        amount_usdc=amount_usdc,
-        resource_type=resource_type,
-        provider_id=provider.provider_id,
-        buyer_type=buyer_type,
-        owner_wallet=getattr(provider, "owner_wallet", PAYMENT_WALLET_ADDRESS),
-        network=PAYMENT_NETWORK,
-        network_name=PAYMENT_NETWORK_NAME,
-        seller_address=PLATFORM_TREASURY_ADDRESS,
-        gateway_base_url=ARC_GATEWAY_BASE_URL,
-        facilitator_url=ARC_GATEWAY_API,
-        explorer_url=ARC_EXPLORER,
-        ttl_seconds=INVOICE_TTL_SECONDS,
-        settlement_rail=SETTLEMENT_RAIL,
-        settlement_currency=SETTLEMENT_CURRENCY,
-        settlement_token_address=ARC_TESTNET_USDC,
-        settlement_decimals=6,
-    )
-
-    if plan and isinstance(plan, dict):
-        max_price_plan = plan.get("max_price_usdc")
-        if max_price_plan is not None and float(invoice.get("amount") or 0) > float(max_price_plan or 0):
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "error": "quoted_price_exceeds_policy_max",
-                    "quoted": invoice.get("amount"),
-                    "max": plan.get("max_price_usdc"),
-                },
-            )
-    
-    if _score_cache_key:
-        invoice["_score_cache_key"] = _score_cache_key
-    if declared_confidence is not None:
-        invoice["declared_confidence"] = declared_confidence
-
-    hydrate_payment_schema(invoice)
-    
-    # One buyer authorization only. Funds first settle to the platform treasury;
-    # creator distribution/refund must occur after the GenLayer verdict.
-    smode = "seller_wallet"
-    invoice["settlement"]["mode"] = smode
-    invoice["verification_required"] = True
-    
-    # Provider revenue sharing
-    rev_wallet = provider_revenue_wallet(provider) if hasattr(provider, "revenue_wallet") else getattr(provider, "owner_wallet", PAYMENT_WALLET_ADDRESS)
-    rev_share_bps = int(getattr(provider, "revenue_share_bps", 8000))
-    invoice["accounting"] = {
-        **invoice.get("accounting", {}),
-        "settlement_mode": smode,
-        "creator_wallet": rev_wallet,
-        "creator_share_bps": rev_share_bps,
-        "platform_share_bps": 10000 - rev_share_bps,
-        "distribution_mode": "automatic_genlayer_settlement",
-    }
-    
-    invoice["wallet_address"] = PLATFORM_TREASURY_ADDRESS
-    invoice["platform_treasury_wallet"] = normalize_address(PLATFORM_TREASURY_ADDRESS)
-    invoice["synthetic"] = synthetic
-    invoice["agent_label"] = agent_label
-    invoice["run_source"] = run_source
-    invoice["buyer_wallet_address"] = buyer_wallet_address
-    
-    # Pre-build provider report and lock report hash immutably for pre-warm and verification.
-    # Invoices inside a live market epoch reuse the epoch's frozen snapshot
-    # instead of building their own report.
-    if epoch_snapshot is not None:
-        invoice["_verification_report"] = epoch_snapshot["report"]
-        invoice["verification_report_hash"] = epoch_snapshot["report_hash"]
-        invoice["market_epoch_key"] = epoch_snapshot["key"]
-        invoice["sla_state"] = "preverified" if epoch_snapshot.get("state") == "valid" else "verifying"
-    else:
-        try:
-            report = build_provider_report(
-                provider=provider,
-                normalized_query=req_data,
-                invoice_id=invoice["invoice_id"],
-                invoice=invoice,
-                required_tier=tier,
-            )
-            canonical_report = _canonical_report_json(report)
-            report_hash = hashlib.sha256(canonical_report.encode("utf-8")).hexdigest()
-            invoice["_verification_report"] = report
-            invoice["verification_report_hash"] = report_hash
-        except Exception as exc:
-            logger.debug("Immediate build_provider_report on create_invoice skipped: %s", exc)
-    evidence_url = _genlayer_evidence_url(invoice)
-    target_venue = _genlayer_target_exchange(evidence_url)
-    invoice["evidence_url"] = evidence_url
-    invoice["exchange"] = (invoice.get("query") or {}).get("exchange") or target_venue
-    if isinstance(invoice.get("query"), dict):
-        if not invoice["query"].get("evidence_url"):
-            invoice["query"]["evidence_url"] = evidence_url
-        if not invoice["query"].get("exchange"):
-            invoice["query"]["exchange"] = invoice["exchange"]
-    state.invoices_db[invoice["invoice_id"]] = invoice
-    _save_invoice(invoice)
-    try:
-        _trigger_genlayer_prewarm_in_background(invoice)
-    except Exception as exc:
-        logger.debug("Opportunistic GenLayer prewarm trigger skipped: %s", exc)
-    return {
-        "invoice_id": invoice["invoice_id"],
-        "amount": invoice["amount"],
-        "amount_usdc": invoice["amount"],
-        "currency": invoice["settlement"]["currency"],
-        "pricing": invoice["pricing"],
-        "settlement": invoice["settlement"],
-        "split": invoice.get("split"),
-        "accounting": invoice["accounting"],
-        "network": PAYMENT_NETWORK,
-        "network_name": PAYMENT_NETWORK_NAME,
-        "provider_id": invoice["provider_id"],
-        "provider_name": getattr(provider, "provider_name", invoice["provider_id"]),
-        "buyer_type": invoice["buyer_type"],
-        "tier": invoice["tier"],
-        "tier_label": paid_kit.SUPPORTED_TIERS[invoice["tier"]]["label"],
-        "base_usdc": base_usdc,
-        "complexity_score": complexity_score,
-        "resource_type": invoice["resource_type"],
-        "wallet_address": invoice["wallet_address"],
-        "platform_treasury_wallet": invoice.get("platform_treasury_wallet"),
-        "provider_owner_wallet": getattr(provider, "owner_wallet", PAYMENT_WALLET_ADDRESS),
-        "synthetic": invoice.get("synthetic", False),
-        "agent_label": invoice.get("agent_label"),
-        "run_source": invoice.get("run_source"),
-        "buyer_wallet_address": invoice.get("buyer_wallet_address"),
-        "expires_at": invoice["expires_at"],
-        "nonce": invoice["nonce"],
-        "invoice_secret": invoice["invoice_secret"],
-        "query_hash": invoice["query_hash"],
-        "query": invoice.get("query"),
-        "sla_state": invoice.get("sla_state"),
-        "payment_requirement": requirement,
-        "arc_gateway_url": requirement["resource"],
-        "split_legs": invoice.get("split", {}).get("legs", []),
-        "evidence_url": evidence_url,
-        "exchange": invoice["exchange"],
-    }
-
-
-def get_payment_invoice_status(invoice_id, invoice_secret, refresh=True):
-    import hmac as _hmac
-    from fastapi import status, Query
-    invoice = get_invoice_or_402(
-        state.invoices_db,
-        invoice_id,
-        load_invoices_fn=_load_invoices,
-        invoice_secret=invoice_secret,
-    )
-    hydrate_payment_schema(invoice)
-    if not _hmac.compare_digest(str(invoice_secret), str(invoice.get("invoice_secret"))):
-        raise HTTPException(
-            status_code=402,
-            detail={
-                "error": "payment_required",
-                "message": "Create and settle a USDC invoice before requesting this report.",
-                "payment": payment_requirement(invoice_id=invoice_id),
-            },
-        )
-    changed = False
-    if invoice_split_mode(invoice) == "x402_direct_split":
-        old_status = invoice.get("status")
-        refresh_split_invoice_status(invoice)
-        if refresh:
-            changed = refresh_split_leg_batch_txs(invoice) or changed
-        invoice["gateway_status"] = aggregate_split_gateway_status(invoice)
-        changed = changed or old_status != invoice.get("status")
-        if invoice.get("status") == "paid":
-            sync_split_payment_events(invoice, save_event_fn=_save_single_payment_event)
-    elif refresh:
-        before = (invoice.get("gateway_status"), invoice.get("transaction_hash"), invoice.get("explorer_url"))
-        refresh_invoice_batch_tx(invoice)
-        after = (invoice.get("gateway_status"), invoice.get("transaction_hash"), invoice.get("explorer_url"))
-        changed = before != after
-    if refresh and invoice.get("status") == "verification_pending" and invoice.get("settlement_id"):
-        try:
-            verify_invoice_report_with_genlayer(invoice_id, invoice)
-            changed = True
-        except HTTPException as exc:
-            if exc.status_code not in (409, 503):
-                raise
-        except Exception as exc:
-            logger.warning("GenLayer verification in get_payment_invoice_status failed for %s: %s", invoice_id, exc)
-    if refresh and (invoice.get("genlayer") or {}).get("verdict") in {"VALID", "INVALID"}:
-        try:
-            settle_genlayer_verdict_on_arc(invoice_id, invoice)
-            changed = True
-        except Exception as exc:
-            logger.warning("Arc verdict settlement in get_payment_invoice_status failed for %s: %s", invoice_id, exc)
-    if changed:
-        _save_invoice(invoice)
-    return invoice_payment_state_response(
-        invoice_id, invoice, include_access_token=True,
-        fetch_gateway_balance_fn=fetch_gateway_balance,
-    )
-
-
-def verify_split_payment(invoice_id, invoice, proof):
-    import hmac as _hmac
-    from fastapi import HTTPException
-    if invoice.get("status") == "refunded" or (invoice.get("genlayer") or {}).get("verdict") == "INVALID":
-        return invoice_payment_state_response(
-            invoice_id, invoice, include_access_token=False, include_seller_balance=False,
-            fetch_gateway_balance_fn=fetch_gateway_balance,
-        )
-    refresh_split_invoice_status(invoice)
-    if invoice.get("status") == "paid" and (invoice.get("genlayer") or {}).get("verdict") == "VALID":
-        if refresh_split_leg_batch_txs(invoice):
-            sync_split_payment_events(invoice, save_event_fn=_save_single_payment_event)
-        _save_invoice(invoice)
-        return invoice_payment_state_response(invoice_id, invoice, include_access_token=True, fetch_gateway_balance_fn=fetch_gateway_balance)
-    if invoice.get("status") == "expired":
-        raise HTTPException(status_code=400, detail="Invoice expired. Create a new purchase.")
-    required_legs = invoice_required_split_legs(invoice)
-    if not required_legs:
-        raise HTTPException(status_code=400, detail="Invoice has no split legs.")
-    provided = {item.leg_id: item for item in proof.split_settlements or []}
-    if len(provided) != len(proof.split_settlements or []):
-        raise HTTPException(status_code=400, detail="Duplicate split settlement leg submitted.")
-    missing = [leg.get("leg_id") for leg in required_legs if leg.get("leg_id") not in provided and not leg.get("settlement_id")]
-    if missing:
-        invoice["status"] = "partial_paid" if any(leg.get("settlement_id") for leg in required_legs) else "pending"
-        _save_invoice(invoice)
-        raise HTTPException(status_code=402, detail=f"Missing split settlement leg(s): {', '.join(missing)}")
-    payer = normalize_address(proof.payer_address)
-    verified_legs = []
-    # Global cross-process lock serializing all split verifications to prevent cross-invoice settlement_id replay across processes.
-    with state.cross_process_lock("split_leg_verify_global"):
-      with state.split_leg_lock:
-        for leg in required_legs:
-            leg_id = leg.get("leg_id")
-            submitted = provided.get(leg_id)
-            if not submitted:
-                continue
-            if leg.get("status") == "paid" and leg.get("settlement_id"):
-                if leg.get("settlement_id") != submitted.settlement_id:
-                    raise HTTPException(status_code=409, detail=f"Split leg {leg_id} is already settled with a different settlement_id. Refusing to overwrite.")
-                verified_legs.append(leg)
-                continue
-            if raw_usdc_str(submitted.amount_raw) != raw_usdc_str(leg.get("amount_raw")):
-                raise HTTPException(status_code=400, detail=f"Split leg {leg_id} amount does not match invoice.")
-            if normalize_address(submitted.pay_to) != normalize_address(leg.get("pay_to")):
-                raise HTTPException(status_code=400, detail=f"Split leg {leg_id} pay_to does not match invoice.")
-            has_authoritative_gateway_claims = bool(submitted.payer_address and submitted.gateway_status)
-            receipt_valid = verify_split_receipt(
-                invoice_id=invoice_id, leg_id=leg_id, pay_to=leg.get("pay_to"),
-                settled_amount_raw=submitted.amount_raw, settlement_id=submitted.settlement_id,
-                receipt=submitted.sidecar_receipt,
-                payer_address=submitted.payer_address,
-                gateway_status=submitted.gateway_status,
-            ) if has_authoritative_gateway_claims else verify_split_receipt(
-                invoice_id=invoice_id, leg_id=leg_id, pay_to=leg.get("pay_to"),
-                settled_amount_raw=submitted.amount_raw, settlement_id=submitted.settlement_id,
-                receipt=submitted.sidecar_receipt,
-            )
-            if not receipt_valid and has_authoritative_gateway_claims:
-                # A legacy relay may include payer/status in its body while
-                # still returning a five-field receipt. Keep it on the
-                # authoritative Circle-lookup path instead of rejecting it.
-                has_authoritative_gateway_claims = False
-                receipt_valid = verify_split_receipt(
-                    invoice_id=invoice_id, leg_id=leg_id, pay_to=leg.get("pay_to"),
-                    settled_amount_raw=submitted.amount_raw, settlement_id=submitted.settlement_id,
-                    receipt=submitted.sidecar_receipt,
-                )
-            if not receipt_valid:
-                raise HTTPException(status_code=400, detail=f"Invalid sidecar receipt for split leg {leg_id}.")
-            if settlement_id_already_claimed(submitted.settlement_id, exclude_invoice_id=invoice_id, load_invoices_fn=_load_invoices, invoices_db=state.invoices_db, storage_backend=storage_backend):
-                raise HTTPException(status_code=400, detail="Settlement ID already claimed by another invoice/leg.")
-            if has_authoritative_gateway_claims:
-                # Arc Gateway already fetched and validated this settlement
-                # against Circle before signing the sidecar receipt. The HMAC
-                # binds payer and status, so avoid repeating the remote GET.
-                settlement = {
-                    "status": submitted.gateway_status,
-                    "toAddress": leg.get("pay_to"),
-                    "fromAddress": submitted.payer_address,
-                    "amount": submitted.amount_raw,
-                }
-            else:
-                # Compatibility path for receipts issued before payer/status
-                # were included in the signed sidecar proof.
-                settlement = fetch_circle_settlement(submitted.settlement_id)
-                # FIX: Circle Gateway API abstracts gasless payments and returns the Relayer address in fromAddress.
-                # Since legacy receipts don't have authoritative gateway claims, we restore the true payer
-                # from the webhook-recorded leg if it exists.
-                if leg.get("payer_address") and normalize_address(settlement.get("fromAddress")) != normalize_address(leg.get("payer_address")):
-                    settlement["fromAddress"] = leg.get("payer_address")
-            validate_arc_split_leg_payment(invoice, leg, settlement, payer_address=proof.payer_address)
-            # Circle Gateway gasless settlements do NOT carry rail == "arc_onchain" and their
-            # fromAddress may be a relayer. Only bind raw on-chain settlements to invoice buyer.
-            if settlement.get("rail") == "arc_onchain":
-                buyer = invoice.get("buyer_wallet_address")
-                if not buyer:
-                    raise HTTPException(status_code=400, detail="On-chain settlement verification requires an invoice bound to a buyer wallet address.")
-                if normalize_address(settlement.get("fromAddress")) != normalize_address(buyer):
-                    raise HTTPException(status_code=403, detail="Settlement sender does not match the invoice buyer wallet.")
-            settlement_payer = normalize_address(settlement.get("fromAddress"))
-            if payer and settlement_payer != payer:
-                raise HTTPException(status_code=400, detail="Split settlement payer mismatch.")
-            payer = payer or settlement_payer
-            batch = {"batch_tx": None, "explorer_url": None} if has_authoritative_gateway_claims else find_arc_batch_tx(settlement)
-            if invoice.get("status") == "refunded":
-                from fastapi import HTTPException
-                raise HTTPException(status_code=409, detail={"error": "invoice_refunded", "message": "Invoice is refunded and cannot be paid."})
-            leg_update = {
-                "status": "paid",
-                "settlement_id": submitted.settlement_id,
-                "payer_address": settlement_payer,
-                "gateway_status": settlement.get("status"),
-                "paid_at": time.time(),
-                "sidecar_receipt": submitted.sidecar_receipt,
-            }
-            if batch.get("match_type") == "heuristic_window":
-                leg_update["heuristic_batch_tx"] = batch.get("batch_tx")
-                leg_update["batch_tx_match_type"] = batch.get("match_type")
-                invoice["heuristic_batch_tx"] = batch.get("batch_tx")
-                invoice["batch_tx_match_type"] = batch.get("match_type")
-            else:
-                leg_update["transaction_hash"] = batch.get("batch_tx")
-                leg_update["explorer_url"] = batch.get("explorer_url")
-            leg.update(leg_update)
-            verified_legs.append(leg)
-        if not all(leg.get("status") == "paid" and leg.get("settlement_id") for leg in required_legs):
-            invoice["status"] = "partial_paid"
-            _save_invoice(invoice)
-            raise HTTPException(status_code=402, detail="Invoice is partially paid. Complete all split legs before unlock.")
-        invoice["status"] = "settlement_verified"
-        invoice["payer_address"] = payer
-        invoice["settlement_id"] = f"split:{invoice_id}"
-        invoice["split_settlement_ids"] = [leg.get("settlement_id") for leg in required_legs]
-        invoice["gateway_status"] = aggregate_split_gateway_status(invoice)
-        invoice["amount_raw"] = (invoice.get("split") or {}).get("total_amount_raw")
-        try:
-            gl_receipt = verify_invoice_report_with_genlayer(invoice_id, invoice)
-            if gl_receipt["verdict"] == "INVALID":
-                return invoice_payment_state_response(
-                    invoice_id, invoice, include_access_token=False, include_seller_balance=False,
-                    fetch_gateway_balance_fn=fetch_gateway_balance,
-                )
-        except HTTPException as exc:
-            if exc.status_code == 503:
-                return invoice_payment_state_response(
-                    invoice_id, invoice, include_access_token=False, include_seller_balance=False,
-                    fetch_gateway_balance_fn=fetch_gateway_balance,
-                )
-            raise
-        reload_persistent_state(include_reports=False)
-        sync_split_payment_events(invoice, save_event_fn=_save_single_payment_event)
-        _save_invoice(invoice)
-    return invoice_payment_state_response(invoice_id, invoice, include_access_token=True, fetch_gateway_balance_fn=fetch_gateway_balance)
-
-
-def verify_payment(invoice_id, proof=None):
-    import hmac as _hmac
-    from fastapi import HTTPException, status
-    if proof is None:
-        raise HTTPException(status_code=400, detail="payment proof is required.")
-    invoice = get_invoice_or_402(state.invoices_db, invoice_id, load_invoices_fn=_load_invoices, allow_expired=bool(proof and proof.settlement_id))
-    hydrate_payment_schema(invoice)
-    if not _hmac.compare_digest(str(proof.invoice_secret), str(invoice.get("invoice_secret"))):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invoice secret mismatch.")
-    if invoice.get("status") == "refunded" or (invoice.get("genlayer") or {}).get("verdict") == "INVALID":
-        if invoice.get("status") != "refunded":
-            refresh_invoice_batch_tx(invoice)
-            settle_genlayer_verdict_on_arc(invoice_id, invoice)
-        return invoice_payment_state_response(
-            invoice_id, invoice, include_access_token=False, include_seller_balance=False,
-            fetch_gateway_balance_fn=fetch_gateway_balance,
-        )
-    if invoice.get("status") == "paid" and (invoice.get("genlayer") or {}).get("verdict") == "VALID":
-        if invoice_split_mode(invoice) == "x402_direct_split":
-            if refresh_split_leg_batch_txs(invoice):
-                sync_split_payment_events(invoice, save_event_fn=_save_single_payment_event)
-                _save_invoice(invoice)
-        else:
-            before = (invoice.get("gateway_status"), invoice.get("transaction_hash"), invoice.get("explorer_url"))
-            refresh_invoice_batch_tx(invoice)
-            after = (invoice.get("gateway_status"), invoice.get("transaction_hash"), invoice.get("explorer_url"))
-            if before != after:
-                _save_invoice(invoice)
-            settle_genlayer_verdict_on_arc(invoice_id, invoice)
-        return invoice_payment_state_response(
-            invoice_id, invoice, include_access_token=True, include_seller_balance=False,
-            fetch_gateway_balance_fn=fetch_gateway_balance,
-        )
-    if invoice.get("status") == "verification_pending" and invoice.get("settlement_id"):
-        try:
-            receipt = verify_invoice_report_with_genlayer(invoice_id, invoice)
-            return invoice_payment_state_response(
-                invoice_id,
-                invoice,
-                include_access_token=receipt.get("verdict") == "VALID",
-                include_seller_balance=False,
-                fetch_gateway_balance_fn=fetch_gateway_balance,
-            )
-        except HTTPException as exc:
-            if exc.status_code in (409, 503):
-                return invoice_payment_state_response(
-                    invoice_id,
-                    invoice,
-                    include_access_token=False,
-                    include_seller_balance=False,
-                    fetch_gateway_balance_fn=fetch_gateway_balance,
-                )
-            raise
-    if invoice_split_mode(invoice) == "x402_direct_split" or proof.split_settlements:
-        return verify_split_payment(invoice_id, invoice, proof)
-    if not proof.settlement_id:
-        raise HTTPException(status_code=400, detail="settlement_id is required.")
-    with state.cross_process_lock("settlement_claim:" + str(proof.settlement_id)):
-        if settlement_id_already_claimed(proof.settlement_id, exclude_invoice_id=invoice_id, load_invoices_fn=_load_invoices, invoices_db=state.invoices_db, storage_backend=storage_backend):
-            raise HTTPException(status_code=409, detail="settlement_id already claimed by another invoice.")
-        with state.cross_process_lock("split_leg:" + invoice_id):
-            invoice = get_invoice_or_402(state.invoices_db, invoice_id, load_invoices_fn=_load_invoices, allow_expired=bool(proof and proof.settlement_id))
-            hydrate_payment_schema(invoice)
-            if invoice.get("status") == "paid":
-                return invoice_payment_state_response(
-                    invoice_id, invoice, include_access_token=True, include_seller_balance=False,
-                    fetch_gateway_balance_fn=fetch_gateway_balance,
-                )
-            if not proof.settlement_id:
-                if invoice.get("status") == "expired":
-                    raise HTTPException(status_code=400, detail="Invoice expired. Create a new purchase.")
-                if invoice.get("expires_at") and time.time() > float(invoice["expires_at"]) and invoice.get("status") in {"pending", "partial_paid"}:
-                    invoice["status"] = "expired"
-                    _save_invoice(invoice)
-                    raise HTTPException(status_code=400, detail="Invoice expired. Create a new purchase.")
-            settlement = fetch_circle_settlement(proof.settlement_id)
-            validate_arc_payment(invoice, settlement, payer_address=proof.payer_address)
-            # Circle Gateway gasless settlements do NOT carry rail == "arc_onchain" and their
-            # fromAddress may be a relayer. Only bind raw on-chain settlements to invoice buyer.
-            if settlement.get("rail") == "arc_onchain":
-                buyer = invoice.get("buyer_wallet_address")
-                if not buyer:
-                    raise HTTPException(status_code=400, detail="On-chain settlement verification requires an invoice bound to a buyer wallet address.")
-                if normalize_address(settlement.get("fromAddress")) != normalize_address(buyer):
-                    raise HTTPException(status_code=403, detail="Settlement sender does not match the invoice buyer wallet.")
-            if invoice.get("settlement_id") and invoice["settlement_id"] != proof.settlement_id:
-                raise HTTPException(status_code=409, detail="Invoice is already bound to another settlement.")
-            invoice["status"] = "verification_pending"
-            invoice["settlement_id"] = proof.settlement_id
-            invoice["payer_address"] = settlement.get("fromAddress")
-            invoice["gateway_status"] = settlement.get("status")
-            invoice["amount_raw"] = settlement.get("amount")
-            invoice["verification_mode"] = "circle-gateway-arc-testnet"
-            # Reserve the source before report generation or explorer requests.
-            _save_invoice(invoice)
-            batch = find_arc_batch_tx(settlement)
-            if batch.get("match_type") == "heuristic_window":
-                invoice["heuristic_batch_tx"] = batch.get("batch_tx")
-                invoice["batch_tx_match_type"] = batch.get("match_type")
-            else:
-                invoice["transaction_hash"] = batch.get("batch_tx")
-                invoice["explorer_url"] = batch.get("explorer_url")
-        try:
-            gl_receipt = verify_invoice_report_with_genlayer(invoice_id, invoice)
-            if gl_receipt["verdict"] == "INVALID":
-                return invoice_payment_state_response(
-                    invoice_id, invoice, include_access_token=False, include_seller_balance=False,
-                    fetch_gateway_balance_fn=fetch_gateway_balance,
-                )
-        except HTTPException as exc:
-            if exc.status_code in (409, 503):
-                return invoice_payment_state_response(
-                    invoice_id, invoice, include_access_token=False, include_seller_balance=False,
-                    fetch_gateway_balance_fn=fetch_gateway_balance,
-                )
-            raise
-    reload_persistent_state(include_reports=False)
-    if not any(event.get("settlement_id") == proof.settlement_id for event in state.payment_events):
-        new_event = {
-            "invoice_id": invoice_id,
-            "symbol": invoice.get("symbol"),
-            "provider_id": invoice.get("provider_id", "funding_memory"),
-            "provider_owner_wallet": invoice.get("owner_wallet"),
-            "buyer_type": invoice.get("buyer_type", "human"),
-            "synthetic": invoice.get("synthetic", False),
-            "agent_label": invoice.get("agent_label"),
-            "run_source": invoice.get("run_source"),
-            "tier": invoice.get("tier", "full"),
-            "resource_type": invoice.get("resource_type", PAYMENT_RESOURCE_TYPE),
-            "query": invoice.get("query"),
-            "query_hash": invoice.get("query_hash"),
-            "payer_address": invoice.get("payer_address"),
-            "buyer_wallet_address": invoice.get("buyer_wallet_address"),
-            "seller_address": PAYMENT_WALLET_ADDRESS,
-            "amount_usdc": invoice.get("amount"),
-            "amount_raw": invoice.get("amount_raw"),
-            "pricing": invoice.get("pricing"),
-            "settlement": invoice.get("settlement"),
-            "accounting": invoice.get("accounting"),
-            "settlement_id": invoice.get("settlement_id"),
-            "gateway_status": invoice.get("gateway_status"),
-            "transaction_hash": invoice.get("transaction_hash"),
-            "explorer_url": invoice.get("explorer_url"),
-            "paid_at": invoice.get("paid_at"),
-            "arc_settlement": public_arc_settlement(invoice.get("arc_settlement")),
-        }
-        state.payment_events.append(new_event)
-        _save_single_payment_event(new_event)
-        _save_invoice(invoice)
-    settle_genlayer_verdict_on_arc(invoice_id, invoice)
-    return invoice_payment_state_response(
-        invoice_id, invoice, include_access_token=True, include_seller_balance=False,
-        fetch_gateway_balance_fn=fetch_gateway_balance,
-    )
-
-
-def submit_withdraw(payload):
-    import json as _json
-    import requests
-    from fastapi import HTTPException
-    from backend.app.core.config import is_treasury_halted
-
-    if is_treasury_halted():
-        raise HTTPException(
-            status_code=503,
-            detail="Treasury is halted (treasury_halted=true) — creator withdrawals refused",
-        )
-
-    burn_intent = payload.get("burnIntent")
-    signature = payload.get("signature")
-    if not burn_intent or not signature:
-        raise HTTPException(status_code=400, detail="burnIntent and signature are required")
-    try:
-        requested_depositor = bytes32_to_address((burn_intent.get("spec") or {}).get("sourceDepositor"))
-    except Exception as exc:
-        if isinstance(exc, HTTPException):
-            raise exc
-        raise HTTPException(status_code=400, detail=f"Withdraw intent depositor is invalid: {exc}")
-    withdraw_owner = authorized_gateway_withdraw_depositor(requested_depositor)
-    expected_depositor = withdraw_owner["address"]
-    intent = validate_withdraw_intent(burn_intent, expected_depositor=expected_depositor)
-    if WITHDRAW_MODE in ("platform_relayed", "relayed", "gasless"):
-        enforce_withdraw_relay_policy(intent)
-        try:
-            relay_resp = requests.post(
-                f"{ARC_GATEWAY_BASE_URL.rstrip('/')}/api/withdraw/relay",
-                json={"burnIntent": burn_intent, "signature": signature, "expectedDepositor": expected_depositor},
-                timeout=120,
-            )
-        except requests.RequestException as exc:
-            raise HTTPException(status_code=502, detail=f"Withdraw relayer unavailable: {exc}")
-        if not relay_resp.ok:
-            try:
-                relay_error = relay_resp.json()
-            except Exception:
-                relay_error = {"error": relay_resp.text[:300]}
-            raise HTTPException(
-                status_code=relay_resp.status_code,
-                detail=relay_error.get("error") or relay_error.get("detail") or f"Relayer returned {relay_resp.status_code}",
-            )
-        data = relay_resp.json()
-        record_withdraw_relay(intent)
-        return {
-            **data,
-            "withdraw_mode": "platform_relayed",
-            "relayed": True,
-            "amount_usdc": data.get("amount_usdc", f"{intent['amount_usdc']:.6f}"),
-            "withdraw_owner": withdraw_owner,
-        }
-    try:
-        resp = requests.post(
-            f"{ARC_GATEWAY_API}/v1/transfer",
-            json=[{"burnIntent": burn_intent, "signature": signature}],
-            timeout=15,
-        )
-        if resp.ok:
-            data = resp.json()
-            if data.get("success") is False or data.get("error") or not data.get("attestation") or not data.get("signature"):
-                raise HTTPException(status_code=502, detail=f"Circle Gateway did not return a mint attestation: {_json.dumps(data)[:300]}")
-            return {
-                **data,
-                "withdraw_mode": "seller_wallet",
-                "relayed": False,
-                "amount_usdc": f"{intent['amount_usdc']:.6f}",
-                "withdraw_owner": withdraw_owner,
-            }
-        raise HTTPException(status_code=502, detail=f"Circle Gateway transfer API returned {resp.status_code}: {resp.text[:300]}")
-    except Exception as exc:
-        if isinstance(exc, HTTPException):
-            raise exc
-        logger.warning(f"Circle transfer API failed: {exc}.")
-        raise HTTPException(status_code=502, detail=f"Circle Gateway transfer API failed: {exc}")
-
-
-def authorize_paid_invoice(*, query, invoice_id, token, required_tier, provider_id="funding_memory"):
-    from fastapi import HTTPException, status
-    if not invoice_id:
-        amount_dec = "0.005000" if required_tier == "full" else "0.002000"
-        challenge_body, challenge_headers = build_402_challenge_payload(
-            url=f"/api/v1/providers/{provider_id}/{'preview' if required_tier == 'preview' else 'full-report'}",
-            amount_decimal=amount_dec,
-            description=f"QMA {provider_id.replace('_', ' ').title()} {required_tier.title()} Report",
-        )
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail={
-                "error": "payment_required",
-                "message": f"Payment required: ${amount_dec} USDC over x402 / Circle Gateway to access {provider_id} {required_tier} report.",
-                "payment": payment_requirement(
-                    symbol=query.get("symbol", "BTC_USDT"),
-                    amount_usdc=0.005 if required_tier == "full" else 0.002,
-                    tier=required_tier,
-                    provider_id=provider_id,
-                ),
-            },
-            headers=challenge_headers,
-        )
-    invoice = get_invoice_or_402(state.invoices_db, invoice_id, load_invoices_fn=_load_invoices)
-
-    if invoice.get("provider_id", "funding_memory") != provider_id:
-        raise HTTPException(status_code=400, detail="Invoice provider does not match requested provider.")
-    if invoice_has_failed_settlement(invoice):
-        if invoice.get("status") != "disputed":
-            invoice["status"] = "disputed"
-            _save_invoice(invoice)
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail={"error": "settlement_disputed", "message": "Circle reported a terminal settlement failure for this invoice after access was granted. No further access will be issued; contact support if you believe this is an error."},
-        )
-    genlayer_verdict = (invoice.get("genlayer") or {}).get("verdict")
-    if invoice.get("status") == "verification_rejected" or genlayer_verdict == "INVALID":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "error": "genlayer_verification_rejected",
-                "message": "GenLayer rejected this report; access remains locked.",
-            },
-        )
-    if invoice["status"] != "paid":
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail={
-                "error": "payment_not_settled",
-                "message": f"Invoice is {invoice['status']}. Complete the USDC payment before analysis.",
-                "payment": payment_requirement(
-                    invoice_id=invoice_id, symbol=invoice["symbol"],
-                    amount_usdc=invoice.get("amount"),
-                    tier=invoice.get("tier", required_tier),
-                    resource_type=invoice.get("resource_type", PAYMENT_RESOURCE_TYPE),
-                    provider_id=invoice.get("provider_id", provider_id),
-                ),
-            },
-        )
-    if invoice.get("verification_required") and genlayer_verdict != "VALID":
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "error": "genlayer_verification_pending",
-                "message": "Payment is settled, but a finalized VALID GenLayer verdict is required before report access.",
-            },
-        )
-    if invoice["symbol"].upper() != str(query.get("symbol", "")).upper():
-        raise HTTPException(status_code=400, detail="Invoice symbol does not match query symbol.")
-    current_query_hash = query_fingerprint(query)
-    stored_query_hash = invoice.get("query_hash")
-    if stored_query_hash != current_query_hash:
-        non_query_fields = {
-            "provider_id", "tier", "buyer_type", "buyer_wallet_address",
-            "synthetic", "agent_label", "run_source", "resource_type",
-            "candidate_id", "expected_price_usdc",
-        }
-        inv_q_clean = {k: v for k, v in (invoice.get("query") or {}).items() if k not in non_query_fields}
-        client_q_clean = {k: v for k, v in query.items() if k not in non_query_fields}
-        clean_inv_hash = query_fingerprint(inv_q_clean) if inv_q_clean else None
-        clean_client_hash = query_fingerprint(client_q_clean)
-        if not (clean_inv_hash and clean_client_hash == clean_inv_hash) and clean_client_hash != stored_query_hash:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Paid invoice is bound to a different query snapshot. Create a fresh invoice for changed signal data.")
-    token_payload = verify_access_token(token or "")
-    try:
-        paid_kit.require_access(token_payload, invoice, required_tier=required_tier)
-    except PermissionError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
-    return invoice
-
-
-def build_preview_report(full_report, invoice):
-    analogs = full_report.get("analogs", [])[:3]
-    win_rate = float(full_report.get("weighted_win_rate") or 0)
-    win_rate_band = "high" if win_rate >= 70 else ("medium" if win_rate >= 50 else "low")
-    return {
-        "query_symbol": full_report.get("query_symbol"),
-        "query": full_report.get("query"),
-        "query_hash": full_report.get("query_hash"),
-        "tier": "preview",
-        "funding_context": {
-            "fundingRate": full_report.get("query", {}).get("fundingRate"),
-            "marketCap": full_report.get("query", {}).get("marketCap"),
-            "circRatio": full_report.get("query", {}).get("circRatio"),
-            "fromATH": full_report.get("query", {}).get("fromATH"),
-            "volume24h": full_report.get("query", {}).get("volume24h"),
-        },
-        "regime_cluster": full_report.get("regime_cluster"),
-        "regime_description": full_report.get("regime_description"),
-        "is_ood": full_report.get("is_ood"),
-        "ood_p_value": full_report.get("ood_p_value"),
-        "win_rate_band": win_rate_band,
-        "rough_win_rate": round(win_rate, 1),
-        "top_analogs": [
-            {"symbol": item.get("symbol"), "fundingRate": item.get("fundingRate"), "similarity": item.get("similarity"), "profit_pct": item.get("profit_pct")}
-            for item in analogs
-        ],
-        "upgrade_cta": "Upgrade to the full report for all analogs, weighted percentiles, confidence intervals, and evidence diagnostics.",
-        "invoice": full_report.get("invoice"),
-        "provider_note": full_report.get("provider_note"),
-        "analysis_focus": full_report.get("analysis_focus"),
-        "turnover_context": full_report.get("turnover_context"),
-        "provider_diagnostics": full_report.get("provider_diagnostics"),
-        "risk_flags": full_report.get("risk_flags"),
-        "effective_sample_size": full_report.get("effective_sample_size"),
-    }
-
-
-def invoice_report_meta(invoice_id, invoice):
-    hydrate_payment_schema(invoice)
-    return {
-        "invoice_id": invoice_id, "status": "paid",
-        "provider_id": invoice.get("provider_id", "funding_memory"),
-        "buyer_type": invoice.get("buyer_type", "human"),
-        "tier": invoice.get("tier", "full"),
-        "settlement_id": invoice.get("settlement_id"),
-        "gateway_status": invoice.get("gateway_status"),
-        "transaction_hash": invoice.get("transaction_hash"),
-        "explorer_url": invoice.get("explorer_url"),
-        "payer_address": invoice.get("payer_address"),
-        "buyer_wallet_address": invoice.get("buyer_wallet_address"),
-        "provider_owner_wallet": invoice.get("owner_wallet"),
-        "amount_usdc": invoice.get("amount"),
-        "pricing": invoice.get("pricing"),
-        "settlement": invoice.get("settlement"),
-        "accounting": invoice.get("accounting"),
-        "network": invoice.get("network"),
-        "verification_mode": invoice.get("verification_mode"),
-    }
-
-
-def _build_epoch_snapshot(provider, query: dict, tier: str) -> dict:
-    """Freeze one verified market-state snapshot: the normalized query, the
-    report built from it, and their canonical hashes. Every invoice in the
-    epoch reuses these, so one GenLayer attestation pre-verifies them all."""
-    minimal_invoice = {"tier": tier, "query": query}
-    report = build_provider_report(
-        provider=provider,
-        normalized_query=query,
-        invoice_id=f"epoch_{getattr(provider, 'provider_id', 'provider')}_{query.get('symbol', 'X')}",
-        invoice=minimal_invoice,
-        required_tier=tier,
-    )
-    canonical_report = _canonical_report_json(report)
-    return {
-        "query": query,
-        "report": report,
-        "canonical": canonical_report,
-        "query_hash": query_fingerprint(query),
-        "report_hash": hashlib.sha256(canonical_report.encode("utf-8")).hexdigest(),
-        "state": "pending",
-    }
-
-
-def build_provider_report(*, provider, normalized_query, invoice_id, invoice, required_tier):
-    """Build the report once so GenLayer verifies the payload later delivered."""
-    if hasattr(provider, "deliver"):
-        context = {
-            "query": invoice.get("query") or normalized_query,
-            "tier": invoice.get("tier", required_tier),
-        }
-        if "_score_cache_key" in invoice:
-            context["_score_cache_key"] = invoice["_score_cache_key"]
-        if "declared_confidence" in invoice:
-            context["declared_confidence"] = invoice["declared_confidence"]
-            
-        payload_data = provider.deliver(context, invoice_id)
-        
-        # Hybrid BYO-Key Intelligence Layer (Scenario A vs B)
-        user_llm_key = (
-            invoice.get("user_llm_key")
-            or invoice.get("llm_api_key")
-            or os.getenv("USER_LLM_API_KEY")
-        )
-        if user_llm_key and payload_data.get("tier") == "full":
-            from backend.app.services.agent_synthesis import generate_agent_synthesis
-            synthesis = generate_agent_synthesis(
-                provider_id=getattr(provider, "provider_id", "unknown"),
-                symbol=payload_data.get("symbol") or payload_data.get("query_symbol") or "TOKEN",
-                metrics=payload_data,
-                api_key=user_llm_key,
-            )
-            if synthesis:
-                payload_data["agent_synthesis"] = synthesis
-                payload_data["synthesis_mode"] = "byo_key_ai_executive_analysis"
-            else:
-                payload_data["synthesis_mode"] = "pure_quantitative_metrics"
-        else:
-            payload_data["synthesis_mode"] = "pure_quantitative_metrics"
-        
-        from backend.app.schemas import ProviderReportResponse
-
-        report_kwargs = {
-            "query_symbol": payload_data.get("query_symbol"),
-            "query": context.get("query"),
-            "query_hash": invoice.get("query_hash"),
-            "tier": payload_data.get("tier", required_tier),
-            "invoice": invoice_report_meta(invoice_id, invoice),
-            "provider_id": getattr(provider, "provider_id", "unknown"),
-            "provider_name": getattr(provider, "provider_name", getattr(provider, "provider_id", "unknown")),
-            "provider_owner_wallet": getattr(provider, "owner_wallet", PAYMENT_WALLET_ADDRESS),
-            "paid_at": invoice.get("paid_at"),
-            "payload": payload_data,
-        }
-        if "upgrade_cta" in payload_data:
-            report_kwargs["upgrade_cta"] = payload_data["upgrade_cta"]
-            
-        report_obj = ProviderReportResponse(**report_kwargs)
-        report = report_obj.model_dump(exclude_unset=True, by_alias=True)
-    else:
-        full_report = provider.full_report(normalized_query)
-        full_report["query"] = invoice.get("query") or canonical_query_payload(normalized_query)
-        full_report["query_hash"] = invoice.get("query_hash")
-        full_report["provider_id"] = provider.provider_id
-        full_report["provider_name"] = provider.provider_name
-        full_report["provider_owner_wallet"] = provider.owner_wallet
-        full_report["invoice"] = invoice_report_meta(invoice_id, invoice)
-        if invoice.get("genlayer"):
-            full_report["genlayer"] = invoice.get("genlayer")
-        if required_tier == "preview":
-            report = build_preview_report(full_report, invoice)
-            report["provider_id"] = provider.provider_id
-            report["provider_name"] = provider.provider_name
-            if invoice.get("genlayer"):
-                report["genlayer"] = invoice.get("genlayer")
-        else:
-            full_report["tier"] = "full"
-            full_report["paid_at"] = invoice.get("paid_at")
-            report = full_report
-    return jsonable_encoder(report)
-
-
-def _canonical_report_json(report):
-    return json.dumps(
-        jsonable_encoder(report),
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-        allow_nan=False,
-    )
-
-
-_PUBLIC_VERIFICATION_CLAIMS = (
-    "query_symbol",
-    "is_ood",
-    "ood_p_value",
-    "ood_empirical_nn_distance",
-    "ood_empirical_p99_threshold",
-    "ood_empirical_percentile",
-    "matched_k",
-    "average_similarity",
-    "regime_cluster",
-    "regime_description",
-    "regime_support",
-    "weighted_win_rate",
-    "ci_win_rate_95",
-    "weighted_avg_profit",
-    "ci_avg_profit_95",
-    "percentiles",
-    "effective_sample_size",
-    "bootstrap_rounds",
-    "distance_summary",
-    "query_features",
-    "data_quality",
-    "validation_warnings",
-    "risk_flags",
-    "funding_context",
-    "rough_win_rate",
-    "win_rate_band",
-    "analysis_focus",
-    "turnover_context",
-    "provider_diagnostics",
-    "declared_confidence",
-    "arbitrage_bias",
-    "recommended_strategy",
-    "divergence_spread_pct",
-    "polymarket_probability",
-    "implied_derivative_prob",
-    "cctp_bridge_required",
-    "anomaly",
-    "regime",
-    "predicted_bias",
-    "bias",
-    "event_title",
-    "pyth_price_usdc",
-    "confidence_interval_usd",
-    "confidence_spread_bps",
-    "stress_regime",
-    "stress_level",
-    "oracle_source",
+# Modularized into dedicated domain services:
+# - backend.app.services.payment_service
+# - backend.app.services.report_generator_service
+# - backend.app.services.genlayer_reconcile_service
+# ---------------------------------------------------------------------------
+from backend.app.services.report_generator_service import (
+    _PUBLIC_VERIFICATION_CLAIMS,
+    _build_epoch_snapshot,
+    _canonical_report_json,
+    build_preview_report,
+    build_provider_report,
+    invoice_report_meta,
 )
-
-
-def _genlayer_target_exchange(evidence_url: str) -> str:
-    if "bybit.com" in evidence_url:
-        return "BYBIT"
-    if "binance.com" in evidence_url:
-        return "Binance"
-    if "polymarket.com" in evidence_url:
-        return "Polymarket"
-    if "pyth.network" in evidence_url:
-        return "Pyth"
-    return "MEXC"
-
-
-# ---------------------------------------------------------------------------
-# Sale-time verifiability gate
-# ---------------------------------------------------------------------------
-# A report whose evidence cannot actually be fetched and matched by GenLayer
-# validators must never be sold: settling it only guarantees a locked report
-# and a refund. MEXC-anchored providers refuse symbols whose report data is
-# anchored to a venue validators cannot fetch, and whose MEXC evidence
-# endpoint returns no market data. oi_memory evidence is anchored to the
-# per-symbol funding_rate endpoint because contract/ticker returns an empty
-# data payload for some symbols that still carry MEXC funding records.
-# Kill switch: QMA_SIGNAL_VERIFIABILITY_GATE=0.
-_MEXC_ANCHORED_PROVIDERS = {"funding_memory", "oi_memory"}
-_EVIDENCE_CHECK_TTL_SECONDS = 60
-_EVIDENCE_CHECK_CACHE: Dict[str, Any] = {}
-
-
-def _gate_enabled() -> bool:
-    return bool(app_setting("providers", "signalVerifiabilityGate"))
-
-
-def _mexc_evidence_has_market_data(evidence_url: str) -> tuple:
-    """Fetch the MEXC evidence endpoint once per symbol per minute and confirm
-    it returns an actual market-data payload (not a bare success envelope)."""
-    cached = _EVIDENCE_CHECK_CACHE.get(evidence_url)
-    now = time.time()
-    if cached and cached[0] > now:
-        return cached[1], cached[2]
-    ok, reason = False, "unchecked"
-    try:
-        res = requests.get(evidence_url, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
-        if res.status_code != 200:
-            reason = f"evidence endpoint returned HTTP {res.status_code}"
-        else:
-            payload = res.json()
-            # MEXC contract endpoints wrap market data in {"success", "code",
-            # "data"}; a listed symbol always carries a non-empty data payload.
-            data = payload.get("data") if isinstance(payload, dict) else None
-            if not data or (isinstance(data, (list, dict)) and len(data) == 0):
-                reason = "evidence endpoint returned no market data for this symbol"
-            else:
-                ok, reason = True, "ok"
-    except Exception as exc:
-        reason = f"evidence endpoint unreachable: {exc}"
-    _EVIDENCE_CHECK_CACHE[evidence_url] = (now + _EVIDENCE_CHECK_TTL_SECONDS, ok, reason)
-    return ok, reason
-
-
-def _signal_verifiability(provider_id: str, query: dict) -> Dict[str, Any]:
-    """Boolean form of the sale-time gate, shared by invoice creation and the
-    recommendation builder. Returns {verifiable, reason, evidence_url, exchange}."""
-    symbol = str(query.get("symbol") or "")
-    evidence_url = _genlayer_evidence_url({"provider_id": provider_id, "query": query, "symbol": symbol})
-    target = _genlayer_target_exchange(evidence_url)
-
-    if provider_id in _MEXC_ANCHORED_PROVIDERS and target in {"Binance", "BYBIT"}:
-        return {
-            "verifiable": False,
-            "reason": f"evidence anchored to {target}, which GenLayer validators cannot fetch",
-            "evidence_url": evidence_url,
-            "exchange": target,
-        }
-    if "contract.mexc.com" in evidence_url:
-        ok, reason = _mexc_evidence_has_market_data(evidence_url)
-        return {
-            "verifiable": bool(ok),
-            "reason": reason,
-            "evidence_url": evidence_url,
-            "exchange": target,
-        }
-    return {"verifiable": True, "reason": "ok", "evidence_url": evidence_url, "exchange": target}
-
-
-def _ensure_signal_verifiable(provider_id: str, query: dict) -> None:
-    """Refuse to sell signals that GenLayer could never verify (fail fast at
-    the door instead of settle-then-reject). Raises HTTP 422."""
-    if not _gate_enabled():
-        return
-    symbol = str(query.get("symbol") or "")
-    check = _signal_verifiability(provider_id, query)
-    if not check["verifiable"]:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "signal_not_verifiable",
-                "message": (
-                    f"{symbol} cannot be GenLayer-verified right now: {check['reason']}. "
-                    "Nothing was charged."
-                ),
-                "symbol": symbol,
-                "evidence_url": check["evidence_url"],
-                "reason": check["reason"],
-            },
-        )
-
-
-def _report_verification_manifest(report, invoice, target_venue: str = "MEXC"):
-    """Expose only auditable claims; keep paid analog rows out of public calldata."""
-    report_data = report if isinstance(report, dict) else {}
-    payload = report_data.get("payload")
-    source: dict[str, Any] = payload if isinstance(payload, dict) else report_data
-    inner_raw = source.get("payload")
-    inner: dict[str, Any] = inner_raw if isinstance(inner_raw, dict) else {}
-    claims: dict[str, Any] = {}
-    for key in _PUBLIC_VERIFICATION_CLAIMS:
-        if key in inner:
-            claims[key] = inner[key]
-        elif key in source:
-            claims[key] = source[key]
-        elif key in report_data:
-            claims[key] = report_data[key]
-    if "declared_confidence" not in claims and "confidence" in report_data:
-        claims["declared_confidence"] = report_data["confidence"]
-    if target_venue:
-        claims["exchange"] = target_venue
-
-    query_payload = dict(invoice.get("query") or {})
-    if target_venue:
-        query_payload["exchange"] = target_venue
-
-    return jsonable_encoder({
-        "invoice_id": invoice.get("invoice_id"),
-        "provider_id": invoice.get("provider_id"),
-        "tier": invoice.get("tier"),
-        "symbol": invoice.get("symbol"),
-        "query_hash": invoice.get("query_hash"),
-        "query": query_payload,
-        "claims": claims,
-    })
-
-
-
-def _genlayer_evidence_url(invoice):
-    """Resolve the authoritative evidence URL for a GenLayer submission.
-
-    Validators can only fetch contract.mexc.com / Polymarket / Pyth hosts;
-    Binance and Bybit API hosts are allowlisted in the contract but
-    unreachable from validators (WEBPAGE_LOAD_FAILED -> INVALID verdict, see
-    docs/TECH_DEBT.md #1). Exchange-venue evidence is therefore rewritten onto
-    the fetchable MEXC contract endpoints instead of passing through.
-    """
-    provider_id = invoice.get("provider_id", "funding_memory")
-    q_url = (invoice.get("query") or {}).get("evidence_url") or invoice.get("evidence_url")
-    fetchable_prefixes = (
-        "https://contract.mexc.com/",
-        "https://clob.polymarket.com/",
-        "https://gamma-api.polymarket.com/",
-        "https://hermes.pyth.network/",
-    )
-    if q_url and any(q_url.startswith(prefix) for prefix in fetchable_prefixes):
-        return q_url
-
-    raw_symbol = str(invoice.get("symbol") or (invoice.get("query") or {}).get("symbol") or "").strip()
-    clean_symbol = raw_symbol.replace("-", "_").replace("/", "_").upper()
-    if not clean_symbol.endswith("_USDT") and not clean_symbol.endswith("USDT"):
-        clean_symbol = f"{clean_symbol}_USDT"
-    elif clean_symbol.endswith("USDT") and not clean_symbol.endswith("_USDT"):
-        clean_symbol = f"{clean_symbol[:-4]}_USDT"
-
-    if provider_id == "oi_memory":
-        return f"https://contract.mexc.com/api/v1/contract/funding_rate/{clean_symbol}"
-    if provider_id == "polymarket_divergence":
-        slug_map = {
-            "BTC": "when-will-bitcoin-hit-150k",
-            "ETH": "will-ethereum-surpass-4000-in-2026",
-            "SOL": "solana-flips-ethereum-market-cap-in-2026",
-        }
-        sym_key = str(raw_symbol or "").strip().upper()
-        slug = slug_map.get(sym_key, f"{sym_key.lower()}-milestone")
-        return f"https://gamma-api.polymarket.com/events?slug={slug}"
-    if provider_id == "pyth_stress_band":
-        from backend.app.services.plugins.pyth_provider import PYTH_FEED_IDS
-        feed_id = PYTH_FEED_IDS.get(raw_symbol.upper())
-        if not feed_id and raw_symbol.startswith("0x"):
-            feed_id = raw_symbol[2:]
-        feed_id = feed_id or PYTH_FEED_IDS.get("ETH/USD")
-        return f"https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x{feed_id}"
-    return f"https://contract.mexc.com/api/v1/contract/funding_rate/{clean_symbol}"
-
-
-
-def prewarm_genlayer_sla_for_invoice(invoice: dict) -> Optional[dict]:
-    """Pre-warm GenLayer SLA consensus for an invoice in background without mutating invoice payment state."""
-    try:
-        from backend.app.services import genlayer_arbiter
-
-        provider_id = invoice.get("provider_id", "funding_memory")
-        symbol = str(invoice.get("symbol") or "")
-        query_hash = str(invoice.get("query_hash") or "")
-        tier = invoice.get("tier", "preview")
-
-        provider = get_provider_or_404(provider_registry, provider_id)
-        normalized_query = normalize_query_for_provider(provider, invoice.get("query") or {})
-
-        report = invoice.get("_verification_report")
-        if report is None and invoice.get("market_epoch_key"):
-            epoch_snapshot = get_epoch(str(invoice["market_epoch_key"]))
-            if epoch_snapshot is not None:
-                report = epoch_snapshot["report"]
-        if report is None:
-            report = build_provider_report(
-                provider=provider,
-                normalized_query=normalized_query,
-                invoice_id=invoice.get("invoice_id", "prewarm"),
-                invoice=invoice,
-                required_tier=tier,
-            )
-
-        try:
-            canonical_report = _canonical_report_json(report)
-        except Exception:
-            return None
-        report_hash = hashlib.sha256(canonical_report.encode("utf-8")).hexdigest()
-
-        # Fast cache check: already warm and within TTL?
-        cached = genlayer_arbiter.get_cached_sla_verdict(
-            symbol=symbol,
-            query_hash=query_hash,
-            report_hash=report_hash,
-        )
-        if cached and cached.get("verdict") == "VALID":
-            return cached
-
-        evidence_url = _genlayer_evidence_url(invoice)
-        target_venue = _genlayer_target_exchange(evidence_url)
-
-        manifest_dict = _report_verification_manifest(report, invoice, target_venue=target_venue)
-        verification_manifest = _canonical_report_json(manifest_dict)
-        manifest_claims = manifest_dict.get("claims", {})
-
-        try:
-            receipt = genlayer_arbiter.verify_report(
-                invoice_id=invoice.get("invoice_id", f"prewarm_{int(time.time())}"),
-                buyer=invoice.get("buyer_wallet_address") or invoice.get("payer_address") or "",
-                provider=invoice.get("owner_wallet") or "",
-                symbol=symbol,
-                expected_anomaly=(
-                    f"Verify {symbol} market anomaly against live {target_venue} evidence: "
-                    f"strategy={manifest_claims.get('recommended_strategy') or manifest_claims.get('bias') or manifest_claims.get('anomaly') or 'funding_arbitrage'}, "
-                    f"declared_confidence={manifest_claims.get('declared_confidence', 0.6)}"
-                ),
-                query_hash=query_hash,
-                report_hash=report_hash,
-                verification_manifest=verification_manifest,
-                evidence_url=evidence_url,
-                transaction_hash=(get_epoch(str(invoice.get("market_epoch_key") or "")).get("tx_hash") if invoice.get("market_epoch_key") else None),
-            )
-        except genlayer_arbiter.GenLayerVerificationError as exc:
-            # Persist the epoch tx so waiters (other prewarms, reconcile, the
-            # buyer's own verify) poll this submission instead of resubmitting
-            # duplicates while consensus is still pending on-chain.
-            if invoice.get("market_epoch_key"):
-                mark_epoch_tx(str(invoice["market_epoch_key"]), exc.transaction_hash)
-            raise
-        return receipt
-    except Exception as exc:
-        logger.debug("Opportunistic GenLayer pre-warm for %s ended or skipped: %s", invoice.get("symbol"), exc)
-        return None
-
-
-def _trigger_genlayer_prewarm_in_background(invoice: dict) -> None:
-    """Launch opportunistic GenLayer pre-warm in a background daemon thread.
-
-    Runs for every invoice, synthetic included: swarm purchases settle real
-    x402 money and get the same pre-verified access path. Failed pre-warms
-    leave the epoch tx recorded so reconcile keeps polling it.
-    """
-    if not invoice:
-        return
-    import threading
-
-    def _worker():
-        # The verdict should be on-chain before the buyer finishes paying; a
-        # single failed submission would push the whole purchase onto the slow
-        # verify path, so retry with backoff until it lands or the budget ends.
-        for attempt in range(1, 4):
-            receipt = prewarm_genlayer_sla_for_invoice(invoice)
-            if receipt is not None:
-                return
-            if attempt < 3:
-                time.sleep(20 * attempt)
-
-    thread = threading.Thread(
-        target=_worker,
-        name=f"prewarm_{invoice.get('symbol')}_{invoice.get('invoice_id', '')[:8]}",
-        daemon=True,
-    )
-    thread.start()
-
-
-def verify_invoice_report_with_genlayer(invoice_id, invoice):
-    """Serialize GenLayer submission/resume for one paid invoice."""
-    with state.cross_process_lock("genlayer_verify:" + invoice_id):
-        return _verify_invoice_report_with_genlayer_locked(invoice_id, invoice)
-
-
-def _sync_single_payment_event(invoice: dict, reload_state: bool = True) -> None:
-    settlement_id = invoice.get("settlement_id")
-    if not settlement_id or invoice_split_mode(invoice) == "x402_direct_split":
-        return
-    if reload_state:
-        reload_persistent_state(include_reports=False)
-    if not any(event.get("settlement_id") == settlement_id for event in state.payment_events):
-        new_event = {
-            "invoice_id": invoice.get("invoice_id"),
-            "symbol": invoice.get("symbol"),
-            "provider_id": invoice.get("provider_id", "funding_memory"),
-            "provider_owner_wallet": invoice.get("owner_wallet"),
-            "buyer_type": invoice.get("buyer_type", "human"),
-            "synthetic": invoice.get("synthetic", False),
-            "agent_label": invoice.get("agent_label"),
-            "run_source": invoice.get("run_source"),
-            "tier": invoice.get("tier", "full"),
-            "resource_type": invoice.get("resource_type", PAYMENT_RESOURCE_TYPE),
-            "query": invoice.get("query"),
-            "query_hash": invoice.get("query_hash"),
-            "payer_address": invoice.get("payer_address"),
-            "buyer_wallet_address": invoice.get("buyer_wallet_address"),
-            "seller_address": PAYMENT_WALLET_ADDRESS,
-            "amount_usdc": invoice.get("amount"),
-            "amount_raw": invoice.get("amount_raw"),
-            "pricing": invoice.get("pricing"),
-            "settlement": invoice.get("settlement"),
-            "accounting": invoice.get("accounting"),
-            "settlement_id": settlement_id,
-            "gateway_status": invoice.get("gateway_status"),
-            "transaction_hash": invoice.get("transaction_hash"),
-            "explorer_url": invoice.get("explorer_url"),
-            "paid_at": invoice.get("paid_at") or time.time(),
-            "arc_settlement": public_arc_settlement(invoice.get("arc_settlement")),
-        }
-        state.payment_events.append(new_event)
-        _save_single_payment_event(new_event)
-
-
-def _sync_arc_settlement_to_payment_events(invoice: dict) -> None:
-    public_plan = public_arc_settlement(invoice.get("arc_settlement"))
-    if not public_plan:
-        return
-    for event in state.payment_events:
-        if str(event.get("invoice_id") or "") != str(invoice.get("invoice_id") or ""):
-            continue
-        if event.get("arc_settlement") != public_plan:
-            event["arc_settlement"] = public_plan
-            _save_single_payment_event(event)
-
-
-def settle_genlayer_verdict_on_arc(invoice_id: str, invoice: dict) -> dict | None:
-    """Advance the verdict-bound Arc action without ever inventing completion."""
-    if invoice_split_mode(invoice) == "x402_direct_split":
-        # Legacy split invoices already paid both recipients at purchase time.
-        # Replaying them through the verdict executor would double-pay a leg.
-        return None
-    try:
-        with state.cross_process_lock("arc_settlement_plan:" + invoice_id):
-            ensure_arc_settlement_plan(invoice)
-            _save_invoice(invoice)
-        plan = execute_arc_settlement(
-            invoice,
-            gateway_base_url=ARC_GATEWAY_BASE_URL,
-            internal_secret=ARC_GATEWAY_INTERNAL_SECRET,
-            save_invoice=_save_invoice,
-        )
-    except ArcVerdictSettlementError as exc:
-        logger.error("Cannot create Arc verdict settlement for invoice %s: %s", invoice_id, exc)
-        return None
-    _sync_arc_settlement_to_payment_events(invoice)
-    try:
-        from backend.app.services.euthyna_audit import euthyna_audit_engine
-        from backend.app.services.usyc_treasury import usyc_treasury_service
-        liquid_bal = usyc_treasury_service.get_liquid_usdc_balance()
-        pos = usyc_treasury_service.query_onchain_position()
-        arc_tx = invoice.get("transaction_hash") or (invoice.get("arc_settlement") or {}).get("transaction_hash")
-        amount_val = float(invoice.get("amount") or 0.0)
-        euthyna_audit_engine.record_action(
-            action="VENDOR_PAYOUT",
-            actor=invoice.get("buyer_wallet_address") or "0xAutonomousBuyer",
-            amount_usdc=amount_val,
-            balance_before=liquid_bal,
-            balance_after=max(0.0, round(liquid_bal - amount_val, 6)),
-            usyc_shares=pos.get("usyc_shares", 0.0),
-            policy_rule="RULE_ARBITER_VERIFIED_SETTLEMENT",
-            reasoning=f"GenLayer validated deliverable for invoice {invoice_id}. Settlement executed on Arc.",
-            tx_hash=arc_tx,
-            provider_id=invoice.get("provider_id"),
-            genlayer_consensus=(invoice.get("genlayer") or {}).get("verdict"),
-        )
-    except Exception as exc:
-        logger.debug("Could not record Arc verdict settlement in Euthyna audit: %s", exc)
-    return plan
-
-
-def reconcile_arc_verdict_settlements_once(max_invoices: int = 20) -> int:
-    """Advance persisted verdict operations that no buyer is actively polling."""
-    settled_but_unsynced = [
-        invoice for invoice in list(state.invoices_db.values())
-        if invoice.get("status") == "verification_pending"
-        and invoice.get("settlement_id")
-    ]
-    if settled_but_unsynced:
-        try:
-            # One authoritative reload for the whole batch; the per-invoice
-            # syncs below run with reload_state=False to keep a deep backlog
-            # from re-reading the entire ledger once per invoice.
-            reload_persistent_state(include_reports=False)
-        except Exception:
-            logger.exception("State reload before payment event sync failed")
-    for invoice in settled_but_unsynced:
-        try:
-            # Payment facts first: every settled invoice reaches the payment
-            # ledger this cycle, no matter how long its verdict takes or how
-            # deep the verification backlog is. Idempotent by settlement_id.
-            _sync_single_payment_event(invoice, reload_state=False)
-        except Exception:
-            logger.exception("Payment event sync failed for invoice %s", invoice.get("invoice_id"))
-
-    pending_verifications = settled_but_unsynced[:max_invoices]
-    for invoice in pending_verifications:
-        try:
-            inv_id = str(invoice.get("invoice_id") or "")
-            verify_invoice_report_with_genlayer(inv_id, invoice)
-        except (HTTPException, genlayer_arbiter.GenLayerVerificationError):
-            pass
-        except Exception:
-            logger.exception("GenLayer background reconciliation failed for invoice %s", invoice.get("invoice_id"))
-
-    candidates = [
-        invoice for invoice in list(state.invoices_db.values())
-        if (invoice.get("genlayer") or {}).get("verdict") in {"VALID", "INVALID"}
-        and (invoice.get("arc_settlement") or {}).get("status")
-        not in {"confirmed", "failed_terminal"}
-        and invoice_split_mode(invoice) != "x402_direct_split"
-    ][:max_invoices]
-    for invoice in candidates:
-        try:
-            refresh_invoice_batch_tx(invoice)
-            settle_genlayer_verdict_on_arc(str(invoice.get("invoice_id") or ""), invoice)
-        except Exception:
-            logger.exception(
-                "Arc verdict settlement reconciliation failed for invoice %s",
-                invoice.get("invoice_id"),
-            )
-    return len(candidates) + len(pending_verifications)
-
-
-async def _arc_settlement_reconcile_loop() -> None:
-    interval = max(5.0, float(app_setting("payment", "arcSettlementReconcileSeconds")))
-    while True:
-        await asyncio.sleep(interval)
-        await asyncio.to_thread(reconcile_arc_verdict_settlements_once)
+from backend.app.services.genlayer_reconcile_service import (
+    _EVIDENCE_CHECK_CACHE,
+    _EVIDENCE_CHECK_TTL_SECONDS,
+    _GENLAYER_PREWARM_EXECUTOR,
+    _MEXC_ANCHORED_PROVIDERS,
+    _arc_settlement_reconcile_loop,
+    _ensure_signal_verifiable,
+    _gate_enabled,
+    _genlayer_evidence_url,
+    _genlayer_target_exchange,
+    _mexc_evidence_has_market_data,
+    _report_verification_manifest,
+    _signal_verifiability,
+    _sync_arc_settlement_to_payment_events,
+    _sync_single_payment_event,
+    _trigger_genlayer_prewarm_in_background,
+    _verify_invoice_report_with_genlayer_locked,
+    prewarm_genlayer_sla_for_invoice,
+    reconcile_arc_verdict_settlements_once,
+    settle_genlayer_verdict_on_arc,
+    verify_invoice_report_with_genlayer,
+)
+from backend.app.services.payment_service import (
+    authorize_paid_invoice,
+    create_invoice,
+    get_payment_invoice_status,
+    refresh_split_leg_batch_txs,
+    submit_withdraw,
+    verify_payment,
+    verify_split_payment,
+)
 
 
 async def _treasury_decide_loop() -> None:
@@ -2673,286 +1115,6 @@ async def _treasury_decide_loop() -> None:
             break
         except Exception:
             logger.exception("Treasury periodic decide loop tick failed")
-
-
-def _verify_invoice_report_with_genlayer_locked(invoice_id, invoice):
-    """Generate, bind, and verify the exact report before issuing access."""
-    if invoice.get("status") == "refunded":
-        import fastapi
-        raise fastapi.HTTPException(status_code=409, detail={"error": "invoice_refunded", "message": "Invoice is refunded and cannot be paid."})
-    if invoice.get("status") == "paid" and (invoice.get("genlayer") or {}).get("verdict") == "VALID":
-        return invoice.get("genlayer")
-    if invoice.get("status") in {"verification_rejected", "refunded"} and (invoice.get("genlayer") or {}).get("verdict") == "INVALID":
-        return invoice.get("genlayer")
-
-    from backend.app.services import genlayer_arbiter
-
-    provider_id = invoice.get("provider_id", "funding_memory")
-    provider = get_provider_or_404(provider_registry, provider_id)
-    normalized_query = normalize_query_for_provider(provider, invoice.get("query") or {})
-    invoice["paid_at"] = invoice.get("paid_at") or time.time()
-    epoch_snapshot = get_epoch(str(invoice.get("market_epoch_key") or "")) if invoice.get("market_epoch_key") else None
-    report = invoice.get("_verification_report")
-    if epoch_snapshot is not None:
-        # The whole epoch shares one frozen snapshot and one report hash, so
-        # every invoice in it rides the same GenLayer attestation.
-        report = epoch_snapshot["report"]
-    elif report is None and isinstance(invoice.get("verification_report_canonical"), str):
-        # The verification report is frozen at first submission: live market
-        # data drifts between reconcile cycles, and rebuilding here would
-        # change the report hash and trip the tamper check below.
-        try:
-            report = json.loads(invoice["verification_report_canonical"])
-        except Exception:
-            report = None
-    if report is None:
-        report = build_provider_report(
-            provider=provider,
-            normalized_query=normalized_query,
-            invoice_id=invoice_id,
-            invoice=invoice,
-            required_tier=invoice.get("tier", "full"),
-        )
-
-    try:
-        canonical_report = _canonical_report_json(report)
-    except (TypeError, ValueError) as exc:
-        invoice["status"] = "verification_pending"
-        _save_invoice(invoice)
-        raise HTTPException(
-            status_code=503,
-            detail={"error": "verification_payload_invalid", "message": str(exc)},
-        ) from exc
-
-    report_hash = hashlib.sha256(canonical_report.encode("utf-8")).hexdigest()
-    evidence_url = _genlayer_evidence_url(invoice)
-    target_venue = _genlayer_target_exchange(evidence_url)
-
-    manifest_dict = _report_verification_manifest(report, invoice, target_venue=target_venue)
-    verification_manifest = _canonical_report_json(manifest_dict)
-    manifest_claims = manifest_dict.get("claims", {})
-    if len(verification_manifest.encode("utf-8")) > 12000:
-        invoice["status"] = "verification_pending"
-        _save_invoice(invoice)
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "verification_manifest_too_large",
-                "message": "The public GenLayer verification manifest exceeds 12 KB.",
-            },
-        )
-    previous_hash = invoice.get("verification_report_hash")
-    if previous_hash and previous_hash != report_hash:
-        if invoice.get("settlement_id"):
-            invoice["status"] = "verification_rejected"
-            invoice["access_status"] = "verification_rejected"
-            existing_genlayer = invoice.get("genlayer")
-            invoice["genlayer"] = {
-                **(existing_genlayer if isinstance(existing_genlayer, dict) else {}),
-                "error": "verification_report_hash_changed",
-                "verdict": existing_genlayer.get("verdict") if isinstance(existing_genlayer, dict) else None,
-            }
-            invoice.pop("_verification_report", None)
-            _save_invoice(invoice)
-            settle_genlayer_verdict_on_arc(invoice_id, invoice)
-            logger.warning(
-                "Report hash mismatch for settled invoice %s; moved to verification_rejected and scheduled buyer refund.",
-                invoice_id,
-            )
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "error": "verification_report_hash_changed",
-                    "message": "The verified report content changed after settlement; the invoice moved to verification_rejected and a buyer refund was scheduled.",
-                },
-            )
-        raise HTTPException(
-            status_code=409,
-            detail="The cached report changed while GenLayer verification was pending.",
-        )
-
-    invoice["_verification_report"] = report
-    invoice["verification_report_hash"] = report_hash
-    invoice["verification_report_canonical"] = canonical_report
-    invoice["status"] = "verification_pending"
-    _save_invoice(invoice)
-
-    gl_state = invoice.get("genlayer") if isinstance(invoice.get("genlayer"), dict) else {}
-    epoch_tx = epoch_snapshot.get("tx_hash") if epoch_snapshot else None
-    pending_tx = gl_state.get("transaction_hash") or epoch_tx
-    # A submitted GenLayer tx that produced no order is only retried for a
-    # bounded window; past it the hash is stale and the next verify submits a
-    # fresh on-chain verification instead of waiting forever.
-    resubmit_after_sec = int(app_setting("genlayer", "resubmitAfterSeconds"))
-    pending_since = float(gl_state.get("pending_since") or invoice.get("paid_at") or time.time())
-    if pending_tx and (time.time() - pending_since) > resubmit_after_sec:
-        resubmit_count = int(gl_state.get("resubmit_count") or 0)
-        if resubmit_count >= 3:
-            raise HTTPException(
-                status_code=503,
-                detail={
-                    "error": "genlayer_verification_stalled",
-                    "message": "Repeated GenLayer verification submissions did not produce a verdict; report access remains locked.",
-                    "transaction_hash": pending_tx,
-                },
-            )
-        gl_state["superseded_transactions"] = list(gl_state.get("superseded_transactions") or []) + [pending_tx]
-        gl_state["resubmit_count"] = resubmit_count + 1
-        pending_tx = None
-    try:
-        receipt = genlayer_arbiter.verify_report(
-            invoice_id=invoice_id,
-            buyer=invoice.get("payer_address") or invoice.get("buyer_wallet_address") or "",
-            provider=invoice.get("owner_wallet") or "",
-            symbol=str(invoice.get("symbol") or ""),
-            expected_anomaly=(
-                f"Verify {invoice.get('symbol')} market anomaly against live {target_venue} evidence: "
-                f"strategy={manifest_claims.get('recommended_strategy') or manifest_claims.get('bias') or manifest_claims.get('anomaly') or 'funding_arbitrage'}, "
-                f"declared_confidence={manifest_claims.get('declared_confidence', 0.6)}"
-            ),
-            query_hash=str(invoice.get("query_hash") or ""),
-            report_hash=report_hash,
-            verification_manifest=verification_manifest,
-            evidence_url=evidence_url,
-            transaction_hash=pending_tx,
-        )
-
-    except genlayer_arbiter.GenLayerVerificationError as exc:
-        gl_state = invoice.get("genlayer") if isinstance(invoice.get("genlayer"), dict) else {}
-        next_genlayer = {
-            **gl_state,
-            "status": "VERIFICATION_PENDING",
-            "verdict": "PENDING",
-            "contract_address": genlayer_arbiter.GENLAYER_CONTRACT_ADDRESS or None,
-            "transaction_hash": exc.transaction_hash or pending_tx,
-            "error": str(exc),
-        }
-        if getattr(exc, "failed", False):
-            # The on-chain execution finalized with an error and no order was
-            # written, so this hash can never produce a verdict. Drop it and
-            # let the next verify attempt submit a fresh transaction; the
-            # resubmit budget bounds how often this can repeat.
-            next_genlayer["transaction_hash"] = None
-            next_genlayer["pending_since"] = gl_state.get("pending_since") or time.time()
-            next_genlayer["resubmit_count"] = int(gl_state.get("resubmit_count") or 0) + 1
-            if exc.transaction_hash:
-                next_genlayer["superseded_transactions"] = list(gl_state.get("superseded_transactions") or []) + [exc.transaction_hash]
-        else:
-            next_genlayer.setdefault("pending_since", time.time())
-        if epoch_snapshot is not None:
-            # Keep the epoch's shared tx alive so every waiter in this window
-            # polls the same submission instead of resubmitting duplicates.
-            mark_epoch_tx(epoch_snapshot["key"], next_genlayer.get("transaction_hash"))
-        invoice["status"] = "verification_pending"
-        invoice["genlayer"] = next_genlayer
-        _save_invoice(invoice)
-        # The payment itself is settled and final: record the payment event
-        # now instead of waiting for the verdict. Traction reflects real money
-        # movement; report ACCESS still stays gated on the VALID verdict.
-        _sync_single_payment_event(invoice)
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "genlayer_verification_pending",
-                "message": "Payment is settled, but no finalized GenLayer verdict is available. Report access remains locked.",
-                "transaction_hash": exc.transaction_hash or pending_tx,
-            },
-        ) from exc
-
-    invoice["genlayer"] = {
-        # Preserve the resubmit audit trail (superseded hashes) across the
-        # final receipt write; receipt fields win on any key collision.
-        **{k: gl_state[k] for k in ("superseded_transactions", "resubmit_count", "pending_since") if k in gl_state},
-        **receipt,
-    }
-    if epoch_snapshot is not None:
-        mark_epoch_verdict(epoch_snapshot["key"], str(receipt.get("verdict") or ""))
-    invoice["sla_state"] = "verified" if str(receipt.get("verdict") or "").upper() == "VALID" else "rejected"
-    receipt_report_hash = receipt.get("report_hash") if isinstance(receipt, dict) else None
-    if (receipt_report_hash is not None and str(receipt_report_hash) != str(report_hash)) or (
-        receipt.get("verdict") != "INVALID" and receipt_report_hash is None
-    ):
-        tx_hash = (receipt.get("transaction_hash") if isinstance(receipt, dict) else None) or pending_tx
-        invoice["status"] = "verification_pending"
-        invoice["genlayer"] = {
-            "status": "VERIFICATION_PENDING",
-            "verdict": "PENDING",
-            "contract_address": genlayer_arbiter.GENLAYER_CONTRACT_ADDRESS or None,
-            "transaction_hash": tx_hash,
-            "error": "genlayer_receipt_report_hash_mismatch",
-        }
-        _save_invoice(invoice)
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "genlayer_receipt_report_hash_mismatch",
-                "message": "Payment is settled, but GenLayer receipt does not match report content hash. Report access remains locked.",
-                "transaction_hash": tx_hash,
-            },
-        )
-
-    if receipt["verdict"] == "INVALID":
-        invoice["status"] = "verification_rejected"
-        invoice["access_status"] = "verification_rejected"
-        invoice.pop("_verification_report", None)
-        _save_invoice(invoice)
-        settle_genlayer_verdict_on_arc(invoice_id, invoice)
-        logger.warning(
-            "GenLayer rejected invoice %s; report locked and the evidence-bound Arc refund was scheduled.",
-            invoice_id,
-        )
-        target_session_id = invoice.get("session_id")
-        run_source = invoice.get("run_source")
-        if not target_session_id and run_source and str(run_source).startswith("agent_session_"):
-            target_session_id = str(run_source).replace("agent_session_", "")
-        if target_session_id:
-            try:
-                from backend.app.services.incident_engine import record_incident, execute_session_control
-                record_incident(
-                    session_id=str(target_session_id),
-                    severity="P1_CRITICAL",
-                    category="GENLAYER_SLA_VIOLATION",
-                    rule="FAIL_CLOSED_VERIFIER",
-                    details=f"GenLayer SLA verdict INVALID on invoice {invoice_id}. Automatic circuit breaker triggered.",
-                    actor_type="SYSTEM_CIRCUIT_BREAKER",
-                    trace_id=receipt.get("transaction_hash") or invoice.get("settlement_id"),
-                    financial_context={
-                        "attempted_amount_usdc": float(invoice.get("amount") or 0.0),
-                        "provider_id": invoice.get("provider_id"),
-                    },
-                )
-                execute_session_control(
-                    session_id=str(target_session_id),
-                    action="pause",
-                    reason=f"Auto-pause: GenLayer SLA rejected report for invoice {invoice_id}",
-                    storage=storage_backend,
-                )
-            except Exception as auto_err:
-                logger.error("Failed to auto-pause session %s on GenLayer SLA rejection: %s", target_session_id, auto_err)
-        return receipt
-
-    if invoice_split_mode(invoice) != "x402_direct_split":
-        # Reserve the creator share before it becomes visible to manual claims.
-        ensure_arc_settlement_plan(invoice)
-        invoice.setdefault("accounting", {})["distribution_mode"] = "automatic_genlayer_settlement"
-    invoice["status"] = "paid"
-    invoice["verified_report"] = report
-    invoice.pop("_verification_report", None)
-    _save_invoice(invoice)
-    entitlement_record = paid_kit.record_entitlement(state.paid_reports, invoice=invoice, report=report)
-    if entitlement_record and isinstance(entitlement_record, dict) and entitlement_record.get("entitlement_id"):
-        _save_single_paid_report(entitlement_record["entitlement_id"], entitlement_record)
-    else:
-        _save_paid_reports(state.paid_reports)
-    _sync_single_payment_event(invoice)
-    settle_genlayer_verdict_on_arc(invoice_id, invoice)
-    logger.info(
-        "GenLayer verified invoice %s at %s with report hash %s",
-        invoice_id,
-        receipt.get("transaction_hash"),
-        report_hash,
-    )
-    return receipt
 
 
 def _process_agent_direct_x402_payment(**_kwargs) -> dict:

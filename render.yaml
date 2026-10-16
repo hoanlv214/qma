@@ -6,7 +6,7 @@ services:
     region: singapore
     branch: main
     buildCommand: pip install -r requirements.txt && (cd frontend && npm install --omit=dev)
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1
+    startCommand: uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT --workers 1
     envVars:
       - key: QMA_HISTORICAL_DB_PATH
         value: data/sample_funding_historical_analysis.csv
