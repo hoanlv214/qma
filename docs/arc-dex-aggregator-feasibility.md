@@ -192,7 +192,7 @@ know before writing any aggregator contract interactions.
 | `eth_estimateGas` unreliable | Every `writeContract` needs an explicit `gas:` override. `createPair` needs ~5M gas; `swapExactTokensForTokens` ~300k; `addLiquidity` ~3M. |
 | `waitForTransactionReceipt` doesn't throw on revert | Check `receipt.status === "reverted"` manually — silent failures are a critical footgun. |
 | No EIP-2612 `permit` on USDC | USDC on Arc uses EIP-3009 `ReceiveWithAuthorization`, not EIP-2612 `permit()`. Permit-based gasless flows revert silently. |
-| No Chainlink/Pyth oracle on testnet | Price feeds are not available; use mock oracles or pool TWAPs for testnet. |
+| No external oracle on testnet | Price feeds are not available; use mock oracles or pool TWAPs for testnet. |
 | Dual USDC event emission | Each USDC ERC-20 transfer emits two Transfer events (from `0xffff...` native mirror + from `0x3600...`). Only the `0x3600...` log is the canonical ERC20 event. |
 | `getAmountsOut` returns 0 on low-liquidity pools | Check for zero-output quote explicitly; don't display 0 as a valid rate. |
 | OZ 5.1+ requires `evmVersion: cancun` | Use `cancun` in `foundry.toml` / solc config to avoid `mcopy` opcode issues. |
@@ -207,7 +207,7 @@ know before writing any aggregator contract interactions.
 | Liquidity infrastructure | **Ready** — Uniswap v2/v3/v4 on mainnet, 3+ AMMs on testnet |
 | Aggregation layer | **Ready** — LI.FI integrated into App Kit, supports Arc Testnet + Mainnet |
 | Token pairs | **Limited on testnet** — USDC/EURC, limited cirBTC; mainnet adds USYC, BUIDL, cirBTC, WETH, etc. |
-| Price oracles | **Testnet gap** — no Chainlink/Pyth yet; use pool prices or mock oracles |
+| Price oracles | **Testnet gap** — no external oracles yet; use pool prices or mock oracles |
 | Cross-chain routing | **Ready** — LI.FI + CCTP v2 (Polymer bridge for testnet) |
 | EVM tooling | **Ready** — standard wagmi/viem works; gas overrides required |
 | Circle App Kit swap | **Partially working on testnet** (USDC→EURC works); full on mainnet |

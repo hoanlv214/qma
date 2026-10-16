@@ -11,7 +11,7 @@
 
 ### 1.1 The Market Reality
 Circle's launch of **Agent Marketplace** (`agents.circle.com`) with 108 services, 1,337 endpoints, and native x402 Gateway Nanopayments creates a clear market boundary:
-- **What Circle dominates:** Horizontal infrastructure, general APIs (weather, SMS, email, web scraping, compute), and raw market data primitives (Polymarket orderbooks, Binance candles, DefiLlama TVL).
+- **What Circle dominates:** Horizontal infrastructure, general APIs (weather, SMS, email, web scraping, compute), and raw market data primitives (exchange orderbooks, Binance candles, DefiLlama TVL).
 - **The Competitive Trap:** Building another generic marketplace directly pits QMA against Circle's scale, developer CLI (`circle`), and ecosystem liquidity.
 - **The Alpha Gap:** Circle Marketplace currently lacks **specialized quantitative reasoning and synthesized alpha engines**. Nobody is selling calculated arbitrage spreads, fair odds probability surfaces, or historical regime-matching models.
 
@@ -25,7 +25,7 @@ Instead of competing with Circle, QMA adopts a **Bilateral Symbiotic Architectur
                        └──────┬────────────────────────────────▲──────┘
                               │                                │
           [1. Smart Ingestion]│Raw Orderbooks                  │[2. Processed Alpha]
-          Polymarket / Kalshi │Arkham Whale Flows              │Quant Intelligence Suite
+          Derivatives / Kalshi│Arkham Whale Flows              │Quant Intelligence Suite
           DefiLlama / Birdeye │Binance Candles                 │($0.005 - $0.010 USDC)
                               ▼                                │
                        ┌───────────────────────────────────────┴──────┐

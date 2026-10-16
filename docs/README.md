@@ -17,8 +17,10 @@ Use this map to find the owner of a behavior. Not every directory needs a separa
 | **Final Verification Gate** | [`AUDIT_FINAL.md`](AUDIT_FINAL.md) | Definitive closure report, quantitative Before vs After metrics, technical debt catalog |
 | **Payment Lifecycle** | [`agent/PAYMENT_FLOW.md`](agent/PAYMENT_FLOW.md) | Source of truth for invoice creation, Circle Gateway x402 settlement, GenLayer verification |
 | **API Inventory & Gate** | [`api/README.md`](api/README.md) | Complete OpenAPI endpoint inventory, access classes, documentation maintenance gate |
-| **Autonomous Agent** | [`architecture/AUTONOMOUS_AGENT.md`](architecture/AUTONOMOUS_AGENT.md) | Bounded session policy, deterministic execution boundary, budget gates |
+| **System Specifications Register** | [`specs/README.md`](specs/README.md) | Master register of all formal contracts, treasury policies, and settlement specs |
 | **Agent API Contract** | [`specs/AGENT_API.md`](specs/AGENT_API.md) | `POST /api/v1/agent/decision` contract, request/response models |
+| **CFO Treasury Policy** | [`specs/cfo-treasury-policy-spec.md`](specs/cfo-treasury-policy-spec.md) | Autonomous CFO solvency ladder, USYC vault sweeps, and cash reserve limits |
+| **Payment & Settlement Spec** | [`specs/payment-settlement-spec.md`](specs/payment-settlement-spec.md) | Circle Gateway x402 settlement, GenLayer verification gate, terminal states |
 | **Package Management** | [`package-managers.md`](package-managers.md) | Monorepo runtime tooling (`bun` for TypeScript/Node workspaces, `uv` for Python) |
 | **Environment Tiers** | [`environments.md`](environments.md) | Parameter matrix across Local (`dev`), Staging, and Production tiers |
 | **Database Architecture** | [`database.md`](database.md) | Schema definitions, table relationships, PostgreSQL/Supabase setup |

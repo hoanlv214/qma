@@ -56,7 +56,7 @@ Audit pass: 2026-10-05. Cách dùng: trước mỗi lần chỉnh UI, chạy qua
 
 ### Đã fix trong color-discipline pass (2026-10-05, visual-verified bằng browser screenshot)
 
-- ✅ 1.3 **Color Consistency Lock** trên Traction: 3 headline card về chung một treatment indigo (card-settled green + card-yield amber → accent); amber loại khỏi value/footer; tags MEXC/Polymarket/Pyth về một style neutral
+- ✅ 1.3 **Color Consistency Lock** trên Traction: 3 headline card về chung một treatment indigo (card-settled green + card-yield amber → accent); amber loại khỏi value/footer; tags provider về một style neutral
 - ✅ 1.3 Badge rationing: bỏ chip "Interactive" trên tab; chip "x402 Protocol" về neutral
 - ✅ 1.3 Chip system (ui.css, áp dụng toàn app): `chip-pending` amber → neutral (pending không phải warning); `chip-premium` purple → accent; radar corridor bar 5 mục về 1 accent; balance-tile amber/purple → neutral (green giữ cho Euthyna proof = semantic)
 - ✅ 1.3 GlobalHeader: raw `rgba(168,156,255,1)` → `var(--accent)` token

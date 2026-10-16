@@ -17,7 +17,7 @@ As autonomous artificial intelligence agents transition from advisory copilots t
 This paper presents **QMA (Quantitative Market Anomaly Network)**, an end-to-end, machine-native quantitative intelligence and micropayment protocol built natively on **Arc**—Circle’s Layer 1 blockchain where **USDC serves as the native gas token**. QMA introduces five interlocking primitives:
 1. **The x402 Micropayment Protocol**: A deterministic, machine-negotiated settlement mechanism operating over HTTP 402, executing pay-per-call nanopayments ($0.002 to $0.005 USDC) with single-hop and split settlement (`x402_direct_split`).
 2. **Dynamic Signal Discovery & 4-Tier Decision Engine**: A cascading inference pipeline (Fast Regex, Laya System-1 local neural classifier, LLM semantic planner, and deterministic greedy utility optimization) that allows AI agents to scan market anomalies and execute purchases within strict budget policies in under 35 milliseconds.
-3. **GenLayer Intelligent Contract Shield (`GenQMAShield`)**: A decentralized validation gate that executes non-deterministic web rendering and multi-validator AI consensus on-chain to cryptographically verify market claims against authoritative external exchanges (MEXC, Binance, Polymarket, Pyth) prior to unlocking payouts, completely eliminating fraudulent and hallucinated alpha.
+3. **GenLayer Intelligent Contract Shield (`GenQMAShield`)**: A decentralized validation gate that executes non-deterministic web rendering and multi-validator AI consensus on-chain to cryptographically verify market claims against authoritative external exchanges (MEXC, Binance) prior to unlocking payouts, completely eliminating fraudulent and hallucinated alpha.
 4. **Autonomous Corporate Treasury & AI CFO**: An automated corporate governance and yield engine that sweeps platform revenues into ERC-4626 USYC vaults (~6.5% APY), maintains programmatic liquidity reserves, and enforces automated circuit breakers.
 5. **The Athenian Euthyna Cryptographic Audit Trail**: An immutable, SHA-256 hash-chained accounting ledger inspired by ancient Athenian magistrates, proving uninterrupted balance continuity and operational integrity across all agent actions.
 
@@ -85,7 +85,7 @@ flowchart TD
     subgraph Decision ["2. Intelligence & Routing Layer"]
         REC["Recommendations Engine (/recommendations)"]
         DEC["4-Tier Decision Engine (/decision)"]
-        PROV["Provider Marketplace (Funding, OI, Polymarket, Pyth)"]
+        PROV["Quantitative Intelligence Engines (Funding Disparity, OI Regime)"]
     end
 
     subgraph Settlement ["3. Payment & Settlement Layer (Arc L1)"]
@@ -107,10 +107,8 @@ flowchart TD
 
 ### 3.1 The Quantitative Signal Providers
 QMA acts as a decentralized marketplace for specialized quantitative signal engines:
-1. **`funding_memory`**: Detects perpetual futures funding rate anomalies across Bybit, Binance, and MEXC, identifying extreme negative/positive divergence suitable for cash-and-carry basis arbitrage.
-2. **`oi_memory`**: Monitors open interest crowding and derivative leverage clustering relative to circulating market cap, predicting impending liquidation cascades.
-3. **`polymarket_divergence`**: Evaluates probability spreads between decentralized prediction markets (Polymarket CLOB) and centralized spot/derivative pricing.
-4. **`pyth_stress_band`**: Analyzes sub-second Pyth Network oracle confidence intervals ($\sigma$) and price volatility bounds to evaluate liquidation risk and protocol solvency.
+1. **`funding_memory`**: Detects perpetual futures funding rate disparities and basis skew across derivatives exchanges (backed by `QMAEngine`, Mahalanobis Z-score, nearest neighbors, and 53,773 historical records), identifying extreme negative/positive divergence suitable for cash-and-carry basis arbitrage.
+2. **`oi_memory`**: Monitors open interest crowding, leverage clustering, and derivative volume depth, predicting impending liquidation cascades and volatility expansions.
 
 ---
 
@@ -211,7 +209,7 @@ GenLayer validators execute non-deterministic web rendering through sandboxed pr
 market_data = gl.nondet.web.render(evidence_url, mode="text")
 ```
 Strict URL prefix whitelisting ensures evidence is extracted solely from authoritative exchange endpoints:
-$$\text{URL}_{\text{Evidence}} \in \{\text{contract.mexc.com}, \text{clob.polymarket.com}, \text{hermes.pyth.network}, \text{api.binance.com}\}$$
+$$\text{URL}_{\text{Evidence}} \in \{\text{contract.mexc.com}, \text{api.binance.com}\}$$
 
 ### 6.2 Multi-Validator Consensus Algorithm
 GenLayer splits execution into a **Leader** and multiple **Validators**:

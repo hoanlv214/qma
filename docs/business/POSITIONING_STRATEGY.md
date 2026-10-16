@@ -98,7 +98,7 @@ The marketplace enforces an immutable **Proof of Intelligence** lifecycle:
 
 ### A. QMA (Quantitative Market Analytics Engine)
 - **What it is:** The internal analytical algorithm and regime library.
-- **Function:** Takes a live anomaly (e.g., extreme funding divergence between Binance and MEXC or Polymarket skew) and performs nearest-neighbor historical analog matching.
+- **Function:** Takes a live anomaly (e.g., extreme funding divergence between Binance and MEXC or open interest skew) and performs nearest-neighbor historical analog matching.
 - **Output:** Probability distributions, win rates, historical analog regimes, and expected volatility windows.
 - **Relationship to Brand:** QMA is an internal analytical asset of the platform, not the public brand.
 
@@ -108,7 +108,7 @@ The marketplace enforces an immutable **Proof of Intelligence** lifecycle:
   - Collects protocol fee splits from marketplace query volume.
   - Dynamically calculates operating burn rate and maintains a strict 30-day liquid reserve buffer.
   - **Idle Sweep:** Automatically deposits surplus liquid USDC into an ERC-4626 tokenized money market vault (USYC, ~5.0% APY) so corporate capital never sits idle at 0% yield.
-  - **Just-In-Time (JIT) Payables:** When operational expenses arise (Pyth oracle feeds, model inference tolls, server infrastructure), it redeems the exact required micro-amount from yield principal without premature liquidation.
+  - **Just-In-Time (JIT) Payables:** When operational expenses arise (real-time market data feeds, model inference tolls, server infrastructure), it redeems the exact required micro-amount from yield principal without premature liquidation.
   - **Euthyna Continuous Audit:** Hashes every treasury movement into a tamper-evident SHA-256 state chain (`GET /api/v1/treasury/audit/euthyna`).
 - **Relationship to Brand:** Vestiarion is the internal treasury machinery, not a consumer product.
 

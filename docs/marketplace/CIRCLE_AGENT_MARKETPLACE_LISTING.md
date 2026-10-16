@@ -26,7 +26,7 @@ This document is the official submission and verification package for registerin
 ## 2. Service Description & Value Proposition
 
 **Tagline:**
-> Real-time quantitative market intelligence, cross-exchange funding rate arbitrage signals, and prediction market divergence with sub-second Circle USDC micropayments on Arc and on-chain GenLayer SLA settlement verification.
+> Real-time quantitative market intelligence, cross-exchange funding rate arbitrage signals, and open interest cascade modeling with sub-second Circle USDC micropayments on Arc and on-chain GenLayer SLA settlement verification.
 
 **Detailed Description:**
 QMA enables autonomous trading agents, algorithmic treasuries, and risk engines to query institutional-grade quantitative intelligence on demand. By leveraging Circle Gateway Nanopayments (x402), external agents can purchase single-query intelligence reports ($0.002 - $0.005 USDC) with sub-second finality without managing API keys, subscriptions, or credit card accounts.
@@ -81,7 +81,7 @@ When external agents search the Circle Marketplace, the following prompts automa
 
 1. *"Find funding rate arbitrage opportunities and market anomalies for BTC and ETH."*
 2. *"Inspect quantitative analogs and historical win-rate diagnostics for MBOX."*
-3. *"Check Polymarket prediction divergence vs perpetual futures funding rate."*
+3. *"Check open interest regime and liquidation cascade risk."*
 4. *"Underwrite collateral credit risk score on Arc."*
 
 ---

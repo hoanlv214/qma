@@ -55,7 +55,7 @@ qma/
 │   ├── repositories/            # Storage Abstraction (JsonStorage / SupabaseStorage)
 │   ├── schemas/                 # Pydantic v2 Request/Response Data Transfer Objects
 │   └── services/                # Authoritative Domain Business Logic & Services
-│       ├── plugins/             # Provider Plugins (funding_provider, polymarket_provider, pyth_provider)
+│       ├── plugins/             # Provider Plugins (funding_provider, oi_provider)
 │       ├── agent_decision.py    # 4-Tier Decision Engine Cascade (Regex -> Laya -> LLM -> Greedy)
 │       ├── laya_decision.py     # Laya Non-Autoregressive System 1 Neural Router (<35ms)
 │       ├── agent_synthesis.py   # Hybrid BYO-Key Domain Analyst Sub-Agents
@@ -98,7 +98,7 @@ graph TD
         GenLayerSvc["GenLayer SLA Arbiter (genlayer_arbiter.py)"]
         PolicySvc["Spending Policy Engine (spending_policy.py)"]
         DecisionEngine["4-Tier Decision Engine (agent_decision.py / laya_decision.py)"]
-        ProviderRegistry["Provider Plugins Registry (funding, polymarket, pyth)"]
+        ProviderRegistry["Provider Plugins Registry (funding_memory, oi_memory)"]
         SynthesisSvc["Analyst Sub-Agents (agent_synthesis.py)"]
         ERC8004Svc["ERC-8004 Identity & Reputation (erc8004_service.py)"]
         IncidentSvc["Incident & Governance Engine (incident_engine.py)"]
@@ -116,8 +116,7 @@ graph TD
         ArcRPC["Arc Testnet RPC (Chain 5042002)"]
         CircleAPI["Circle Developer Platform & Gateway (x402)"]
         GenLayerRPC["GenLayer Studio Next (Chain 61997)"]
-        PythHermes["Pyth Network Hermes Sub-Second WebSocket"]
-        PolymarketGamma["Polymarket Gamma REST API"]
+        MEXCContract["MEXC Derivatives Contract & Ticker API"]
     end
 
     FastAPI_Router --> ServiceLayer
@@ -148,8 +147,8 @@ graph TD
     end
 
     subgraph AnalysisBoundary["3. Quantitative & Analyst Sub-Agent Boundary"]
-        DataPlugins["Data Provider Plugins<br/>• funding_memory (MEXC Anomaly)<br/>• polymarket_divergence (Basis Arb)<br/>• pyth_stress_band (Oracle Stress)"]
-        AnalystSubAgents["Role 3: Specialized Analyst Sub-Agents<br/>(agent_synthesis.py)<br/>• Funding Arbitrage Specialist<br/>• Cross-Market Prediction Specialist<br/>• Oracle Volatility & Risk Specialist"]
+        DataPlugins["Data Provider Plugins<br/>• funding_memory (Funding Disparity Model)<br/>• oi_memory (OI Regime & Liquidation Model)"]
+        AnalystSubAgents["Role 3: Specialized Analyst Sub-Agents<br/>(agent_synthesis.py)<br/>• Funding Disparity Arbitrage Specialist<br/>• Open Interest Regime & Liquidation Specialist"]
         DataPlugins --> AnalystSubAgents
     end
 
@@ -170,7 +169,7 @@ graph TD
 3. **Role 3: Specialized Analyst Sub-Agents (`backend/app/services/agent_synthesis.py`)**:
    - **Responsibility**: Translates raw quantitative mathematics into domain-specific executive trading strategy memos. Implements a **BYO-Key (Bring Your Own Key)** architecture:
      - *Scenario A (Default)*: Delivers pure quantitative metrics ($0 server inference cost).
-     - *Scenario B (BYO-Key)*: Dispatches domain specialists (`Cross-Market Prediction Specialist` for Polymarket, `Low-Latency Oracle Volatility Specialist` for Pyth) using client-supplied keys without server retention.
+     - *Scenario B (BYO-Key)*: Dispatches domain specialists (`Funding Disparity Specialist` for funding anomalies, `Open Interest Regime Specialist` for leverage/liquidation dynamics) using client-supplied keys without server retention.
 4. **Role 4: On-Chain Agent Identity & Reputation (`backend/app/services/erc8004_service.py`)**:
    - **Responsibility**: Maintains the immutable on-chain passport of QMA on Arc Testnet (**ERC-8004 Token ID `#896885`**). Stores audit trails, execution proofs, and GenLayer SLA consensus verdicts.
 
@@ -178,17 +177,12 @@ graph TD
 
 ### 3.4 Quantitative Intelligence Provider Catalog & Data Sourcing
 
-The platform registers 3 primary quantitative intelligence plugins in `backend/app/core/provider_registry.py`:
+The platform registers 2 core institutional quantitative intelligence models in `backend/app/core/provider_registry.py`:
 
 | Provider ID | Plugin Class & Source | Data Sourcing Protocol | Primary Signal & Output Payload | Execution Mode |
 |---|---|---|---|---|
-| **`funding_memory`** | `FundingProviderV2`<br>([`funding_provider.py`](file:///c:/Users/Admin/Downloads/code/qma/backend/app/services/plugins/funding_provider.py)) | MEXC Contract API (`/contract/funding_rate`) + historical analog clusters | Disparity between perp funding and spot trends; liquidation squeeze risk; historical win-rate analogs. | **Continuous Live Scanning** (`scan_live_anomalies` feeds the real-time sidebar & ticker). |
-| **`polymarket_divergence`** | `PolymarketDivergenceProviderV2`<br>([`polymarket_provider.py`](file:///c:/Users/Admin/Downloads/code/qma/backend/app/services/plugins/polymarket_provider.py)) | Polymarket Gamma API (`gamma-api.polymarket.com/events`) + MEXC Funding Rate | Event probability vs perpetual futures implied odds; **Basis Arbitrage** signals; Kelly capital sizing; **Circle CCTP** route parameters (Polygon $\leftrightarrow$ Arc). | **On-Demand Intelligence Oracle** (Triggered via `POST /full-report` or `/preview`). |
-| **`pyth_stress_band`** | `PythStressBandProviderV2`<br>([`pyth_provider.py`](file:///c:/Users/Admin/Downloads/code/qma/backend/app/services/plugins/pyth_provider.py)) | Pyth Network Hermes Protocol (`hermes.pyth.network/v2/updates/price/latest`) | Sub-second confidence interval spread ($\pm \sigma$); tail-risk regime classification (`CALM` $\rightarrow$ `CRITICAL_VOLATILITY`); cryptographic **EIP-712 Execution Intent** for automated DEX hedging on Arc. | **On-Demand Intelligence Oracle** (Triggered via `POST /full-report` or `/preview`). |
-
-> [!NOTE]
-> **Why Polymarket & Pyth are not on the Live Ticker:**
-> The real-time sidebar ticker polls `GET /api/v1/providers/funding_memory/live-anomalies`. Polymarket and Pyth are designed as heavy, event-driven quantitative oracles queried per-asset on demand. They require targeted parameters (`symbol`, event slug, feed ID) and deliver high-value actionable execution payloads (Kelly sizing, EIP-712 trade intents) rather than superficial price tickers.
+| **`funding_memory`** | `FundingProviderV2`<br>([`funding_provider.py`](file:///c:/Users/Admin/Downloads/code/qma/backend/app/services/plugins/funding_provider.py)) | MEXC Contract API (`/contract/funding_rate`) + historical analog clusters | Disparity between perp funding and spot trends; liquidation squeeze risk; historical win-rate analogs (Mahalanobis distance, Ledoit-Wolf covariance). | **Continuous Live Scanning & On-Demand Delivery** (feeds the real-time sidebar & ticker, plus full reports). |
+| **`oi_memory`** | `OIProviderV2`<br>([`oi_provider.py`](file:///c:/Users/Admin/Downloads/code/qma/backend/app/services/plugins/oi_provider.py)) | MEXC Contract API (Open Interest & Volume Depth) + historical liquidation distributions | Open interest expansion/contraction regimes, leverage clustering, liquidation cascade vulnerabilities. | **On-Demand Intelligence Oracle** (Triggered via `POST /full-report` or `/preview`). |
 
 ---
 
@@ -303,9 +297,9 @@ sequenceDiagram
 
 ---
 
-### 4.3 FL-03: Cross-Market Provider Execution & Hybrid BYO-Key Synthesis
+### 4.3 FL-03: Quantitative Model Execution & Hybrid BYO-Key Synthesis
 
-Shows how specialized quantitative providers (`polymarket_divergence`, `pyth_stress_band`) ingest real-time market feeds and synthesize actionable strategies:
+Shows how core quantitative providers (`funding_memory`, `oi_memory`) ingest real-time market feeds and synthesize actionable strategies:
 
 ```mermaid
 sequenceDiagram
@@ -313,10 +307,10 @@ sequenceDiagram
     actor Buyer as Buyer Agent / User
     participant Router as Reports API (/api/v1/providers/{id})
     participant Auth as Auth & Entitlements
-    participant PolyProv as Polymarket Provider (polymarket_divergence)
-    participant PythProv as Pyth Provider (pyth_stress_band)
-    participant PolyAPI as Polymarket Gamma REST API
-    participant PythHermes as Pyth Hermes Low-Latency WebSocket
+    participant FundProv as Funding Provider (funding_memory)
+    participant OIProv as OI Provider (oi_memory)
+    participant MexcAPI as MEXC Contract Derivatives API
+    participant QMAEng as QMA Quantitative Engine
     participant Synth as Agent Synthesis (agent_synthesis.py)
     participant CloudLLM as User LLM (BYO-Key: OpenAI/Gemini/Groq)
     participant GenLayer as GenLayer Intelligent Contract
@@ -325,23 +319,25 @@ sequenceDiagram
     Router->>Auth: authorize_paid_invoice(invoice_id, token)
     Auth-->>Router: Authorized (Status: paid)
 
-    alt Provider: polymarket_divergence
-        Router->>PolyProv: deliver(context, invoice_id)
-        PolyProv->>PolyAPI: GET /events?active=true (Fetch Event Odds)
-        PolyAPI-->>PolyProv: Real-time Outcome Probabilities
-        PolyProv->>PolyProv: Calculate Basis Spread vs MEXC Perp Funding
-        PolyProv-->>Router: Basis Arbitrage Metrics & CCTP Bridge Routes
-    else Provider: pyth_stress_band
-        Router->>PythProv: deliver(context, invoice_id)
-        PythProv->>PythHermes: GET /v2/updates/price/latest (Sub-second Feed)
-        PythHermes-->>PythProv: Price, Confidence (+/- sigma), Exponent
-        PythProv->>PythProv: Classify Stress Regime & Generate EIP-712 Intent
-        PythProv-->>Router: Volatility Stress Metrics & DEX Hedge Intent
+    alt Provider: funding_memory
+        Router->>FundProv: deliver(context, invoice_id)
+        FundProv->>MexcAPI: GET /contract/funding_rates (Live Funding Rates)
+        MexcAPI-->>FundProv: Disparity rates across assets
+        FundProv->>QMAEng: Evaluate Mahalanobis distance & analog win-rates
+        QMAEng-->>FundProv: Regime score, anomaly clusters & analog returns
+        FundProv-->>Router: Funding disparity metrics & analog payload
+    else Provider: oi_memory
+        Router->>OIProv: deliver(context, invoice_id)
+        OIProv->>MexcAPI: GET /contract/open_interest (OI & Volume Depth)
+        MexcAPI-->>OIProv: Open interest & volume depth metrics
+        OIProv->>QMAEng: Evaluate leverage clustering & liquidation risk
+        QMAEng-->>OIProv: OI expansion regime & liquidation thresholds
+        OIProv-->>Router: Open interest metrics & liquidation payload
     end
 
     opt Hybrid BYO-Key Intelligence Layer (user_llm_key present)
         Router->>Synth: generate_agent_synthesis(provider_id, metrics)
-        Note over Synth: Activates Specialist Sub-Agent:<br/>- Polymarket: Cross-Market Prediction Specialist<br/>- Pyth: Low-Latency Oracle Volatility Specialist
+        Note over Synth: Activates Specialist Sub-Agent:<br/>- Funding: Funding Disparity Arbitrage Specialist<br/>- OI: Open Interest Regime & Liquidation Specialist
         Synth->>CloudLLM: Executive Analysis Prompt
         CloudLLM-->>Synth: Actionable Trading Memo & Risk Commentary
         Synth-->>Router: payload["agent_synthesis"] appended
@@ -450,8 +446,8 @@ To eliminate cross-module ambiguities, the authoritative source of truth for eve
 | **Agent Spending Governance** | `backend/app/services/spending_policy.py` | `agent_wallets.json` (`agent_wallets`) | `tests/unit/test_spending_policy_and_delegation.py` |
 | **4-Tier Decision Engine** | `backend/app/services/agent_decision.py` | Stateless Cascading Evaluator | `tests/unit/test_agent_decision.py` |
 | **Laya System 1 Neural Router**| `backend/app/services/laya_decision.py` | Local Encoder Model (`~/.cache/laya_models/`) | `tests/unit/test_agent_decision.py` |
-| **Polymarket Arbitrage Plugin**| `backend/app/services/plugins/polymarket_provider.py` | Memory Cache (`_POLY_CACHE`) | `tests/api_v1/test_api_v1_endpoints.py` |
-| **Pyth Volatility Plugin** | `backend/app/services/plugins/pyth_provider.py` | Memory Cache (`_HERMES_CACHE`) | `tests/api_v1/test_api_v1_endpoints.py` |
+| **Funding Disparity Plugin** | `backend/app/services/plugins/funding_provider.py` | Engine Analog Cache (`QMAEngine`) | `tests/api_v1/test_api_v1_endpoints.py` |
+| **Open Interest Regime Plugin**| `backend/app/services/plugins/oi_provider.py` | Engine Regime Cache (`QMAEngine`) | `tests/api_v1/test_api_v1_endpoints.py` |
 | **Analyst Sub-Agents (BYO-Key)**| `backend/app/services/agent_synthesis.py` | Ephemeral / Non-retained Prompting | `tests/unit/test_agent_synthesis.py` |
 | **ERC-8004 Identity & Passport**| `backend/app/services/erc8004_service.py` | Arc ERC-8004 Contract (Token `#896885`) | `tests/unit/test_erc8004_service.py` |
 | **Decentralized SLA Oracle** | `backend/app/services/genlayer_arbiter.py` | GenLayer Intelligent Contract (`0x...`) | `tests/unit/test_genlayer_sla.py` |

@@ -173,7 +173,7 @@ The Access column must match the operation's `x-qma-access` value in
 | POST | `/api/v1/sessions/{session_id}/start` | `wallet-owner` | Queue a session |
 | POST | `/api/v1/sessions/{session_id}/stop` | `wallet-owner` | Stop a session |
 | GET | `/api/v1/stablefx/pairs` | `public` | List supported Circle StableFX pairs on Arc (rates carry a `rate_source` provenance label) |
-| GET | `/api/v1/stablefx/quote` | `public` | Get institutional StableFX conversion quote (live Pyth EUR/USD rate when reachable, labeled `rate_source` + `rate_note`; synthesized baseline fallback) |
+| GET | `/api/v1/stablefx/quote` | `public` | Get institutional StableFX conversion quote (live Forex EUR/USD rate when reachable, labeled `rate_source` + `rate_note`; synthesized baseline fallback) |
 | POST | `/api/v1/stablefx/settle` | `public` | Execute institutional Circle StableFX atomic settlement; the deposit tx must contain a Transfer of the quoted source token from `recipient_address` to the desk for at least `amount`, and each deposit tx settles at most once |
 | GET | `/api/v1/swap/pairs` | `public` | List swap-router tokens (USDC/EURC/USYC/WETH) and aggregated Arc testnet venues |
 | GET | `/api/v1/swap/quote` | `public` | Quote a swap across all venues (Uniswap V2, Xylo, Lunex, USYC NAV redemption, StableFX desk) with best route, slippage-protected min_out, oracle-anchor divergence flag, and a TTL-bound quote_id |

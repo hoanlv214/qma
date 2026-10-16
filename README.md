@@ -23,7 +23,7 @@
 
 Everything below runs against the live deployment without requiring any private key, crypto wallet, or upfront payment:
 
-1. **Explore Live Market Anomalies**: Visit **[qma-three.vercel.app](https://qma-three.vercel.app/)** to inspect real-time quantitative anomaly feeds ingested from live orderbooks (OKX/MEXC Funding Disparity, Polymarket vs Spot Basis, Liquidation Radar).
+1. **Explore Live Market Anomalies**: Visit **[qma-three.vercel.app](https://qma-three.vercel.app/)** to inspect real-time quantitative anomaly feeds ingested from live orderbooks (OKX/MEXC Funding Disparity, Open Interest Regime Shifts, Liquidation Radar).
 2. **Inspect an x402 Nanopayment Challenge**: Query any premium report endpoint (e.g. `GET /api/v1/reports/funding-rates/sample`). The gateway responds with standard `HTTP 402 Payment Required` headers containing dynamic pricing ($0.002 Preview / $0.005 Full Report) and EIP-712 settlement parameters.
 3. **Inspect the AI CFO Treasury Console**: Open the Treasury Radar to view protocol balance sheet allocations: liquid operational cash reserves, ring-fenced creator liabilities (80% revenue share), and automated idle-cash allocation into the ERC-4626 USYC Yield Vault.
 4. **Trigger a JIT (Just-In-Time) Cashflow Cycle**: Observe how the autonomous CFO redeems vault shares dynamically when creator claims or operating payables fall due, maintaining 100% solvency without manual human intervention.
@@ -75,7 +75,7 @@ QMA solves this through a unified, self-sustaining financial architecture:
 
 | Area | What the Platform Does | Code Implementation | Status & Evidence |
 | :--- | :--- | :--- | :--- |
-| **Market Intelligence** | Ingests real-time orderbook depth and funding rates across OKX, MEXC, Pyth, and Polymarket, calculating Z-scores and basis divergence. | `backend/app/services/anomaly_detector.py` | `[Implemented]` Live feeds active |
+| **Market Intelligence** | Ingests real-time orderbook depth, funding disparity, and open interest dynamics across derivatives exchanges, calculating Mahalanobis Z-scores and liquidation regimes. | `backend/app/services/anomaly_detector.py` | `[Implemented]` Live feeds active |
 | **Circle x402 Payments** | Issues HTTP 402 challenge with EIP-712 payment authorization, replay defense, and idempotency tracking. | `backend/app/services/x402_gateway.py` | `[Implemented]` Protocol-level |
 | **Creator Monetization** | Creators register schemas, set pricing, and earn an automated 80% revenue split on every paid query. | `backend/app/services/creator_claims.py` | `[Implemented]` Live claim ledger |
 | **Pull-Payment Claims** | Creators claim accrued earnings non-custodially via signed cryptographic proofs (`POST /api/v1/creators/claim`). | `backend/app/services/creator_claims.py` | `[Implemented]` Pull-payment safety |
