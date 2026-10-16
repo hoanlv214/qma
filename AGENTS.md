@@ -156,3 +156,22 @@ Do not load unrelated documentation.
 2. **Zero False Claims / Grounded Engineering**: Never invent or advertise features, CLI commands, or business workflows that do not exist in the codebase (e.g. do not invent fictitious CLI commands like `arc-cfo` or fictitious HR contractor payroll workflows).
 3. **Canonical CLI Reference**: The sole canonical agent CLI in this repository is `qma` (`agents/bin/qma.js`), invoked via `$ qma agent run [options]` or `npx @hoanlv214/qma-cli agent run`.
 
+## Ponytail Operating Principles & Autonomous Skills Routing
+
+All engineering tasks, code audits, bug fixes, refactoring, and feature implementations MUST strictly adhere to the **Ponytail Engineering Hierarchy** and **Autonomous Skills Routing Directive** (detailed in `.agents/rules/PONYTAIL_AND_AUTONOMOUS_SKILLS.md`):
+
+1. **The Ponytail Hierarchy**:
+   > **Correct > Safe > Holds under load > Tested > Fast > Lean**
+
+2. **Mandatory 6-Axis Audit**:
+   - **Axis 1 (Concurrency & Contention)**: Nested lock safety, thread pool bounding (`ThreadPoolExecutor(max_workers=...)`), connection pool lifecycle management.
+   - **Axis 2 (Memory & Eviction)**: Sliding window rate limits, bounded LRU/TTL caches, background cleanup threads.
+   - **Axis 3 (Security Perimeter)**: Origin shielding (trusted proxy IP extraction), fail-closed internal secret checks.
+   - **Axis 4 (Financial & Settlement Invariants)**: Zero mock/synthetic bypasses on production routes, atomic database constraints, instant in-memory eviction upon persistence failure.
+   - **Axis 5 (Modular Architecture)**: Clean separation of concerns, single-responsibility services, backward-compatible re-export shims.
+   - **Axis 6 (Evidence Over Assertion)**: Empirical proof via green `pytest` and build runs before declaring completion.
+
+3. **Autonomous Skill Discovery**:
+   - The agent MUST proactively detect the task domain and automatically engage corresponding skills (e.g. `agent-architecture-audit`, `verification-loop`, `fastapi-patterns`, `postgres-patterns`, `test-driven-development`, `ui-ux-pro-max`, `codegraph`) without waiting for explicit user prompts.
+
+
