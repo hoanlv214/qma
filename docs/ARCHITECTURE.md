@@ -12,7 +12,7 @@
 **QMA** (or **QMA**) is an autonomous quantitative intelligence and treasury management platform operating natively on the **Arc blockchain** (Chain ID `5042002` / `5042`) with USDC native gas settlement, augmented by decentralized intelligent contract consensus on **GenLayer** (Chain ID `61997`).
 
 The platform provides a dual-interface architecture:
-1. **Autonomous Machine-to-Machine Commerce**: AI agents running the canonical CLI (`@hoanlv214/qma-cli` / `$ qma agent run`) autonomously evaluate, acquire, and settle intelligence assets using programmable Circle agent wallets via HTTP 402 / x402 protocols.
+1. **Autonomous Machine-to-Machine Commerce**: AI agents running the canonical CLI (`qma-cli` / `$ qma agent run`) autonomously evaluate, acquire, and settle intelligence assets using programmable Circle agent wallets via HTTP 402 / x402 protocols.
 2. **Autonomous Corporate CFO & Treasury Management**: Continuous automated optimization of platform and agent liquidity, autonomously sweeping idle USDC cash into tokenized USYC yielding vaults (ERC-4626) and executing Just-In-Time (JIT) redemptions for operational bill payment under Athenian Euthyna cryptographic audit logging.
 
 ---
@@ -67,7 +67,7 @@ qma/
 │   ├── src/hooks/               # Custom React Hooks (usePayment, useAgentBuyer, etc.)
 │   ├── src/services/            # Client SDK Adapters (Reown AppKit, Circle Onramp, Swap Kit)
 │   └── src/utils/               # Pure Utilities, Formatting, & Math Helpers
-├── agents/                      # Canonical Autonomous Agent CLI & SDK (@hoanlv214/qma-cli)
+├── agents/                      # Canonical Autonomous Agent CLI & SDK (qma-cli)
 │   ├── bin/qma.js               # CLI Executable Entrypoint ($ qma agent run)
 │   ├── src/core/                # Session Engine, Durable Tick Loop, Agent Planner
 │   ├── src/payment/             # Arc Gasless Settlement Executor & Proof Guards
@@ -161,7 +161,7 @@ graph TD
     Dispatcher -->|Settlement Verification| ERC8004Identity
 ```
 
-1. **Role 1: Autonomous Buyer Agent (`agents/`, `@hoanlv214/qma-cli`, Python SDK)**:
+1. **Role 1: Autonomous Buyer Agent (`agents/`, `qma-cli`, Python SDK)**:
    - **Responsibility**: Represents the client/trader. Runs client-side or in an isolated container.
    - **Security Invariant**: Retains custody of its own Circle Developer-Controlled or User-Controlled Wallet. Private keys and spending OTPs **never pass through backend storage**.
 2. **Role 2: Marketplace Dispatcher & Escrow Arbiter (`backend/app/api/v1/endpoints/agent.py`)**:

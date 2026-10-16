@@ -24,7 +24,7 @@ Use this map to find the owner of a behavior. Not every directory needs a separa
 | **Package Management** | [`package-managers.md`](package-managers.md) | Monorepo runtime tooling (`bun` for TypeScript/Node workspaces, `uv` for Python) |
 | **Environment Tiers** | [`environments.md`](environments.md) | Parameter matrix across Local (`dev`), Staging, and Production tiers |
 | **Database Architecture** | [`database.md`](database.md) | Schema definitions, table relationships, PostgreSQL/Supabase setup |
-| **NPM CLI Packaging** | [`infrastructure/NPM_PUBLISHING.md`](infrastructure/NPM_PUBLISHING.md) | Packaging, testing, SemVer, and publishing flow for `@hoanlv214/qma-cli` |
+| **NPM CLI Packaging** | [`infrastructure/NPM_PUBLISHING.md`](infrastructure/NPM_PUBLISHING.md) | Packaging, testing, SemVer, and publishing flow for `qma-cli` |
 | **Deployment Setup** | [`infrastructure/DEPLOYMENT_SETUP.md`](infrastructure/DEPLOYMENT_SETUP.md) | Render/Vercel branch configuration, environment secrets, and deploy steps |
 | **CLI Deployment** | [`infrastructure/CLI_DEPLOYMENT.md`](infrastructure/CLI_DEPLOYMENT.md) | Zero-UI deployment via Supabase, Vercel, and Render CLIs |
 | **MCP Server** | [`mcp/README.md`](mcp/README.md) | Hosted MCP endpoint, OAuth 2.1 PKCE connector, Claude/ChatGPT integration |

@@ -6,7 +6,7 @@
 [![API docs: live](https://img.shields.io/badge/API-FastAPI_%2Fdocs-6E56CF)](https://driveway-expansive-onyx.ngrok-free.dev/docs)
 [![settles on Arc](https://img.shields.io/badge/settles_on-Arc_Mainnet_%26_Testnet-1f1f1f)](https://docs.arc.network)
 [![payments: Circle x402](https://img.shields.io/badge/payments-Circle_x402-2775CA)](https://github.com/circlefin)
-[![CLI: @hoanlv214/qma-cli](https://img.shields.io/badge/CLI-%40hoanlv214%2Fqma--cli-F59E0B)](https://www.npmjs.com/package/@hoanlv214/qma-cli)
+[![CLI: qma-cli](https://img.shields.io/badge/CLI-qma--cli-F59E0B)](https://www.npmjs.com/package/qma-cli)
 [![database: PostgreSQL 16 Migrations](https://img.shields.io/badge/database-PostgreSQL_16_Migrations-336791)](scripts/run_backend_local.py)
 [![audit: Euthyna SHA-256](https://img.shields.io/badge/audit-Euthyna_SHA--256-8B5CF6)](docs/audit/SECURITY_AND_AUDIT_REPORT.md)
 [![license: MIT](https://img.shields.io/badge/license-MIT-6b7280)](LICENSE)
@@ -84,7 +84,7 @@ QMA solves this through a unified, self-sustaining financial architecture:
 | **JIT Redemption** | Automatically burns vault shares to redeem USDC ahead of creator payouts or incoming bills. | `backend/app/services/usyc_treasury.py` | `[Implemented]` Verified on-chain tx |
 | **Policy vs Model** | Deterministic hard constraints in Python/contracts strictly overrule LLM proposals. | `backend/app/services/policy_vs_model.py` | `[Implemented]` Recorded override log |
 | **Euthyna Audit Trail** | Every state transition is SHA-256 hash-chained with context, parent hash, and timestamp in PostgreSQL. | `backend/app/services/euthyna_audit.py` | `[Implemented]` 252,594 chained records |
-| **Agent CLI & MCP** | Canonical CLI and Model Context Protocol (MCP) server for external autonomous agents. | `agents/bin/qma.js` & `backend/app/mcp` | `[Implemented]` `@hoanlv214/qma-cli` |
+| **Agent CLI & MCP** | Canonical CLI and Model Context Protocol (MCP) server for external autonomous agents. | `agents/bin/qma.js` & `backend/app/mcp` | `[Implemented]` `qma-cli` |
 
 ---
 
@@ -133,7 +133,7 @@ Autonomous agents can buy quantitative intelligence from the command line:
 
 ```bash
 # Via npx (zero installation)
-npx @hoanlv214/qma-cli agent run --task "funding anomaly watchlist" --budget 0.05 --json
+npx qma-cli agent run --task "funding anomaly watchlist" --budget 0.05 --json
 
 # Direct execution
 node agents/bin/qma.js agent run --task "basis arbitrage" --budget 0.02

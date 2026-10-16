@@ -154,7 +154,7 @@ Do not load unrelated documentation.
 
 1. **Independent Product Identity**: QMA must always be built, maintained, and presented as an independent, production-grade autonomous intelligence application on Arc. NEVER mention "hackathon", "Tameion", "Canteen", "competition", or "prize" in any UI copy, landing page, documentation, code comments, or commit messages.
 2. **Zero False Claims / Grounded Engineering**: Never invent or advertise features, CLI commands, or business workflows that do not exist in the codebase (e.g. do not invent fictitious CLI commands like `arc-cfo` or fictitious HR contractor payroll workflows).
-3. **Canonical CLI Reference**: The sole canonical agent CLI in this repository is `qma` (`agents/bin/qma.js`), invoked via `$ qma agent run [options]` or `npx @hoanlv214/qma-cli agent run`.
+3. **Canonical CLI Reference**: The sole canonical agent CLI in this repository is `qma` (`agents/bin/qma.js`), invoked via `$ qma agent run [options]` or `npx qma-cli agent run`.
 
 ## Ponytail Operating Principles & Autonomous Skills Routing
 
