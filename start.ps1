@@ -19,7 +19,7 @@ Write-Host "  -> [2/3] Arc Gateway:  http://localhost:3000  (Health: http://loca
 Write-Host "  -> [3/3] Web Frontend: http://localhost:5173" -ForegroundColor Cyan
 
 # 2. Launch Services in Separate Windows
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "`$Host.UI.RawUI.WindowTitle = 'QMA Backend (FastAPI :8000)'; Write-Host '=== QMA FastAPI Backend (Port 8000) ===' -ForegroundColor Cyan; uv run uvicorn main:app --reload --port 8000"
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "`$Host.UI.RawUI.WindowTitle = 'QMA Backend (FastAPI :8000)'; Write-Host '=== QMA FastAPI Backend (Port 8000) ===' -ForegroundColor Cyan; uv run uvicorn backend.app.main:app --reload --port 8000"
 
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "`$Host.UI.RawUI.WindowTitle = 'QMA Arc Gateway (:3000)'; Write-Host '=== QMA Arc Gateway (Port 3000) ===' -ForegroundColor Cyan; bun run dev:gateway"
 

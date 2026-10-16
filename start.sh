@@ -37,7 +37,7 @@ cleanup() {
 trap cleanup SIGINT SIGTERM EXIT
 
 # Start services
-uv run uvicorn main:app --reload --port 8000 &
+uv run uvicorn backend.app.main:app --reload --port 8000 &
 P1=$!
 
 bun run dev:gateway &

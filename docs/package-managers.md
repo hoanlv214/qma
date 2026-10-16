@@ -95,7 +95,7 @@ uv venv
 uv pip install -r requirements.txt
 
 # 3. Run FastAPI dev server directly with uv (auto-detects virtual environment):
-uv run uvicorn main:app --reload --port 8000
+uv run uvicorn backend.app.main:app --reload --port 8000
 
 # 4. Run test suite:
 uv run pytest tests/ -q
@@ -129,7 +129,7 @@ Frontend deployment on Vercel is configured to use Bun:
 Backend build on Render uses `uv` to speed up deployment builds from 90s to 5s:
 ```yaml
 buildCommand: pip install uv && uv pip install --system -r requirements.txt
-startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+startCommand: uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT --workers 1
 ```
 
 ---

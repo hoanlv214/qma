@@ -78,4 +78,4 @@ if __name__ == "__main__":
 
     mode = os.getenv("QMA_NETWORK_MODE", "mainnet")
     print(f"[*] Starting QMA Backend: http://localhost:{port} [mode={mode}, reload={reload_val}]")
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=reload_val, log_level="info")
+    uvicorn.run("backend.app.main:app", host="0.0.0.0", port=port, reload=reload_val, log_level="info")

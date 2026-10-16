@@ -29,7 +29,7 @@ def main():
     processes, logs = [], []
     try:
         for name, command, health in [
-            ("backend", [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8767", "--no-access-log"], "http://127.0.0.1:8767/api/v1/health"),
+            ("backend", [sys.executable, "-m", "uvicorn", "backend.app.main:app", "--host", "127.0.0.1", "--port", "8767", "--no-access-log"], "http://127.0.0.1:8767/api/v1/health"),
             ("gateway", ["node", "node_modules/tsx/dist/cli.mjs", "arc_gateway/server.ts"], "http://127.0.0.1:8768/health"),
         ]:
             # Never attach to or terminate an existing user service.

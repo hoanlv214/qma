@@ -40,7 +40,7 @@ Name: qma-api
 Runtime: Python
 Branch: main
 Build Command: pip install -r requirements.txt
-  Start Command: uvicorn main:app --host 0.0.0.0 --port $PORT
+  Start Command: uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT --workers 1
 ```
 
 For the rebuild preview, the tracked sample datasets are at repository-root
@@ -101,7 +101,7 @@ qma-api-rebuild
   Root Directory: .
   Branch: frontend/vite-react-rebuild
   Build Command: pip install -r requirements.txt
-  Start Command: uvicorn main:app --host 0.0.0.0 --port $PORT
+  Start Command: uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT --workers 1
 
 qma-arc-gateway-rebuild
   Runtime: Node
