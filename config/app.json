@@ -11,7 +11,7 @@
     "publicDocsUrl": "https://qma-three.vercel.app/docs"
   },
   "network": {
-    "defaultMode": "mainnet"
+    "defaultMode": "testnet"
   },
   "brand": {
     "name": "QMA Intelligence Marketplace",

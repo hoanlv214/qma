@@ -102,3 +102,42 @@ export const ARC_TOKENS = {
     decimals: 6,
   },
 };
+
+export function syncNetworkWithBackend(backendNetwork?: string) {
+  if (!backendNetwork) return;
+  const isTargetTestnet = backendNetwork.toLowerCase().includes("testnet");
+  const targetProfile = isTargetTestnet ? networksData.testnet : networksData.mainnet;
+
+  Object.assign(ARC_CHAIN, {
+    name: targetProfile.arc.name,
+    chainId: targetProfile.arc.chainId,
+    chainIdHex: targetProfile.arc.chainIdHex,
+    cctpDomain: targetProfile.arc.cctpDomain,
+    explorerUrl: targetProfile.arc.explorerUrl,
+    rpcUrl: targetProfile.arc.rpcUrl,
+    usdcAddress: targetProfile.arc.usdcAddress as `0x${string}`,
+    eurcAddress: targetProfile.arc.eurcAddress as `0x${string}`,
+    usycVaultAddress: targetProfile.arc.usycVaultAddress,
+    shieldContractAddress: targetProfile.arc.shieldContractAddress,
+    nativeCurrency: targetProfile.arc.nativeCurrency,
+  });
+
+  Object.assign(CIRCLE_CONTRACTS, {
+    gatewayWallet: targetProfile.contracts.gatewayWallet as `0x${string}`,
+    gatewayMinter: targetProfile.contracts.gatewayMinter as `0x${string}`,
+    cctpTokenMessenger: targetProfile.contracts.cctpTokenMessenger as `0x${string}`,
+    gatewayApiUrl: targetProfile.contracts.gatewayApiUrl,
+  });
+
+  ARC_TOKENS.USDC.address = ARC_CHAIN.usdcAddress;
+  ARC_TOKENS.EURC.address = ARC_CHAIN.eurcAddress;
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent("qma:network_synced", {
+        detail: { network: backendNetwork, isTestnet: isTargetTestnet },
+      })
+    );
+  }
+}
+
