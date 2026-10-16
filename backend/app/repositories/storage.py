@@ -682,9 +682,8 @@ def save_incident(storage_backend, incident: dict) -> None:
         logger.warning(f"Could not save incident: {exc}")
 
 
-
-
-
-
-
+def claim_settlement_for_invoice(storage_backend, settlement_id: str, invoice_id: str, invoices_db: Optional[dict] = None) -> bool:
+    if storage_backend and hasattr(storage_backend, "claim_settlement_for_invoice"):
+        return storage_backend.claim_settlement_for_invoice(settlement_id, invoice_id, invoices_db=invoices_db)
+    return True
 
