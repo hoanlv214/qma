@@ -137,13 +137,13 @@ def test_usyc_nav_adapter_rejects_wrong_direction():
 def test_stablefx_desk_adapter_uses_service(monkeypatch):
     def fake_quote(from_currency, to_currency, amount):
         assert from_currency == "USDC" and to_currency == "EURC" and amount == 10.0
-        return {"to_amount": 9.2, "rate_source": "PYTH_EURUSD_24_7_INDEX"}
+        return {"to_amount": 9.2, "rate_source": "FOREX_EURUSD_24_7_INDEX"}
 
     import backend.app.services.stablefx_service as fx
     monkeypatch.setattr(fx, "get_stablefx_quote", fake_quote)
     result = sr._quote_stablefx_desk("USDC", "EURC", 10_000_000)
     assert result["amount_out_raw"] == 9_200_000
-    assert result["rate_source"] == "PYTH_EURUSD_24_7_INDEX"
+    assert result["rate_source"] == "FOREX_EURUSD_24_7_INDEX"
 
 
 # ---------------------------------------------------------------------------

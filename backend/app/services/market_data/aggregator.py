@@ -109,11 +109,8 @@ class MultiExchangeAggregator(MarketDataAdapter):
             bybit_venue = next((v for v in venues if v.get("exchange") == "BYBIT"), None)
 
             primary_exchange = primary.get("exchange")
-            # Evidence anchor preference: GenLayer validators can only fetch
-            # contract.mexc.com / Polymarket / Pyth hosts (Binance and Bybit
-            # API hosts are allowlisted in the contract but unreachable from
-            # validators, see docs/TECH_DEBT.md #1), so anchor evidence to the
-            # MEXC venue whenever one exists.
+            # Evidence anchor preference: GenLayer validators fetch contract.mexc.com
+            # endpoints, so anchor evidence to the MEXC venue whenever one exists.
             if primary_exchange == "MEXC":
                 primary["verifiable"] = True
                 primary["verifiable_exchange"] = "MEXC"

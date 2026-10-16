@@ -20,7 +20,7 @@ def test_agent_sdk_identity_handshake():
         "standard": "ERC-8004",
         "name": "QMA Autonomous Intelligence Agent",
         "version": "2.4.0",
-        "capabilities": ["polymarket_divergence", "pyth_low_latency_stress", "x402_nanopayments"],
+        "capabilities": ["funding_disparity_analysis", "open_interest_regime_modeling", "x402_nanopayments"],
     }
     
     with patch.object(client._session, "get") as mock_get:
@@ -31,7 +31,7 @@ def test_agent_sdk_identity_handshake():
         
         identity = client.get_identity()
         assert identity["standard"] == "ERC-8004"
-        assert "pyth_low_latency_stress" in identity["capabilities"]
+        assert "funding_disparity_analysis" in identity["capabilities"]
 
 
 def test_agent_sdk_purchase_decision():
@@ -39,11 +39,11 @@ def test_agent_sdk_purchase_decision():
     
     mock_decision_payload = {
         "decision": True,
-        "provider_id": "pyth_stress_band",
+        "provider_id": "oi_memory",
         "tier": "preview",
-        "price_usdc": 0.003,
+        "price_usdc": 0.002,
         "confidence_score": 92,
-        "reasoning": "High confidence sub-second oracle volatility scan",
+        "reasoning": "High confidence open interest regime scan",
     }
     
     with patch.object(client._session, "post") as mock_post:
@@ -53,14 +53,14 @@ def test_agent_sdk_purchase_decision():
         mock_post.return_value = mock_res
         
         decision = client.evaluate_decision(
-            prompt="Scan ETH/USD for oracle illiquidity spikes",
+            prompt="Scan HYPE for open interest liquidation build-up",
             budget_usdc=0.01,
             max_price_usdc=0.005,
         )
         assert isinstance(decision, AgentDecision)
         assert decision.should_purchase is True
-        assert decision.provider_id == "pyth_stress_band"
-        assert decision.price_usdc == 0.003
+        assert decision.provider_id == "oi_memory"
+        assert decision.price_usdc == 0.002
 
 
 def test_agent_sdk_spending_policy():
@@ -113,13 +113,9 @@ def test_agent_sdk_purchase_and_unseal():
     mock_report_res = {
         "invoice_id": "inv_123",
         "report": {
-            "symbol": "ETH/USD",
-            "pyth_price_usdc": 2500.0,
-            "stress_regime": "CRITICAL_VOLATILITY",
-            "execution_intent": {
-                "order_type": "EIP-712 LimitHedgeOrder",
-                "message": {"side": "SELL", "targetPriceUsdc": 2487.5},
-            }
+            "symbol": "HYPE",
+            "weighted_win_rate": 88.5,
+            "sample_significance": "HIGH",
         }
     }
     
@@ -145,8 +141,8 @@ def test_agent_sdk_purchase_and_unseal():
         mock_get.return_value = r_res
         
         receipt = client.execute_signal_purchase(
-            provider_id="pyth_stress_band",
-            symbol="ETH/USD",
+            provider_id="funding_memory",
+            symbol="HYPE",
             tier="preview",
             settlement_id="set_mock_777",
         )
@@ -155,5 +151,4 @@ def test_agent_sdk_purchase_and_unseal():
         assert receipt.invoice_id == "inv_123"
         assert receipt.status == "paid"
         assert receipt.genlayer_verdict == "VALID"
-        assert receipt.report["stress_regime"] == "CRITICAL_VOLATILITY"
-        assert receipt.execution_intent["message"]["side"] == "SELL"
+        assert receipt.report["weighted_win_rate"] == 88.5

@@ -75,7 +75,7 @@ def compute_proof_of_spend_badge(total_sales_usdc: float) -> dict:
             "tier": "GOLD",
             "badge_name": "Gold Tier (Proof-of-Spend Verified)",
             "threshold_usdc": 1000.0,
-            "badge_icon": "🏆",
+            "badge_icon": "",
             "verified_onchain": True,
         }
     elif total_sales_usdc >= 500.0:
@@ -83,7 +83,7 @@ def compute_proof_of_spend_badge(total_sales_usdc: float) -> dict:
             "tier": "SILVER",
             "badge_name": "Silver Tier (Proof-of-Spend Verified)",
             "threshold_usdc": 500.0,
-            "badge_icon": "🥈",
+            "badge_icon": "",
             "verified_onchain": True,
         }
     elif total_sales_usdc >= 100.0:
@@ -91,14 +91,14 @@ def compute_proof_of_spend_badge(total_sales_usdc: float) -> dict:
             "tier": "BRONZE",
             "badge_name": "Bronze Tier (Proof-of-Spend Verified)",
             "threshold_usdc": 100.0,
-            "badge_icon": "🥉",
+            "badge_icon": "",
             "verified_onchain": True,
         }
     return {
         "tier": "GENESIS",
         "badge_name": "Genesis Creator",
         "threshold_usdc": 0.0,
-        "badge_icon": "🌱",
+        "badge_icon": "",
         "verified_onchain": True,
     }
 

@@ -37,9 +37,7 @@
   "providers": {
     "ownerWallets": {
       "funding": "0xb40971a5d88f31c7b8d88bf93f7d044f1383bf01",
-      "openInterest": "0x2222222222222222222222222222222222222222",
-      "polymarket": "0x3333333333333333333333333333333333333333",
-      "pyth": "0x4444444444444444444444444444444444444444"
+      "openInterest": "0x2222222222222222222222222222222222222222"
     },
     "disabled": [],
     "signalVerifiabilityGate": true

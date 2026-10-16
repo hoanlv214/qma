@@ -105,14 +105,11 @@ class Contract(gl.contract.Contract):
             raise gl.vm.UserError("Verification manifest symbol binding mismatch")
         ALLOWED_EVIDENCE_PREFIXES = (
             "https://contract.mexc.com/",
-            "https://clob.polymarket.com/",
-            "https://gamma-api.polymarket.com/",
-            "https://hermes.pyth.network/",
             "https://api.binance.com/",
             "https://api.bybit.com/",
         )
         if not any(evidence_url.startswith(prefix) for prefix in ALLOWED_EVIDENCE_PREFIXES):
-            raise gl.vm.UserError("Evidence URL must use an authoritative whitelisted API (MEXC, Polymarket, Pyth, Binance, Bybit)")
+            raise gl.vm.UserError("Evidence URL must use an authoritative whitelisted API (MEXC, Binance, Bybit)")
 
         order = {
             "invoice_id": invoice_id,

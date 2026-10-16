@@ -16,7 +16,6 @@ from pathlib import Path
 import threading
 import time
 from typing import Any, Dict, Optional
-import urllib.request
 
 import requests
 

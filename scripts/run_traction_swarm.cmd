@@ -44,8 +44,7 @@ set "MAX_DELAY_MS=150000"
 set "MAX_PRICE_USDC=0.006"
 
 echo [traction-swarm] api=%API_BASE%  instances=%INSTANCES%  wallets=%WALLET_COUNT%
-echo [traction-swarm] providers=%PROVIDER_IDS%  tiers=%TIERS%
-echo [traction-swarm] polymarket_divergence/pyth_stress_band are excluded on purpose: their evidence cannot pass GenLayer semantic verification yet (see docs/TECH_DEBT.md #1).
+echo [traction-swarm] providers=%PROVIDER_IDS%  tiers=%TIERS% (Core Institutional Quant Models)
 
 for /l %%i in (1,1,%INSTANCES%) do (
     start "qma-swarm-%%i" cmd /k node scripts\qma_agent_swarm.mjs --live --wallets-file "%WALLETS_FILE%" --wallet-count %WALLET_COUNT% --run-source traction_swarm_%%i

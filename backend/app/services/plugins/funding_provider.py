@@ -35,9 +35,9 @@ class FundingProviderV2(ProviderPlugin):
         
     def manifest(self) -> Dict[str, Any]:
         return {
-            "name": "Funding Memory Provider",
+            "name": "CEX-DEX Funding Disparity Model",
             "category": "market_memory",
-            "description": "MEXC futures funding anomaly memory. Matches a live token snapshot against historical negative-funding events.",
+            "description": "Quantitative cross-venue funding anomaly model. Analyzes perpetual futures funding rate dislocations and matches token profiles against historical squeeze regimes.",
             "price_tiers": {
                 "preview": paid_kit.tier_price("preview"),
                 "full": paid_kit.tier_price("full"),

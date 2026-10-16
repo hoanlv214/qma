@@ -14,7 +14,7 @@ class FakeProvider:
 
 class FakeRegistry:
     def require(self, provider_id):
-        if provider_id not in ("funding_memory", "polymarket_divergence"):
+        if provider_id not in ("funding_memory", "oi_memory"):
             raise KeyError(provider_id)
         return FakeProvider()
 

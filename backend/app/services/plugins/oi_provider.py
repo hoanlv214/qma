@@ -25,9 +25,9 @@ class OpenInterestMemoryProviderV2(ProviderPlugin):
         
     def manifest(self) -> Dict[str, Any]:
         return {
-            "name": "Open Interest Memory Provider",
+            "name": "Open Interest Regime & Liquidation Model",
             "category": "open_interest_memory",
-            "description": "Experimental provider that reuses the QMA analog engine while emphasizing turnover/open-interest context from the live anomaly snapshot.",
+            "description": "Quantitative derivatives open interest model analyzing capital flow concentration, contract turnover, and liquidation regime thresholds.",
             "price_tiers": {
                 "preview": paid_kit.tier_price("preview"),
                 "full": paid_kit.tier_price("full"),

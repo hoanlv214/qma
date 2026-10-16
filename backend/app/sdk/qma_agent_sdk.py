@@ -94,7 +94,7 @@ class QMAAgentClient:
             "prompt": prompt,
             "budget_usdc": budget_usdc,
             "max_price_usdc": max_price_usdc,
-            "allowed_providers": allowed_providers or ["funding_memory", "oi_memory", "polymarket_divergence", "pyth_stress_band"],
+            "allowed_providers": allowed_providers or ["funding_memory", "oi_memory"],
             "allowed_tiers": allowed_tiers or ["preview", "full"],
             "minimum_score": minimum_score,
             "use_llm": use_llm,

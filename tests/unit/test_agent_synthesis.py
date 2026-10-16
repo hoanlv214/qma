@@ -59,7 +59,7 @@ def test_groq_synthesis_uses_bearer_auth():
     test_key = "gsk_FakeGroqKey12345"
     with patch("requests.post", return_value=mock_resp) as mock_post:
         res = generate_agent_synthesis(
-            provider_id="polymarket_divergence",
+            provider_id="oi_memory",
             symbol="ETH",
             metrics={"score": 92.0},
             api_key=test_key,

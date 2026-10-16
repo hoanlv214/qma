@@ -63,7 +63,7 @@ def create_reports_router(deps: SimpleNamespace) -> APIRouter:
         request: Request,
         provider_id: str = Path(
             ...,
-            description="Quantitative intelligence provider identifier (e.g. 'funding_memory', 'polymarket_orderbook', 'pyth_entropy').",
+            description="Quantitative intelligence provider identifier (e.g. 'funding_memory', 'oi_memory').",
             examples=["funding_memory"],
         ),
         query: Optional[QueryModel] = Body(
@@ -118,7 +118,7 @@ def create_reports_router(deps: SimpleNamespace) -> APIRouter:
         request: Request,
         provider_id: str = Path(
             ...,
-            description="Quantitative intelligence provider identifier (e.g. 'funding_memory', 'polymarket_orderbook', 'pyth_entropy').",
+            description="Quantitative intelligence provider identifier (e.g. 'funding_memory', 'oi_memory').",
             examples=["funding_memory"],
         ),
         query: Optional[QueryModel] = Body(

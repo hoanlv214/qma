@@ -458,12 +458,8 @@ async function chooseRecommendation(entitlements = []) {
 
   if (requestedSymbol && requestedProvider && requestedProvider !== "funding_memory" && requestedProvider !== "oi_memory") {
     const tier = forcedTier || "preview";
-    const defaultPrices = {
-      polymarket_divergence: { preview: 0.002, full: 0.010 },
-      pyth_stress_band: { preview: 0.003, full: 0.015 },
-    };
-    const providerPrices = defaultPrices[requestedProvider] || { preview: 0.003, full: 0.015 };
-    const price = providerPrices[tier] || 0.003;
+    const providerPrices = { preview: 0.002, full: 0.005 };
+    const price = providerPrices[tier] || 0.002;
     return {
       pick: {
         candidate_id: `${requestedProvider}_${requestedSymbol}`,

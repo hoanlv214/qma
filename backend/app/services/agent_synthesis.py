@@ -44,8 +44,7 @@ def generate_agent_synthesis(
 
     role_title = {
         "funding_memory": "Funding Arbitrage & Liquidity Squeeze Specialist",
-        "polymarket_divergence": "Cross-Market Prediction & Basis Arbitrage Specialist",
-        "pyth_stress_band": "Low-Latency Oracle Volatility & Risk Specialist",
+        "oi_memory": "Open Interest & Liquidation Dynamics Specialist",
     }.get(provider_id, "Quantitative Intelligence Specialist")
 
     compact_metrics = {

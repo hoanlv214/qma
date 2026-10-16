@@ -64,7 +64,7 @@ class AgentReputationResponse(BaseModel):
 class ERC8183JobRequest(BaseModel):
     invoice_id: Optional[str] = Field(default=None, description="Previously created invoice bound to this provider, tier and query. Requires X-QMA-Access-Token after payment verification.")
     job_type: str = Field(default="intelligence_report", description="Requested task type", examples=["intelligence_report"])
-    provider_id: str = Field(..., description="Intelligence provider identifier", examples=["polymarket_divergence"])
+    provider_id: str = Field(..., description="Intelligence provider identifier", examples=["funding_memory"])
     query: dict = Field(..., description="Task input parameters query", examples=[{"symbol": "BTC"}])
     tier: Literal["preview", "full"] = Field(default="preview", description="Delivery tier", examples=["preview"])
     max_budget_usdc: float = Field(default=0.01, ge=0.002, allow_inf_nan=False, description="Maximum budget allocated in USDC", examples=[0.01])

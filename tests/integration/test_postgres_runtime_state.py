@@ -17,7 +17,9 @@ import pytest
 
 pytestmark = pytest.mark.storage_backend
 
-DB_URL = os.getenv("QMA_TEST_DATABASE_URL", "").strip()
+from backend.app.core.config import resolve_database_url
+
+DB_URL = os.getenv("QMA_TEST_DATABASE_URL") or resolve_database_url()
 
 if not DB_URL:
     pytest.skip("QMA_TEST_DATABASE_URL not set; skipping PostgreSQL integration tests", allow_module_level=True)

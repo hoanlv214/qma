@@ -27,7 +27,14 @@ GENLAYER_SLA_CACHE_TTL_SECONDS = int(app_setting("genlayer", "slaCacheTtlSeconds
 
 _SLA_CACHE_LOCK = threading.Lock()
 _SLA_VERDICT_CACHE: dict[str, dict[str, Any]] = {}
-_SLA_CACHE_FILE = Path(__file__).resolve().parents[3] / "data" / "genlayer_sla_cache.json"
+
+
+_data_dir = os.getenv("QMA_DATA_DIR")
+_SLA_CACHE_FILE = (
+    Path(_data_dir) / "genlayer_sla_cache.json"
+    if _data_dir
+    else Path(__file__).resolve().parents[3] / "data" / "genlayer_sla_cache.json"
+)
 
 # Studio Next caps each contract at 20 pending transactions; bursting past that
 # reverts submissions and burns the invoice resubmit budget. Gate concurrent

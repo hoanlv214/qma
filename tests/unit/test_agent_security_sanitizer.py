@@ -18,8 +18,8 @@ def test_clean_multilingual_market_prompts_pass():
         # English
         "buy BTC funding rate report budget $0.01",
         "fetch open interest anomaly for ETH with preview tier",
-        "analyze polymarket divergence on solana with limit $0.005",
-        "find pyth stress bands under budget 0.02",
+        "analyze open interest divergence on solana with limit $0.005",
+        "find funding rate stress bands under budget 0.02",
         "What is the funding rate divergence between Binance and MEXC?",
         # Vietnamese
         "mua báo cáo funding rate BTC với ngân sách $0.01",
@@ -27,7 +27,7 @@ def test_clean_multilingual_market_prompts_pass():
         "tìm kiếm bất thường open interest cho ETH",
         # Chinese
         "购买 BTC 资金费率报告，预算 $0.01",
-        "分析 Solana 上的 Polymarket 预测分歧，限额 $0.005",
+        "分析 Solana 上的持仓量预测分歧，限额 $0.005",
         # Spanish
         "comprar informe de tasa de financiación BTC con presupuesto $0.01",
         # Russian

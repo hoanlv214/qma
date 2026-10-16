@@ -7,7 +7,7 @@ os.environ["QMA_STORAGE_BACKEND"] = "json"          # forces Priority 2 in creat
 from backend.app.core.static_config import APP  # noqa: E402 — pure loader, imports nothing from backend
 
 APP["treasury"]["spendGuardLedger"] = False         # unit tests never exercise the durable spend ledger
-APP["stablefx"]["liveRate"] = False                 # unit tests never hit the live Hermes FX feed
+APP["stablefx"]["liveRate"] = False                 # unit tests never hit the live FX feed
 APP["earn"]["onchainMetrics"] = False               # unit tests never read vault metrics over RPC
 APP["earn"]["snapshotSampler"] = False              # unit tests never start the background sampler
 APP["providers"]["signalVerifiabilityGate"] = False # unit tests never run the sale-time evidence gate

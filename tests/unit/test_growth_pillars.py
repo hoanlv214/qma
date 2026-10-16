@@ -2,7 +2,7 @@
 Comprehensive test suite for the 4 Strategic Growth Pillars:
 1. ERC-8004 Agent Identity & ERC-8183 Escrowed Jobs
 2. Circle Agent Wallet, Marketplace & Spending Policy
-3. Polymarket Divergence & Pyth Low-Latency Stress Band with EIP-712 Auto-Hedge
+3. Core Quantitative Models (Funding Disparity & Open Interest Regime)
 4. Dynamic Fee Royalty (Quant Performance) & Proof-of-Spend Reputation Badges
 """
 
@@ -10,8 +10,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.app.main import app
-from backend.app.services.plugins.polymarket_provider import PolymarketDivergenceProviderV2
-from backend.app.services.plugins.pyth_provider import PythStressBandProviderV2
 from backend.app.services.providers_meta import (
     compute_dynamic_creator_share_bps,
     compute_proof_of_spend_badge,
@@ -36,8 +34,8 @@ def test_erc8004_agent_card_well_known_and_identity_endpoints(client):
     assert card["name"] == "QMA Autonomous Intelligence Agent"
     assert "0x367728bf66Cf962Ce15fD2b65193b7a1466f087c" in card["agent_address"]
     assert card["chain_id"] in (50, 5042, 5042002)
-    assert "polymarket_divergence" in card["capabilities"]
-    assert "pyth_low_latency_stress" in card["capabilities"]
+    assert "funding_disparity_analysis" in card["capabilities"]
+    assert "open_interest_regime_modeling" in card["capabilities"]
     assert "x402" in card["supported_protocols"]
     assert "erc8183" in card["supported_protocols"]
     assert card["verification"]["engine"] == "GenLayer Intelligent Contract"
@@ -56,8 +54,8 @@ def test_circle_marketplace_service_card(client):
     assert service["service_id"] == "qma-market-intelligence"
     assert service["payment_rail"] == "x402"
     assert service["currency"] == "USDC"
-    assert "polymarket_divergence" in service["pricing"]
-    assert "pyth_stress_band" in service["pricing"]
+    assert "funding_memory" in service["pricing"]
+    assert "oi_memory" in service["pricing"]
 
     res2 = client.get("/api/v1/marketplace/service-card")
     assert res2.status_code == 200
@@ -66,15 +64,13 @@ def test_circle_marketplace_service_card(client):
 
 def test_erc8183_unpaid_job_requires_invoice_payment(client):
     """An unpaid job must not fabricate a report, consensus, or reputation."""
-    # Submit job for polymarket_divergence
+    # Submit job for funding_memory
     req = {
-        "job_type": "prediction_divergence",
-        "provider_id": "polymarket_divergence",
+        "job_type": "funding_anomaly_detection",
+        "provider_id": "funding_memory",
         "query": {
             "symbol": "BTC",
-            "event_title": "BTC > $100k by year end?",
-            "market_probability": 0.65,
-            "perpetual_funding_8h": 0.02,
+            "fundingRate": -0.005,
         },
         "tier": "preview",
         "max_budget_usdc": 0.01,
@@ -83,7 +79,7 @@ def test_erc8183_unpaid_job_requires_invoice_payment(client):
     res = client.post("/api/v1/agent/jobs", json=req)
     assert res.status_code == 402
     invoice = res.json()["detail"]["invoice"]
-    assert invoice["provider_id"] == "polymarket_divergence"
+    assert invoice["provider_id"] == "funding_memory"
     assert invoice["invoice_id"].startswith("inv_")
     assert "consensus_verification" not in res.json()
     assert "reputation_points_accrued" not in res.json()
@@ -131,71 +127,16 @@ def test_wallet_config_passkey_and_modular(client):
 
 
 # ---------------------------------------------------------------------------
-# Pillar 3: Signal Expansion (Polymarket & Pyth + Auto-Hedge)
+# Pillar 3: Core Quantitative Models (Funding Disparity & OI Regime)
 # ---------------------------------------------------------------------------
 
-def test_polymarket_divergence_provider():
-    provider = PolymarketDivergenceProviderV2(owner_wallet="0x3333333333333333333333333333333333333333")
-    manifest = provider.manifest()
-    assert manifest["category"] == "prediction_market"
-    assert manifest["price_tiers"] == {"preview": 0.002, "full": 0.005}
-
-    # Score calculation
-    ctx = {
-        "query": {
-            "symbol": "BTC",
-            "market_probability": 0.70,
-            "perpetual_funding_8h": 0.01,
-        },
-        "tier": "preview",
-    }
-    score = provider.score(ctx)
-    assert score["amount_usdc"] == 0.002
-    assert "divergence_delta" in score
-
-    # Delivery full report with CCTP bridge details
-    ctx_full = dict(ctx, tier="full")
-    delivery = provider.deliver(ctx_full, invoice_id="inv_poly_01")
-    assert delivery["provider_id"] == "polymarket_divergence"
-    payload = delivery["payload"]
-    assert "arbitrage_bias" in payload
-    assert "cctp_bridge_required" in payload
-    assert "Polygon" in payload["cctp_bridge_required"]
-    assert "execution_parameters" in payload
-
-
-def test_pyth_stress_band_provider_and_eip712_hedge():
-    provider = PythStressBandProviderV2(owner_wallet="0x4444444444444444444444444444444444444444")
-    manifest = provider.manifest()
-    assert manifest["category"] == "market_stress"
-    assert manifest["price_tiers"] == {"preview": 0.002, "full": 0.005}
-
-    # Low stress condition
-    score_calm = provider.score({
-        "query": {"symbol": "ETH/USD", "price": 2500.0, "confidence_interval": 1.0},
-        "tier": "preview",
-    })
-    assert score_calm["stress_level"] == "CALM"
-
-    # High stress condition (conf 15 on $2500 = 60 bps -> CRITICAL_VOLATILITY)
-    score_stress = provider.score({
-        "query": {"symbol": "ETH/USD", "price": 2500.0, "confidence_interval": 15.0},
-        "tier": "full",
-    })
-    assert score_stress["stress_level"] == "CRITICAL_VOLATILITY"
-
-    # Delivery with EIP-712 LimitHedgeOrder
-    delivery = provider.deliver({
-        "query": {"symbol": "ETH/USD", "price": 2500.0, "confidence_interval": 15.0},
-        "tier": "full",
-    }, invoice_id="inv_pyth_01")
-    payload = delivery["payload"]
-    assert payload["stress_regime"] == "CRITICAL_VOLATILITY"
-    assert "execution_intent" in payload
-    intent = payload["execution_intent"]
-    assert intent["order_type"] == "EIP-712 LimitHedgeOrder"
-    assert intent["domain"]["chainId"] in (50, 5042, 5042002)  # Arc Network
-    assert intent["message"]["side"] == "SELL"
+def test_quantitative_models_active(client):
+    """Verifies that only genuine quantitative models (funding_memory & oi_memory) are active."""
+    res = client.get("/api/v1/providers")
+    assert res.status_code == 200
+    providers = res.json()["providers"]
+    provider_ids = {p.get("provider_id") or p.get("id") for p in providers}
+    assert provider_ids == {"funding_memory", "oi_memory"}
 
 
 # ---------------------------------------------------------------------------

@@ -76,10 +76,10 @@ def test_valid_epoch_persists_for_late_arrivals():
     calls = []
     build = _snapshot_builder(calls)
 
-    snap = market_epoch.begin_or_get_epoch("funding_memory", "PYTH", build)
+    snap = market_epoch.begin_or_get_epoch("funding_memory", "AVAX", build)
     market_epoch.mark_epoch_verdict(snap["key"], "VALID")
 
-    again = market_epoch.begin_or_get_epoch("funding_memory", "PYTH", build)
+    again = market_epoch.begin_or_get_epoch("funding_memory", "AVAX", build)
     assert again["key"] == snap["key"]
     assert again["state"] == "valid"
     assert calls == [1]

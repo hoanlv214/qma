@@ -12,7 +12,7 @@ Design notes:
 - Venues that fail, revert, or quote zero output are reported as unavailable
   with a reason — never silently dropped, never shown as rate 0 (Arc gotcha:
   ``getAmountsOut`` returns 0 on thin pools).
-- Anchor check: stable pairs are compared against the live Pyth EUR/USD rate
+- Anchor check: stable pairs are compared against the live EUR/USD rate
   already used by StableFX; divergence beyond
   ``QMA_SWAP_MAX_ANCHOR_DIVERSION_BPS`` is flagged on every quote.
 - This module never moves funds; execution lives in swap_executor.
@@ -263,7 +263,7 @@ def _venue_by_id(venue_id: str) -> Optional[Dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Oracle anchor (reuses the live StableFX Pyth EUR/USD resolver)
+# Oracle anchor (reuses the live StableFX EUR/USD resolver)
 # ---------------------------------------------------------------------------
 
 def _anchor_rate(from_token: str, to_token: str) -> Optional[Dict[str, Any]]:

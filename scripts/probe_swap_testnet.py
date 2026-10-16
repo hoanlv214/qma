@@ -2,7 +2,7 @@
 
 Queries Arc Testnet RPC directly via SwapRouter adapters for USDC -> EURC quotes
 across Uniswap V2, Xylo, Lunex, USYC NAV, and StableFX Desk.
-Compares venue outputs against Pyth EUR/USD anchor and logs spread metrics.
+Compares venue outputs against Forex EUR/USD anchor and logs spread metrics.
 Read-only: Zero gas spent, zero transactions broadcast.
 """
 
@@ -47,7 +47,7 @@ def main() -> int:
         return 1
 
     logger.info("Quote available: %s", quote.get("available"))
-    logger.info("Anchor rate (synthetic/Pyth): %s EUR per USD", quote.get("anchor_rate"))
+    logger.info("Anchor rate (synthetic/Forex): %s EUR per USD", quote.get("anchor_rate"))
     logger.info("Quote ID: %s | TTL: %ss", quote.get("quote_id"), quote.get("ttl_seconds"))
 
     best = quote.get("best")
@@ -92,7 +92,7 @@ def main() -> int:
     spread = swap_router.spread(from_token, to_token, amount_usdc)
     logger.info("-" * 60)
     logger.info("SPREAD METRICS:")
-    logger.info("  Synthetic / Pyth Anchor: %s (source: %s)", spread.get("anchor_rate"), spread.get("anchor_source"))
+    logger.info("  Synthetic / Forex Anchor: %s (source: %s)", spread.get("anchor_rate"), spread.get("anchor_source"))
     logger.info("  Spread between venues:")
     for v in spread.get("venues", []):
         logger.info(

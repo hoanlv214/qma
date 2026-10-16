@@ -236,32 +236,32 @@ record_test(
     f"Source: {dec_greedy.json().get('decision_source')}, Pick: {cand_greedy.get('symbol')}, Score: {cand_greedy.get('score')}",
 )
 
-# 3.6 Specific Provider Routing: Polymarket Divergence
-dec_poly = requests.post(f"{BASE_URL}/api/v1/agent/decision", json={
-    "prompt": "Find the best polymarket divergence report",
+# 3.6 Specific Provider Routing: Open Interest Memory
+dec_oi = requests.post(f"{BASE_URL}/api/v1/agent/decision", json={
+    "prompt": "Find the best open interest regime report",
     "wallet": agent1["address"],
-    "allowed_providers": ["polymarket_divergence"],
+    "allowed_providers": ["oi_memory"],
     "budget_usdc": 0.02,
 })
-poly_cand = dec_poly.json().get("resolved_candidate") or {}
+oi_cand = dec_oi.json().get("resolved_candidate") or {}
 record_test(
-    "Agent Decision: Polymarket Divergence Provider Routing",
-    dec_poly.status_code == 200 and poly_cand.get("provider_id") == "polymarket_divergence",
-    f"Provider: {poly_cand.get('provider_id')}, Symbol: {poly_cand.get('symbol')}, Score: {poly_cand.get('score')}",
+    "Agent Decision: Open Interest Memory Provider Routing",
+    dec_oi.status_code == 200 and oi_cand.get("provider_id") == "oi_memory",
+    f"Provider: {oi_cand.get('provider_id')}, Symbol: {oi_cand.get('symbol')}, Score: {oi_cand.get('score')}",
 )
 
-# 3.7 Specific Provider Routing: Pyth Stress Band
-dec_pyth = requests.post(f"{BASE_URL}/api/v1/agent/decision", json={
-    "prompt": "I want to purchase the best pyth report",
+# 3.7 Specific Provider Routing: Funding Memory
+dec_funding = requests.post(f"{BASE_URL}/api/v1/agent/decision", json={
+    "prompt": "I want to purchase the best funding rate report",
     "wallet": agent1["address"],
-    "allowed_providers": ["pyth_stress_band"],
+    "allowed_providers": ["funding_memory"],
     "budget_usdc": 0.02,
 })
-pyth_cand = dec_pyth.json().get("resolved_candidate") or {}
+funding_cand = dec_funding.json().get("resolved_candidate") or {}
 record_test(
-    "Agent Decision: Pyth Stress Band Provider Routing",
-    dec_pyth.status_code == 200 and pyth_cand.get("provider_id") == "pyth_stress_band",
-    f"Provider: {pyth_cand.get('provider_id')}, Symbol: {pyth_cand.get('symbol')}, Price: {pyth_cand.get('price_usdc')} USDC",
+    "Agent Decision: Funding Memory Provider Routing",
+    dec_funding.status_code == 200 and funding_cand.get("provider_id") == "funding_memory",
+    f"Provider: {funding_cand.get('provider_id')}, Symbol: {funding_cand.get('symbol')}, Price: {funding_cand.get('price_usdc')} USDC",
 )
 
 # ==============================================================================
@@ -294,9 +294,9 @@ record_test(
     f"Block #{block1}, Tx: {tx1_hex} (https://testnet.arcscan.app/tx/{tx1_hex})",
 )
 
-# 4.2 Agent 2 buys Polymarket Divergence Preview Report (0.002 USDC)
+# 4.2 Agent 2 buys Open Interest Memory Preview Report (0.002 USDC)
 inv_p2 = {
-    "provider_id": "polymarket_divergence",
+    "provider_id": "oi_memory",
     "tier": "preview",
     "symbol": "BTC",
     "buyer_wallet_address": agent2["address"],
@@ -307,7 +307,7 @@ r2 = requests.post(f"{BASE_URL}/api/v1/payment/invoice", json=inv_p2)
 assert r2.status_code == 200, f"Invoice creation failed: {r2.text}"
 inv2 = r2.json()
 record_test(
-    "Agent 2 Invoice Creation: polymarket_divergence (Preview)",
+    "Agent 2 Invoice Creation: oi_memory (Preview)",
     True,
     f"Invoice ID: {inv2['invoice_id']}, Amount: {inv2['amount']} USDC, PayTo: {inv2['wallet_address']}",
 )
@@ -368,20 +368,12 @@ record_test(
     f"HTTP 402 with WWW-Authenticate x402 challenge returned",
 )
 
-# 6.2 Query Polymarket Divergence Preview Probe
-poly_prev = requests.post(f"{BASE_URL}/api/v1/providers/polymarket_divergence/preview", json={"symbol": "BTC"})
+# 6.2 Query Open Interest Memory Preview Probe
+oi_prev = requests.post(f"{BASE_URL}/api/v1/providers/oi_memory/preview", json={"symbol": "BTC"})
 record_test(
-    "POST /api/v1/providers/polymarket_divergence/preview",
-    poly_prev.status_code in (200, 402),
-    f"Response status: {poly_prev.status_code}",
-)
-
-# 6.3 Query Pyth Stress Band Preview
-pyth_prev = requests.post(f"{BASE_URL}/api/v1/providers/pyth_stress_band/preview", json={"symbol": "ETH/USD"})
-record_test(
-    "POST /api/v1/providers/pyth_stress_band/preview",
-    pyth_prev.status_code in (200, 402),
-    f"Response status: {pyth_prev.status_code}",
+    "POST /api/v1/providers/oi_memory/preview",
+    oi_prev.status_code in (200, 402),
+    f"Response status: {oi_prev.status_code}",
 )
 
 # ==============================================================================
@@ -783,11 +775,11 @@ record_test(
 # ==============================================================================
 print("\n--- [SCENARIO 17] Multi-Agent Parallel Arc Testnet Transactions (Agents 4, 5, 6) ---")
 
-# 17.1 Agent 4 buys Pyth Stress Band Preview (0.002 USDC)
+# 17.1 Agent 4 buys Funding Memory Preview (0.002 USDC)
 inv_p4 = {
-    "provider_id": "pyth_stress_band",
+    "provider_id": "funding_memory",
     "tier": "preview",
-    "symbol": "ETH/USD",
+    "symbol": "BTC",
     "buyer_wallet_address": agent4["address"],
     "buyer_type": "agent",
     "agent_label": "qma-e2e-agent-4",
@@ -797,14 +789,14 @@ assert r4.status_code == 200, f"Invoice creation failed: {r4.text}"
 inv4 = r4.json()
 tx4_hex, block4 = send_arc_usdc_transfer(agent4, inv4["wallet_address"], float(inv4["amount"]))
 record_test(
-    "Agent 4 On-Chain Arc Transaction (Pyth Stress Band)",
+    "Agent 4 On-Chain Arc Transaction (Funding Memory)",
     bool(tx4_hex and block4),
     f"Block #{block4}, Tx: {tx4_hex} (https://testnet.arcscan.app/tx/{tx4_hex})",
 )
 
-# 17.2 Agent 5 buys Funding Memory Preview (0.002 USDC)
+# 17.2 Agent 5 buys Open Interest Memory Preview (0.002 USDC)
 inv_p5 = {
-    "provider_id": "funding_memory",
+    "provider_id": "oi_memory",
     "tier": "preview",
     "symbol": "SOL",
     "buyer_wallet_address": agent5["address"],
@@ -816,16 +808,16 @@ assert r5.status_code == 200, f"Invoice creation failed: {r5.text}"
 inv5 = r5.json()
 tx5_hex, block5 = send_arc_usdc_transfer(agent5, inv5["wallet_address"], float(inv5["amount"]))
 record_test(
-    "Agent 5 On-Chain Arc Transaction (Funding Memory)",
+    "Agent 5 On-Chain Arc Transaction (OI Memory)",
     bool(tx5_hex and block5),
     f"Block #{block5}, Tx: {tx5_hex} (https://testnet.arcscan.app/tx/{tx5_hex})",
 )
 
-# 17.3 Agent 6 buys Polymarket Divergence Preview (0.002 USDC)
+# 17.3 Agent 6 buys Open Interest Memory Preview (0.002 USDC)
 inv_p6 = {
-    "provider_id": "polymarket_divergence",
+    "provider_id": "oi_memory",
     "tier": "preview",
-    "symbol": "BTC",
+    "symbol": "ETH",
     "buyer_wallet_address": agent6["address"],
     "buyer_type": "agent",
     "agent_label": "qma-e2e-agent-6",
@@ -835,7 +827,7 @@ assert r6.status_code == 200, f"Invoice creation failed: {r6.text}"
 inv6 = r6.json()
 tx6_hex, block6 = send_arc_usdc_transfer(agent6, inv6["wallet_address"], float(inv6["amount"]))
 record_test(
-    "Agent 6 On-Chain Arc Transaction (Polymarket Divergence)",
+    "Agent 6 On-Chain Arc Transaction (OI Memory)",
     bool(tx6_hex and block6),
     f"Block #{block6}, Tx: {tx6_hex} (https://testnet.arcscan.app/tx/{tx6_hex})",
 )

@@ -108,7 +108,7 @@ def get_swap_quote(
     summary="Measure venue-vs-oracle spread for a pair",
     description=(
         "Telemetry snapshot: how far each venue's quote for the requested "
-        "pair sits from the oracle anchor (Pyth EUR/USD for stables, ERC-4626 "
+        "pair sits from the oracle anchor (Forex EUR/USD for stables, ERC-4626 "
         "NAV for USYC). Measurement only — divergence is not a realized or "
         "guaranteed profit."
     ),

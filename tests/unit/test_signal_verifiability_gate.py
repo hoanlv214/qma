@@ -99,20 +99,6 @@ def test_evidence_check_is_cached_per_url(monkeypatch):
     assert calls["n"] == 1, "the evidence probe is cached for a minute"
 
 
-def test_non_mexc_providers_skip_exchange_gate(monkeypatch):
-    """polymarket/pyth keep their own (separate) evidence binding; the MEXC
-    exchange gate must not block them and the MEXC probe must not run for
-    their non-MEXC evidence URLs."""
-    called = {"evidence": False}
-
-    def fake_get(url, *a, **k):
-        called["evidence"] = True
-        return _FakeResponse(payload=[{"title": "NBA Finals 2021"}])
-
-    monkeypatch.setattr(main.requests, "get", fake_get)
-    query = {"symbol": "NBA-FINALS", "exchange": "POLYMARKET"}
-    main._ensure_signal_verifiable("polymarket_divergence", query)
-    assert called["evidence"] is False, "non-MEXC evidence URLs skip the MEXC probe"
 
 
 def test_evidence_unreachable_is_refused(monkeypatch):

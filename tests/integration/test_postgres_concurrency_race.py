@@ -25,7 +25,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DB_URL = os.getenv("QMA_TEST_DATABASE_URL") or os.getenv("DATABASE_URL", "").strip()
+from backend.app.core.config import resolve_database_url
+
+DB_URL = os.getenv("QMA_TEST_DATABASE_URL") or resolve_database_url()
 
 if not DB_URL:
     pytest.skip("No PostgreSQL DATABASE_URL available; skipping real DB concurrency tests", allow_module_level=True)

@@ -67,10 +67,10 @@ def _build_all_gateway_networks() -> list[dict]:
 
 ALL_GATEWAY_NETWORKS = _build_all_gateway_networks()
 
-AGENT_GUIDANCE = """QMA is an AI agent marketplace for real-time quantitative market intelligence, anomaly detection, funding rate arbitrage signals, and prediction market analytics with on-chain GenLayer SLA settlement verification.
+AGENT_GUIDANCE = """QMA is an AI agent marketplace for real-time quantitative market intelligence, anomaly detection, funding rate arbitrage signals, and open interest regime analytics with on-chain GenLayer SLA settlement verification.
 
 ### How and When to Call
-- Call when autonomous trading agents or risk engines require verified market anomalies (e.g. extreme CEX funding rate disparities, sudden open-interest shifts, or Polymarket/Pyth divergences) before executing on-chain trades.
+- Call when autonomous trading agents or risk engines require verified market anomalies (e.g. extreme CEX funding rate disparities, sudden open-interest shifts, or liquidation clusterings) before executing on-chain trades.
 - Create an invoice, pay its Gateway resource on the configured payment network, then verify the settlement. Request the report with invoice_id and X-QMA-Access-Token. Raw payment headers do not authorize report access.
 
 ### Operations & Endpoints
@@ -79,7 +79,7 @@ AGENT_GUIDANCE = """QMA is an AI agent marketplace for real-time quantitative ma
 - `POST /api/v1/chat`: Interrogate an existing paid report regarding historical analogs and risk parameters.
 
 ### Inputs
-- Path param: `provider_id` (string, e.g. 'funding_memory', 'polymarket_orderbook', 'pyth_entropy').
+- Path param: `provider_id` (string, e.g. 'funding_memory', 'oi_memory').
 - Body (application/json): `symbol` (required, string, 1-32 chars, e.g. 'BTC_USDT'), optional technical parameters (`fundingRate`, `openInterest`, `volume24h`, `price`, `longShortRatio`).
 - Unpaid requests receive HTTP 402. The invoice contains the authoritative amount, network and payment resource.
 

@@ -186,7 +186,7 @@ def get_onchain_reputation_summary(agent_id: Optional[int] = None) -> Dict[str, 
                 "score": 98,
                 "tag": "accurate_signal",
                 "validator": "0xe29D54cf74b3A3B0be7D2e2274E68539dAAb651b",
-                "comment": "High accuracy funding anomaly and Pyth volatility stress band prediction",
+                "comment": "High accuracy funding anomaly and open interest regime prediction",
                 "tx_url": f"{ARC_EXPLORER.rstrip('/')}/tx/0x99a3d75811eb74cbb2b267807334400804861ebf581971540fe6ff0432c269ae",
             }
         ],

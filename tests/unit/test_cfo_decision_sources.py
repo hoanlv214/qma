@@ -32,13 +32,13 @@ def test_obligations_computation_with_claims(monkeypatch):
         {
             "claim_id": "claim_sub_2",
             "status": CreatorClaimStatus.SUBMITTED.value,
-            "allocations": {"polymarket": 3.0},
+            "allocations": {"oi_memory": 3.0},
             "amount_usdc": 3.0,
         },
         {
             "claim_id": "claim_paid_3",
             "status": CreatorClaimStatus.PAID.value,
-            "allocations": {"pyth": 10.0},
+            "allocations": {"funding_memory": 10.0},
             "amount_usdc": 10.0,
         },
         {
