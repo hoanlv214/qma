@@ -119,7 +119,7 @@ if __name__ == "__main__":
 
 
 class StableFxLiveRateTests(unittest.TestCase):
-    """Live EUR/USD rate adapter: Pyth Hermes preference, sanity bounds,
+    """Live EUR/USD rate adapter: Forex feed preference, sanity bounds,
     staleness rejection, and labeled synthetic fallback."""
 
     def setUp(self):
@@ -137,7 +137,7 @@ class StableFxLiveRateTests(unittest.TestCase):
             "evidence_url": "",
         })
 
-    def _hermes_response(self, usd_per_eur, publish_time=None):
+    def _feed_response(self, usd_per_eur, publish_time=None):
         resp = MagicMock()
         resp.status_code = 200
         resp.raise_for_status.return_value = None
@@ -155,10 +155,10 @@ class StableFxLiveRateTests(unittest.TestCase):
 
     @patch("backend.app.services.stablefx_service.requests.get")
     @patch.dict(APP["stablefx"], {"liveRate": True})
-    def test_quote_uses_live_pyth_rate(self, mock_get):
+    def test_quote_uses_live_rate(self, mock_get):
         self._reset_cache()
         usd_per_eur = 1.0855
-        mock_get.return_value = self._hermes_response(usd_per_eur)
+        mock_get.return_value = self._feed_response(usd_per_eur)
 
         quote = get_stablefx_quote("EURC", "USDC", 10.0)
         self.assertEqual(quote["rate_source"], self.sfx.FX_RATE_SOURCE_LIVE)
@@ -178,7 +178,7 @@ class StableFxLiveRateTests(unittest.TestCase):
     @patch.dict(APP["stablefx"], {"liveRate": True})
     def test_quote_falls_back_on_out_of_bounds_rate(self, mock_get):
         self._reset_cache()
-        mock_get.return_value = self._hermes_response(0.50)  # nonsense EUR/USD
+        mock_get.return_value = self._feed_response(0.50)  # nonsense EUR/USD
         quote = get_stablefx_quote("EURC", "USDC", 10.0)
         self.assertEqual(quote["rate_source"], self.sfx.FX_RATE_SOURCE_SYNTHETIC)
         self.assertIsNone(quote["rate_evidence_url"])
@@ -188,16 +188,16 @@ class StableFxLiveRateTests(unittest.TestCase):
     @patch.dict(APP["stablefx"], {"liveRate": True})
     def test_quote_falls_back_on_stale_publish_time(self, mock_get):
         self._reset_cache()
-        stale = self._hermes_response(1.0855, publish_time=int(self.now) - 3600)
+        stale = self._feed_response(1.0855, publish_time=int(self.now) - 3600)
         mock_get.return_value = stale
         quote = get_stablefx_quote("EURC", "USDC", 10.0)
         self.assertEqual(quote["rate_source"], self.sfx.FX_RATE_SOURCE_SYNTHETIC)
 
     @patch("backend.app.services.stablefx_service.requests.get")
     @patch.dict(APP["stablefx"], {"liveRate": True})
-    def test_quote_falls_back_when_hermes_unreachable(self, mock_get):
+    def test_quote_falls_back_when_feed_unreachable(self, mock_get):
         self._reset_cache()
-        mock_get.side_effect = RuntimeError("hermes down")
+        mock_get.side_effect = RuntimeError("feed down")
         quote = get_stablefx_quote("EURC", "USDC", 10.0)
         self.assertEqual(quote["rate_source"], self.sfx.FX_RATE_SOURCE_SYNTHETIC)
         self.assertIn("baseline", quote["rate_note"])

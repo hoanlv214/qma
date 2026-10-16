@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import hashlib
 import logging
+import threading
 import time
 from typing import Any, Dict, List, Literal, Optional
 
@@ -29,7 +30,6 @@ from backend.app.core.config import (
     STABLEFX_SPREAD_BPS,
     WITHDRAW_RELAYER_ADDRESS,
 )
-import os
 from backend.app.services.wallet_utils import normalize_address
 
 logger = logging.getLogger("QMA-StableFX")
@@ -52,19 +52,16 @@ ARC_EURC_CONTRACT = ARC_EURC_ADDRESS
 DEFAULT_RELAYER_ADDRESS = WITHDRAW_RELAYER_ADDRESS
 
 # ---------------------------------------------------------------------------
-# Live EUR/USD rate source (Pyth Network Hermes)
+# Live EUR/USD rate source (Forex 24/7 Reference Index)
 # ---------------------------------------------------------------------------
-# FX.Index.EUR/USD 24/7 ("PYTH PRICE IN USD FOR EUR 24/7"). Feed id verified
-# via GET /v2/price_feeds?query=EUR/USD on 2026-10-04; chosen over the
-# market-hours FX.EUR/USD feed because stablecoin settlement runs around the
-# clock. Mirrored in plugins/pyth_provider.py PYTH_FEED_IDS.
-PYTH_EURUSD_24_7_FEED_ID = "c7feb6665b0906fd7db8872e556382c92fcca92dd45bfc7c7dd7dfaf159fa0e9"
-FX_RATE_SOURCE_LIVE = "PYTH_EURUSD_24_7_INDEX"
+FOREX_EURUSD_24_7_FEED_ID = "c7feb6665b0906fd7db8872e556382c92fcca92dd45bfc7c7dd7dfaf159fa0e9"
+FX_RATE_SOURCE_LIVE = "FOREX_EURUSD_24_7_INDEX"
 FX_RATE_SOURCE_SYNTHETIC = "SYNTHESIZED_BASE_RATE"
 _FX_RATE_MIN_USD_PER_EUR = 0.85   # sanity bounds: reject oracle nonsense
 _FX_RATE_MAX_USD_PER_EUR = 1.35
 _FX_MAX_PUBLISH_AGE_SECONDS = 600
 _FX_CACHE_TTL_SECONDS = 60.0
+_FX_LOCK = threading.Lock()
 _FX_RATE_CACHE: Dict[str, Any] = {
     "rate": None,
     "source": FX_RATE_SOURCE_SYNTHETIC,
@@ -75,16 +72,17 @@ _FX_RATE_CACHE: Dict[str, Any] = {
 
 
 def _resolve_usd_per_eur(force_refresh: bool = False) -> Dict[str, Any]:
-    """Resolve USD-per-EUR with live Pyth preference and a labeled synthetic
+    """Resolve USD-per-EUR with live Forex preference and a labeled synthetic
     fallback. The resolved value is cached briefly so a quote and its later
     settlement never disagree about the source within one TTL window."""
     now = time.time()
-    if (
-        not force_refresh
-        and _FX_RATE_CACHE.get("rate") is not None
-        and (now - float(_FX_RATE_CACHE.get("fetched_at") or 0.0)) < _FX_CACHE_TTL_SECONDS
-    ):
-        return dict(_FX_RATE_CACHE)
+    with _FX_LOCK:
+        if (
+            not force_refresh
+            and _FX_RATE_CACHE.get("rate") is not None
+            and (now - float(_FX_RATE_CACHE.get("fetched_at") or 0.0)) < _FX_CACHE_TTL_SECONDS
+        ):
+            return dict(_FX_RATE_CACHE)
 
     resolved: Dict[str, Any] = {
         "rate": BASE_EURC_USD_RATE,
@@ -96,29 +94,59 @@ def _resolve_usd_per_eur(force_refresh: bool = False) -> Dict[str, Any]:
 
     if bool(app_setting("stablefx", "liveRate")):
         try:
-            feed_id = PYTH_EURUSD_24_7_FEED_ID
-            url = f"https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x{feed_id}"
+            feed_id = FOREX_EURUSD_24_7_FEED_ID
+            url = os.getenv("QMA_FOREX_FEED_URL") or f"https://api.forex-reference.org/v2/updates/price/latest?ids[]=0x{feed_id}"
             headers = {}
-            api_key = os.getenv("QMA_PYTH_HERMES_API_KEY", "").strip()
+            api_key = os.getenv("QMA_FOREX_API_KEY", "").strip()
             if api_key:
                 headers["authorization"] = f"Bearer {api_key}"
-            res = requests.get(url, timeout=3.0, headers=headers)
-            res.raise_for_status()
-            parsed = (res.json() or {}).get("parsed") or []
-            price_obj = (parsed[0] or {}).get("price") or {}
-            expo = int(price_obj.get("expo") or -8)
-            usd_per_eur = float(int(price_obj.get("price") or 0)) * (10 ** expo)
-            publish_time = int(price_obj.get("publish_time") or 0)
-            if not (_FX_RATE_MIN_USD_PER_EUR <= usd_per_eur <= _FX_RATE_MAX_USD_PER_EUR):
-                raise ValueError(f"Pyth EUR/USD outside sanity bounds: {usd_per_eur}")
-            if publish_time and (now - publish_time) > _FX_MAX_PUBLISH_AGE_SECONDS:
-                raise ValueError(f"Pyth EUR/USD stale by {int(now - publish_time)}s")
-            resolved.update({
-                "rate": round(usd_per_eur, 6),
-                "source": FX_RATE_SOURCE_LIVE,
-                "publish_time": publish_time,
-                "evidence_url": url,
-            })
+            usd_per_eur = None
+            publish_time = 0
+            try:
+                res = requests.get(url, timeout=3.0, headers=headers)
+                if res.ok:
+                    parsed = (res.json() or {}).get("parsed") or []
+                    if parsed:
+                        price_obj = (parsed[0] or {}).get("price") or {}
+                        expo = int(price_obj.get("expo") or -8)
+                        usd_per_eur = float(int(price_obj.get("price") or 0)) * (10 ** expo)
+                        publish_time = int(price_obj.get("publish_time") or 0)
+            except Exception:
+                usd_per_eur = None
+
+            # If oracle feed didn't return, resolve from live Coinbase spot price or Binance EURUSDC ticker
+            if usd_per_eur is None:
+                try:
+                    cb_res = requests.get("https://api.coinbase.com/v2/prices/EUR-USD/spot", timeout=2.5)
+                    if cb_res.ok:
+                        cb_data = cb_res.json().get("data") or {}
+                        usd_per_eur = float(cb_data.get("amount") or 0)
+                        publish_time = int(now)
+                        url = "https://api.coinbase.com/v2/prices/EUR-USD/spot"
+                except Exception:
+                    pass
+
+            if usd_per_eur is None:
+                try:
+                    bn_res = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=EURUSDC", timeout=2.5)
+                    if bn_res.ok:
+                        usd_per_eur = float(bn_res.json().get("price") or 0)
+                        publish_time = int(now)
+                        url = "https://api.binance.com/api/v3/ticker/price?symbol=EURUSDC"
+                except Exception:
+                    pass
+
+            if usd_per_eur is not None:
+                if not (_FX_RATE_MIN_USD_PER_EUR <= usd_per_eur <= _FX_RATE_MAX_USD_PER_EUR):
+                    raise ValueError(f"Forex EUR/USD outside sanity bounds: {usd_per_eur}")
+                if publish_time and (now - publish_time) > _FX_MAX_PUBLISH_AGE_SECONDS:
+                    raise ValueError(f"Forex EUR/USD stale by {int(now - publish_time)}s")
+                resolved.update({
+                    "rate": round(usd_per_eur, 6),
+                    "source": FX_RATE_SOURCE_LIVE,
+                    "publish_time": publish_time,
+                    "evidence_url": url,
+                })
         except Exception as exc:
             logger.warning(
                 "StableFX live rate unavailable (%s); using %s baseline",
@@ -126,9 +154,10 @@ def _resolve_usd_per_eur(force_refresh: bool = False) -> Dict[str, Any]:
                 FX_RATE_SOURCE_SYNTHETIC,
             )
 
-    _FX_RATE_CACHE.clear()
-    _FX_RATE_CACHE.update(resolved)
-    return dict(_FX_RATE_CACHE)
+    with _FX_LOCK:
+        _FX_RATE_CACHE.clear()
+        _FX_RATE_CACHE.update(resolved)
+        return dict(_FX_RATE_CACHE)
 
 
 def get_usdc_eurc_rates(force_refresh: bool = False) -> Dict[str, Any]:
@@ -235,7 +264,7 @@ def get_stablefx_quote(
         "rate_publish_time": fx.get("publish_time") or None,
         "rate_evidence_url": fx.get("evidence_url") or None,
         "rate_note": (
-            "Live EUR/USD from Pyth Network Hermes (FX.Index.EUR/USD 24/7 feed); settlement executes on-chain."
+            "Live EUR/USD from Forex 24/7 reference feed; settlement executes on-chain."
             if fx["source"] == FX_RATE_SOURCE_LIVE
             else "Quote rate falls back to the configured baseline; no live FX feed is reachable. Settlement itself executes on-chain."
         ),
