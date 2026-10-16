@@ -3,7 +3,8 @@ import os
 import time
 import unittest
 from contextlib import ExitStack
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 from fastapi import HTTPException
 
@@ -12,8 +13,8 @@ os.environ["QMA_SUPABASE_URL"] = ""
 os.environ["SUPABASE_SERVICE_ROLE_KEY"] = ""
 os.environ["QMA_SUPABASE_SERVICE_ROLE_KEY"] = ""
 
-import main
 from backend.app import main as backend_main
+main = backend_main
 
 
 PAYER = "0x1111111111111111111111111111111111111111"
@@ -254,6 +255,33 @@ class PaymentStateMachineTests(unittest.TestCase):
         }):
             self.assertTrue(main.settlement_id_already_claimed("settle_replayed", exclude_invoice_id=current["invoice_id"]))
             self.assertFalse(main.settlement_id_already_claimed("new_settlement", exclude_invoice_id=current["invoice_id"]))
+
+    def test_claim_settlement_for_invoice_enforced_in_verify_payment(self):
+        invoice = make_split_invoice("inv_claim_test")
+        invoice["split_mode"] = "single"
+        invoice["split"] = None
+        main.invoices_db[invoice["invoice_id"]] = invoice
+        proof = SimpleNamespace(
+            settlement_id="settle_concurrent_test",
+            payer_address=PAYER,
+            invoice_secret=invoice.get("invoice_secret"),
+            split_settlements=[],
+        )
+
+        mock_storage = MagicMock()
+        mock_storage.claim_settlement_for_invoice.return_value = False
+        mock_storage.is_settlement_id_claimed.return_value = False
+
+        with patch.object(backend_main, "storage_backend", mock_storage):
+            with patch.object(backend_main, "settlement_id_already_claimed", return_value=False):
+                with patch.object(backend_main, "invoice_split_mode", return_value="single"):
+                    with self.assertRaises(HTTPException) as ctx:
+                        main.verify_payment(invoice["invoice_id"], proof)
+                    self.assertEqual(ctx.exception.status_code, 409)
+                    self.assertIn("settlement_id already claimed", ctx.exception.detail)
+                    mock_storage.claim_settlement_for_invoice.assert_called_once_with(
+                        "settle_concurrent_test", invoice["invoice_id"], invoices_db=main.state.invoices_db
+                    )
 
     def test_claimable_waits_for_final_gateway_status(self):
         pending_summary = main.summarize_payment_events([{

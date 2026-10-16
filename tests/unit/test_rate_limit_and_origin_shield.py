@@ -1,3 +1,4 @@
+import time
 import pytest
 from fastapi.testclient import TestClient
 from backend.app.core.rate_limit import rate_limit_for_path
@@ -137,4 +138,45 @@ def test_public_tunnel_direct_access_blocked_without_proxy_or_auth(monkeypatch):
         },
     )
     assert resp.status_code == 200
+
+
+def test_origin_shield_cannot_be_bypassed_by_spoofed_vercel_id(monkeypatch):
+    """Verify that when ORIGIN_SHIELD_SECRET is enabled, callers cannot bypass it using spoofed x-vercel-id."""
+    client = TestClient(app_module.app)
+    monkeypatch.setattr(app_module, "ORIGIN_SHIELD_SECRET", "super-secret-origin-token")
+
+    resp = client.get(
+        "/api/v1/platform/summary",
+        headers={
+            "cf-connecting-ip": "198.51.100.24",
+            "host": "driveway-expansive-onyx.ngrok-free.dev",
+            "x-vercel-id": "hkg1::iad1::spoofed-id-12345",
+            "user-agent": "Mozilla/5.0",
+        },
+    )
+    assert resp.status_code == 403
+    assert resp.json()["error"] == "origin_shield_blocked"
+
+
+def test_rate_limit_memory_bounded_under_ip_explosion(monkeypatch):
+    """Verify that rate limiter memory stays strictly bounded even under high-cardinality IP scans."""
+    from collections import deque
+    client = TestClient(app_module.app)
+    monkeypatch.setattr(app_module, "RATE_LIMIT_ENABLED", True)
+
+    # Pre-seed 2500 active IP buckets
+    now = time.time()
+    for i in range(2500):
+        app_module.state.rate_limit_buckets[f"public:10.0.{i // 256}.{i % 256}"] = deque([now])
+
+    assert len(app_module.state.rate_limit_buckets) >= 2500
+
+    resp = client.get(
+        "/api/v1/platform/summary",
+        headers={"cf-connecting-ip": "10.10.10.10", "user-agent": "SafeAgent/1.0"},
+    )
+    assert resp.status_code == 200
+    # Must be pruned down to the hard bound of 2000
+    assert len(app_module.state.rate_limit_buckets) <= 2000
+
 

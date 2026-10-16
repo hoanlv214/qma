@@ -66,14 +66,14 @@ except Exception:  # pragma: no cover - Windows dev boxes without fcntl
 _LOCK_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", ".locks")
 
 
-_IN_PROCESS_LOCKS: dict[str, threading.Lock] = {}
+_IN_PROCESS_LOCKS: dict[str, threading.RLock] = {}
 _IN_PROCESS_LOCKS_MUTEX = threading.Lock()
 
 
-def _get_in_process_lock(key: str) -> threading.Lock:
+def _get_in_process_lock(key: str) -> threading.RLock:
     with _IN_PROCESS_LOCKS_MUTEX:
         if key not in _IN_PROCESS_LOCKS:
-            _IN_PROCESS_LOCKS[key] = threading.Lock()
+            _IN_PROCESS_LOCKS[key] = threading.RLock()
         return _IN_PROCESS_LOCKS[key]
 
 
@@ -203,7 +203,7 @@ def reload_persistent_state(
     if include_reports:
         paid_reports = load_paid_reports()
     if include_invoices:
-        invoices_db = load_invoices()
+        invoices_db.update(load_invoices())
     creator_applications.update(load_creator_applications())
     provider_runtime_controls.update(load_provider_controls())
     creator_claims_db = load_creator_claims()

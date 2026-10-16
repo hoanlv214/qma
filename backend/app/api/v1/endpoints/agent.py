@@ -70,14 +70,14 @@ def _get_agent_identity() -> dict:
         "agent_address": shield_address,
         "chain_id": ARC_CHAIN_ID,
         "description": (
-            "Autonomous market anomaly detection and quantitative prediction intelligence agent on Arc. "
-            "Delivers sub-second Pyth volatility stress bands, Polymarket prediction divergence, and funding anomaly alpha "
+            "Autonomous market anomaly detection and quantitative derivatives intelligence agent on Arc. "
+            "Delivers CEX-DEX funding rate dislocations and open interest regime analytics "
             "with gasless Circle x402 nanopayments and GenLayer consensus validation."
         ),
         "capabilities": [
             "market_anomaly_detection",
-            "polymarket_divergence",
-            "pyth_low_latency_stress",
+            "funding_disparity_analysis",
+            "open_interest_regime_modeling",
             "x402_nanopayments",
             "erc8183_escrow",
             "cctp_crosschain_bridging",
@@ -101,8 +101,8 @@ def _get_agent_identity() -> dict:
             "payment_rail": "x402",
             "min_call_cost": 0.002,
             "tiers": {
-                "preview": "0.002-0.003 USDC",
-                "full": "0.005-0.015 USDC",
+                "preview": "0.002 USDC",
+                "full": "0.005 USDC",
             },
         },
         "verification": {
@@ -149,7 +149,7 @@ def _get_circle_service_card() -> dict:
         "name": "QMA - Quantitative Market Anomaly & Intelligence",
         "category": "market-intelligence",
         "description": (
-            "Sub-second Pyth volatility stress bands, Polymarket arbitrage divergence, and funding anomaly feeds "
+            "Quantitative CEX-DEX funding disparity models and derivatives open interest regime analytics "
             "on Arc with instant Circle USDC micropayments and zero-gas execution."
         ),
         "payment_rail": "x402",
@@ -157,8 +157,6 @@ def _get_circle_service_card() -> dict:
         "pricing": {
             "funding_memory": "0.002",
             "oi_memory": "0.002",
-            "polymarket_divergence": "0.002",
-            "pyth_stress_band": "0.003",
             "preview_report": "0.002",
             "full_report": "0.005",
         },
@@ -185,7 +183,7 @@ def _get_circle_service_card() -> dict:
         "example_prompts": [
             "Search funding rate arbitrage anomalies for BTC and ETH",
             "Inspect quantitative analogs and win-rate diagnostics for MBOX",
-            "Get Polymarket event divergence signal vs perpetual futures",
+            "Analyze open interest liquidation cascade risks for SOL",
             "Underwrite collateral credit risk score on Arc",
         ],
         "x402_specification": {

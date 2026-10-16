@@ -28,7 +28,7 @@ from backend.app.core.security_schemes import (
     qma_internal_secret_header,
     qma_wallet_token_header,
 )
-from storage import SupabaseStorage
+from backend.app.infrastructure.storage import SupabaseStorage
 from backend.app.core.config import ARC_GATEWAY_BASE_URL, ARC_GATEWAY_INTERNAL_SECRET
 
 class WalletWithdrawRequest(BaseModel):
