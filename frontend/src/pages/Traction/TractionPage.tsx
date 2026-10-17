@@ -137,7 +137,7 @@ export function TractionPage({ onNavigate }: TractionProps) {
           </div>
         </div>
         <div className="chip chip-live">
-          <span className="traction-live-pulse" /> Settling on {ARC_CHAIN.name}
+          <span /> Settling on {ARC_CHAIN.name}
         </div>
       </section>
 

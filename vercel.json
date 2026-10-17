@@ -94,7 +94,7 @@
         },
         {
           "key": "Access-Control-Allow-Headers",
-          "value": "Content-Type, Authorization, payment-signature, X-QMA-Access-Token, X-QMA-Wallet-Token, X-QMA-Invoice-Secret, x-qma-admin-token"
+          "value": "Content-Type, Authorization, payment-signature, X-QMA-Access-Token, X-QMA-Wallet-Token, X-QMA-Invoice-Secret, x-qma-admin-token, ngrok-skip-browser-warning"
         },
         {
           "key": "Access-Control-Expose-Headers",
