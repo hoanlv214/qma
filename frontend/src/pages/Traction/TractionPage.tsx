@@ -196,7 +196,7 @@ export function TractionPage({ onNavigate }: TractionProps) {
                     <div className="traction-tag-list">
                       <span className="traction-tag">MEXC</span>
                       <span className="traction-tag">Binance</span>
-                      <span className="traction-tag">Arc Testnet</span>
+                      <span className="traction-tag">{ARC_CHAIN.name}</span>
                     </div>
                     <small className="text-xs text-[var(--t3)] font-mono">
                       {snapshot ? `${snapshot.providers.length} providers with settled sales (live)` : "provider sales load with the ledger"}

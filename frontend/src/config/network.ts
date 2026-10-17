@@ -17,8 +17,8 @@ export const NETWORK_MODE: NetworkMode =
     ? "testnet"
     : "mainnet";
 
-export const IS_TESTNET: boolean = NETWORK_MODE === "testnet";
-export const IS_MAINNET: boolean = NETWORK_MODE === "mainnet";
+export let IS_TESTNET: boolean = NETWORK_MODE === "testnet";
+export let IS_MAINNET: boolean = NETWORK_MODE === "mainnet";
 
 export interface NativeCurrencyConfig {
   name: string;
@@ -108,6 +108,9 @@ export function syncNetworkWithBackend(backendNetwork?: string) {
   const isTargetTestnet = backendNetwork.toLowerCase().includes("testnet");
   const targetProfile = isTargetTestnet ? networksData.testnet : networksData.mainnet;
 
+  IS_TESTNET = isTargetTestnet;
+  IS_MAINNET = !isTargetTestnet;
+
   Object.assign(ARC_CHAIN, {
     name: targetProfile.arc.name,
     chainId: targetProfile.arc.chainId,
@@ -127,6 +130,21 @@ export function syncNetworkWithBackend(backendNetwork?: string) {
     gatewayMinter: targetProfile.contracts.gatewayMinter as `0x${string}`,
     cctpTokenMessenger: targetProfile.contracts.cctpTokenMessenger as `0x${string}`,
     gatewayApiUrl: targetProfile.contracts.gatewayApiUrl,
+  });
+
+  SUPPORTED_CROSS_CHAINS.length = 0;
+  targetProfile.crossChains.forEach((c) => {
+    SUPPORTED_CROSS_CHAINS.push({
+      id: c.id,
+      name: c.name,
+      chainId: c.chainId,
+      chainIdHex: c.chainIdHex,
+      cctpDomain: c.cctpDomain,
+      explorerUrl: c.explorerUrl,
+      rpcUrl: c.rpcUrl,
+      usdcAddress: c.usdcAddress as `0x${string}`,
+      nativeCurrency: c.nativeCurrency,
+    });
   });
 
   ARC_TOKENS.USDC.address = ARC_CHAIN.usdcAddress;
