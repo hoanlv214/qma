@@ -30,7 +30,9 @@ from backend.app.core.config import (
     ARC_EURC_ADDRESS,
     ARC_EXPLORER,
     ARC_TESTNET_USDC,
+    ARC_USDC_ADDRESS,
     IS_TESTNET,
+    NETWORK_MODE,
     PLATFORM_TREASURY_ADDRESS,
     settings,
 )
@@ -93,14 +95,14 @@ ARC_EARN_OPPORTUNITIES: List[Dict[str, Any]] = [
         "name": "Morpho Steakhouse USDC",
         "protocol": "MORPHO",
         "asset": "USDC",
-        "assetAddress": ARC_TESTNET_USDC,
+        "assetAddress": ARC_USDC_ADDRESS,
         "currentApy": 0.065,  # 6.5% Net APY
         "net_apy": 0.065,
         "nativeApy": 0.0,
         "vaultFee": 0.0,
         "rewards": [],
         "collateral": [],
-        "chain": "Arc_Testnet" if IS_TESTNET else "Arc_Mainnet",
+        "chain": "Arc_Testnet" if IS_TESTNET else "Arc",
         "chain_id": ARC_CHAIN_ID,
         "vaultAddress": "0x4869c9B5F54f6c40A5a417537b03a4537cb90c91",
         "vault_address": "0x4869c9B5F54f6c40A5a417537b03a4537cb90c91",
@@ -121,14 +123,14 @@ ARC_EARN_OPPORTUNITIES: List[Dict[str, Any]] = [
         "name": "Morpho Arc USDC Prime (High-Yield)",
         "protocol": "MORPHO",
         "asset": "USDC",
-        "assetAddress": ARC_TESTNET_USDC,
+        "assetAddress": ARC_USDC_ADDRESS,
         "currentApy": 0.082,  # 8.2% Net APY
         "net_apy": 0.082,
         "nativeApy": 0.0,
         "vaultFee": 0.0,
         "rewards": [],
         "collateral": [],
-        "chain": "Arc_Testnet" if IS_TESTNET else "Arc_Mainnet",
+        "chain": "Arc_Testnet" if IS_TESTNET else "Arc",
         "chain_id": ARC_CHAIN_ID,
         "vaultAddress": "",
         "vault_address": "",
@@ -156,7 +158,7 @@ ARC_EARN_OPPORTUNITIES: List[Dict[str, Any]] = [
         "vaultFee": 0.0,
         "rewards": [],
         "collateral": [],
-        "chain": "Arc_Testnet" if IS_TESTNET else "Arc_Mainnet",
+        "chain": "Arc_Testnet" if IS_TESTNET else "Arc",
         "chain_id": ARC_CHAIN_ID,
         "vaultAddress": "0x2e983A1Ba5e8b38AAAeC4B44019dC217Da5641A5",
         "vault_address": "0x2e983A1Ba5e8b38AAAeC4B44019dC217Da5641A5",
@@ -646,7 +648,7 @@ class EarnKitService:
 
     def explore_vaults(
         self,
-        chain: str = "Arc_Testnet",
+        chain: str = "Arc_Testnet" if IS_TESTNET else "Arc",
         sort_by: Optional[str] = None,
         protocol: Optional[str] = None,
         asset: Optional[str] = None,
@@ -816,7 +818,7 @@ class EarnKitService:
             raise ValueError(f"Vault {vault_id} not found on Arc Earn Kit registry")
 
         if opp.get("status") == "unavailable" or not self._verify_vault_onchain(opp):
-            raise ValueError(f"Vault {vault_id} is not available/verified on Arc testnet")
+            raise ValueError(f"Vault {vault_id} is not available/verified on Arc {NETWORK_MODE}")
 
         if private_key:
             if not self.w3 or not self.w3.is_connected():
@@ -838,7 +840,7 @@ class EarnKitService:
 
             c_vault = Web3.to_checksum_address(opp["vaultAddress"])
             c_receiver = Web3.to_checksum_address(receiver)
-            c_asset = Web3.to_checksum_address(opp.get("assetAddress") or ARC_TESTNET_USDC)
+            c_asset = Web3.to_checksum_address(opp.get("assetAddress") or ARC_USDC_ADDRESS)
 
             # 1. Check & ensure asset allowance
             asset_contract = self.w3.eth.contract(address=c_asset, abi=ERC20_APPROVE_ABI)
@@ -877,7 +879,7 @@ class EarnKitService:
 
             receipt = self.w3.eth.wait_for_transaction_receipt(raw_tx_hash, timeout=20)
             if receipt.get("status") != 1:
-                raise RuntimeError(f"Deposit transaction reverted on Arc Testnet: {tx_hash}")
+                raise RuntimeError(f"Deposit transaction reverted on Arc ({NETWORK_MODE}): {tx_hash}")
 
             try:
                 share_decimals = int(vault_contract.functions.decimals().call())
@@ -900,7 +902,7 @@ class EarnKitService:
 
             shares_human = round(shares_raw / (10 ** share_decimals), 6)
             is_onchain = True
-            logger.info("Real Arc Testnet on-chain deposit executed: %s (tx=%s)", opp["name"], tx_hash)
+            logger.info("Real Arc %s on-chain deposit executed: %s (tx=%s)", NETWORK_MODE, opp["name"], tx_hash)
 
         # Update position state
         pos_key = f"{dep_addr}:{opp['vault_id']}"
@@ -1004,7 +1006,7 @@ class EarnKitService:
             raise ValueError(f"Vault {vault_id} not found on Arc Earn Kit registry")
 
         if opp.get("status") == "unavailable" or not self._verify_vault_onchain(opp):
-            raise ValueError(f"Vault {vault_id} is not available/verified on Arc testnet")
+            raise ValueError(f"Vault {vault_id} is not available/verified on Arc {NETWORK_MODE}")
 
         if private_key:
             if not self.w3 or not self.w3.is_connected():
@@ -1064,7 +1066,7 @@ class EarnKitService:
 
             receipt = self.w3.eth.wait_for_transaction_receipt(raw_tx_hash, timeout=20)
             if receipt.get("status") != 1:
-                raise RuntimeError(f"Redemption transaction reverted on Arc Testnet: {tx_hash}")
+                raise RuntimeError(f"Redemption transaction reverted on Arc ({NETWORK_MODE}): {tx_hash}")
 
             is_onchain = True
 

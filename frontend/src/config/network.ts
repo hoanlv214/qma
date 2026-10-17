@@ -103,9 +103,13 @@ export const ARC_TOKENS = {
   },
 };
 
-export function syncNetworkWithBackend(backendNetwork?: string) {
+export function syncNetworkWithBackend(backendNetwork?: string | number) {
   if (!backendNetwork) return;
-  const isTargetTestnet = backendNetwork.toLowerCase().includes("testnet");
+  const str = String(backendNetwork).toLowerCase().trim();
+  const isTargetTestnet =
+    str.includes("testnet") ||
+    str.includes("5042002") ||
+    str.includes("0x4cef52");
   const targetProfile = isTargetTestnet ? networksData.testnet : networksData.mainnet;
 
   IS_TESTNET = isTargetTestnet;

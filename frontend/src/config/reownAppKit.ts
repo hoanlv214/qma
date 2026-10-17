@@ -27,6 +27,9 @@ export const arcTestnetChain: AppKitNetwork = defineChain({
   },
 });
 
+export const arcNetworkChain: AppKitNetwork = arcTestnetChain;
+export const arcChain: AppKitNetwork = arcTestnetChain;
+
 import { appConfig } from "./app";
 
 // 1. Get projectId from env or use centralized config

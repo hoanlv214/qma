@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getProviderStats, claimCreatorEarnings } from "../services/providers";
 import { submitWithdrawal } from "../services/invoices";
-import { ensureArcTestnet, getWalletProvider } from "../services/wallet";
+import { ensureArcNetwork, ensureArcTestnet, getWalletProvider } from "../services/wallet";
 import {
   buildCreatorClaimMessage,
   buildGatewayWithdrawIntent,
@@ -258,7 +258,7 @@ export function useProviderEarnings({
     setProviderWithdrawSubmitting(true);
     setProviderEarningsError("");
     try {
-      if (!useRelayer) await ensureArcTestnet();
+      if (!useRelayer) await ensureArcNetwork();
       const burnIntent = buildGatewayWithdrawIntent(amount, { gatewayContractAddress, gatewayMinterAddress, arcUsdcAddress, wallet });
       showToast("Sign the Gateway withdrawal intent in your wallet.", "info");
       const signature = await provider.request<string>({ method: "eth_signTypedData_v4", params: [wallet, JSON.stringify(buildGatewayWithdrawTypedData(burnIntent))] });

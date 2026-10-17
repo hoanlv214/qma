@@ -17,7 +17,7 @@ import {
 } from "../../services/walletProfileSession";
 import { useAgentWalletStore } from "../../state/agentWalletStore";
 import { ARC_CHAIN } from "../../config/network";
-import { ensureArcTestnet, getWalletProvider } from "../../services/wallet";
+import { ensureArcNetwork, ensureArcTestnet, getWalletProvider } from "../../services/wallet";
 import { encodeErc20TransferCalldata } from "../../services/gatewayCrypto";
 import { cn } from "../../utils/cn";
 import "./AutonomousAgentModal.css";
@@ -525,7 +525,7 @@ export function AutonomousAgentModal({ open, onClose, wallet }: AutonomousAgentM
         content: `Switching your wallet to ${ARC_CHAIN.name} (Chain ID: ${ARC_CHAIN.chainId})...`
       }]);
 
-      await ensureArcTestnet(provider);
+      await ensureArcNetwork(provider);
 
 
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { getWalletProvider, shortAddress, ensureArcTestnet } from "../services/wallet";
+import { getWalletProvider, shortAddress, ensureArcNetwork, ensureArcTestnet } from "../services/wallet";
 import { extractGatewayBalanceUsdc, getOnChainUsdcBalance } from "../services/gatewayCrypto";
 import { ARC_CHAIN, IS_TESTNET } from "../config/network";
 
@@ -134,7 +134,7 @@ export function useFundArcWallet({ wallet, arcGatewayUrl }: UseFundArcWalletOpti
 
   const switchToArcTestnet = useCallback(async () => {
     try {
-      await ensureArcTestnet();
+      await ensureArcNetwork();
       await refreshFundingReadiness();
     } catch (err) {
       console.error(`Failed to switch to ${ARC_CHAIN.name}:`, err);
@@ -176,5 +176,6 @@ export function useFundArcWallet({ wallet, arcGatewayUrl }: UseFundArcWalletOpti
     setFundShowAdvanced,
     refreshFundingReadiness,
     switchToArcTestnet,
+    switchToArcNetwork: switchToArcTestnet,
   };
 }

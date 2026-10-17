@@ -3,8 +3,16 @@ import { createViemAdapterFromPrivateKey } from "@circle-fin/adapter-viem-v2";
 
 export interface AppKitBridgeParams {
   privateKey: `0x${string}`;
-  fromChain: "Base_Sepolia" | "Arbitrum_Sepolia" | "Ethereum_Sepolia" | "Polygon_Amoy";
-  toChain?: "Arc_Testnet";
+  fromChain:
+    | "Base_Sepolia"
+    | "Arbitrum_Sepolia"
+    | "Ethereum_Sepolia"
+    | "Polygon_Amoy"
+    | "Base"
+    | "Arbitrum"
+    | "Ethereum"
+    | "Polygon";
+  toChain?: "Arc_Testnet" | "Arc";
   amountUsdc: string;
 }
 
@@ -38,7 +46,7 @@ export class CircleAppKitManager {
    */
   async estimateBridge({
     fromChain,
-    toChain = "Arc_Testnet",
+    toChain = (process.env.QMA_NETWORK_MODE?.toLowerCase() === "mainnet" ? "Arc" : "Arc_Testnet"),
     amountUsdc,
   }: {
     fromChain: string;
@@ -62,12 +70,12 @@ export class CircleAppKitManager {
   }
 
   /**
-   * Execute CCTP Crosschain Bridge to Arc Testnet.
+   * Execute CCTP Crosschain Bridge to Arc (Testnet or Mainnet).
    */
   async bridgeToArc({
     privateKey,
     fromChain,
-    toChain = "Arc_Testnet",
+    toChain = (process.env.QMA_NETWORK_MODE?.toLowerCase() === "mainnet" ? "Arc" : "Arc_Testnet"),
     amountUsdc,
   }: AppKitBridgeParams): Promise<AppKitBridgeResult> {
     try {

@@ -15,12 +15,12 @@ export function NetworkBadge() {
     getClientConfig()
       .then((cfg) => {
         if (!mounted || !cfg) return;
-        const netName = cfg.payment_network_name || (cfg.payment_network === "arc-mainnet" ? "Arc Mainnet" : "Arc Testnet");
         const testnet = Boolean(
-          (cfg.payment_network && cfg.payment_network.includes("testnet")) ||
+          (cfg.payment_network && (cfg.payment_network.includes("testnet") || cfg.payment_network.includes("5042002"))) ||
           (cfg.payment_network_name && cfg.payment_network_name.toLowerCase().includes("testnet"))
         );
-        syncNetworkWithBackend(cfg.payment_network || (testnet ? "arc-testnet" : "arc-mainnet"));
+        const netName = cfg.payment_network_name || (testnet ? "Arc Testnet" : "Arc Mainnet");
+        syncNetworkWithBackend(testnet ? "arc-testnet" : "arc-mainnet");
         setNetworkName(netName);
         setIsTestnet(testnet);
         setChainId(testnet ? 5042002 : 5042);

@@ -24,7 +24,9 @@ from backend.app.core.config import (
     ARC_GATEWAY_BASE_URL,
     ARC_GATEWAY_INTERNAL_SECRET,
     ARC_TESTNET_USDC,
+    ARC_USDC_ADDRESS,
     INVOICE_TTL_SECONDS,
+    IS_TESTNET,
     PAYMENT_AMOUNT_USDC,
     PAYMENT_NETWORK,
     PAYMENT_NETWORK_NAME,
@@ -244,7 +246,7 @@ def create_invoice(req: InvoiceRequest) -> dict:
         ttl_seconds=INVOICE_TTL_SECONDS,
         settlement_rail=SETTLEMENT_RAIL,
         settlement_currency=SETTLEMENT_CURRENCY,
-        settlement_token_address=ARC_TESTNET_USDC,
+        settlement_token_address=ARC_USDC_ADDRESS,
         settlement_decimals=6,
     )
 
@@ -756,7 +758,7 @@ def verify_payment(invoice_id: str, proof: Optional[PaymentVerifyRequest] = None
             invoice["payer_address"] = settlement.get("fromAddress")
             invoice["gateway_status"] = settlement.get("status")
             invoice["amount_raw"] = settlement.get("amount")
-            invoice["verification_mode"] = "circle-gateway-arc-testnet"
+            invoice["verification_mode"] = "circle-gateway-arc-testnet" if IS_TESTNET else "circle-gateway-arc-mainnet"
             main_mod._save_invoice(invoice)
             batch = main_mod.find_arc_batch_tx(settlement)
             if batch.get("match_type") == "heuristic_window":

@@ -87,16 +87,35 @@ function UsdcLogo({ size = 18 }: { size?: number }) {
   );
 }
 
-const NETWORKS_LIST = [
-  { id: IS_TESTNET ? "base_sepolia" : "base", name: IS_TESTNET ? "Base Sepolia" : "Base", logo: <BaseLogo size={16} />, domain: 6, latency: "12s" },
-  { id: IS_TESTNET ? "arbitrum_sepolia" : "arbitrum", name: IS_TESTNET ? "Arbitrum Sepolia" : "Arbitrum One", logo: <ArbitrumLogo size={16} />, domain: 3, latency: "18s" },
-  { id: IS_TESTNET ? "ethereum_sepolia" : "ethereum", name: IS_TESTNET ? "Ethereum Sepolia" : "Ethereum", logo: <EthereumLogo size={16} />, domain: 0, latency: "22s" },
-  { id: "arc", name: ARC_CHAIN.name, logo: <ArcLogo size={16} />, domain: ARC_CHAIN.cctpDomain, latency: "<1s" },
-];
+function PolygonLogo({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <path d="M16.5 12l3.5-2v-4l-3.5-2-3.5 2v4l3.5 2z" fill="#8247E5" />
+      <path d="M7.5 12l3.5-2v-4l-3.5-2-3.5 2v4l3.5 2z" fill="#8247E5" />
+      <path d="M12 14.5l3.5-2v-4L12 6.5l-3.5 2v4l3.5 2z" fill="#8247E5" opacity="0.8" />
+      <path d="M12 21.5l3.5-2v-4l-3.5-2-3.5 2v4l3.5 2z" fill="#8247E5" />
+    </svg>
+  );
+}
+
+export function getNetworksList(testnet: boolean) {
+  return [
+    { id: testnet ? "base_sepolia" : "base", name: testnet ? "Base Sepolia" : "Base", logo: <BaseLogo size={16} />, domain: 6, latency: "12s" },
+    { id: testnet ? "arbitrum_sepolia" : "arbitrum", name: testnet ? "Arbitrum Sepolia" : "Arbitrum One", logo: <ArbitrumLogo size={16} />, domain: 3, latency: "18s" },
+    { id: testnet ? "ethereum_sepolia" : "ethereum", name: testnet ? "Ethereum Sepolia" : "Ethereum", logo: <EthereumLogo size={16} />, domain: 0, latency: "22s" },
+    { id: testnet ? "polygon_amoy" : "polygon", name: testnet ? "Polygon Amoy" : "Polygon", logo: <PolygonLogo size={16} />, domain: 7, latency: "15s" },
+    { id: "arc", name: ARC_CHAIN.name, logo: <ArcLogo size={16} />, domain: ARC_CHAIN.cctpDomain, latency: "<1s" },
+  ];
+}
+
+export const NETWORKS_LIST = getNetworksList(IS_TESTNET);
 
 export function SwapPage({ onNavigate }: SwapProps) {
   const { address: wallet, setAddress, disconnect } = useWalletStore();
   const [showAppKitModal, setShowAppKitModal] = useState(false);
+
+  // Dynamic network mode synchronized with backend/runtime
+  const [isTestnetMode, setIsTestnetMode] = useState<boolean>(IS_TESTNET);
 
   // Sub-tab inside Treasury Terminal: CCTP Transfer vs Arc StableFX
   const [activeTab, setActiveTab] = useState<TreasurySubTab>("cctp_transfer");
@@ -110,6 +129,45 @@ export function SwapPage({ onNavigate }: SwapProps) {
   const [destinationChain, setDestinationChain] = useState("arc");
   const [originDropdownOpen, setOriginDropdownOpen] = useState(false);
   const [destDropdownOpen, setDestDropdownOpen] = useState(false);
+
+  useEffect(() => {
+    const handleNetworkSynced = (evt: any) => {
+      if (evt?.detail && typeof evt.detail.isTestnet === "boolean") {
+        const nextIsTestnet = evt.detail.isTestnet;
+        setIsTestnetMode(nextIsTestnet);
+        setOriginChain((prev) => {
+          if (nextIsTestnet) {
+            if (prev === "base") return "base_sepolia";
+            if (prev === "arbitrum") return "arbitrum_sepolia";
+            if (prev === "ethereum") return "ethereum_sepolia";
+            if (prev === "polygon") return "polygon_amoy";
+          } else {
+            if (prev === "base_sepolia") return "base";
+            if (prev === "arbitrum_sepolia") return "arbitrum";
+            if (prev === "ethereum_sepolia") return "ethereum";
+            if (prev === "polygon_amoy") return "polygon";
+          }
+          return prev;
+        });
+        setDestinationChain((prev) => {
+          if (nextIsTestnet) {
+            if (prev === "base") return "base_sepolia";
+            if (prev === "arbitrum") return "arbitrum_sepolia";
+            if (prev === "ethereum") return "ethereum_sepolia";
+            if (prev === "polygon") return "polygon_amoy";
+          } else {
+            if (prev === "base_sepolia") return "base";
+            if (prev === "arbitrum_sepolia") return "arbitrum";
+            if (prev === "ethereum_sepolia") return "ethereum";
+            if (prev === "polygon_amoy") return "polygon";
+          }
+          return prev;
+        });
+      }
+    };
+    window.addEventListener("qma:network_synced" as any, handleNetworkSynced);
+    return () => window.removeEventListener("qma:network_synced" as any, handleNetworkSynced);
+  }, []);
   const originDropdownRef = useRef<HTMLDivElement>(null);
   const destDropdownRef = useRef<HTMLDivElement>(null);
   const [transferAmount, setTransferAmount] = useState("5.0");
@@ -459,8 +517,9 @@ export function SwapPage({ onNavigate }: SwapProps) {
     ? "—"
     : "0.00";
 
-  const originNetObj = NETWORKS_LIST.find((n) => n.id === originChain) || NETWORKS_LIST[0];
-  const destNetObj = NETWORKS_LIST.find((n) => n.id === destinationChain) || NETWORKS_LIST[3] || NETWORKS_LIST[0];
+  const networksList = React.useMemo(() => getNetworksList(isTestnetMode), [isTestnetMode]);
+  const originNetObj = networksList.find((n) => n.id === originChain) || networksList[0];
+  const destNetObj = networksList.find((n) => n.id === destinationChain) || networksList.find((n) => n.id === "arc") || networksList[0];
 
   const originBalance = chainBalances[originChain] ?? (originChain === "arc" ? usdcBalance : "0.00");
   const destBalance = chainBalances[destinationChain] ?? (destinationChain === "arc" ? usdcBalance : "0.00");
@@ -662,7 +721,7 @@ export function SwapPage({ onNavigate }: SwapProps) {
                               <div className="chain-btn-logo">{originNetObj.logo}</div>
                               <div className="chain-btn-text">
                                 <span className="chain-btn-name">{originNetObj.name}</span>
-                                <span className="chain-btn-badge">{IS_TESTNET ? "Testnet" : "Mainnet"}</span>
+                                <span className="chain-btn-badge">{isTestnetMode ? "Testnet" : "Mainnet"}</span>
                               </div>
                               <span className="chain-btn-caret">▾</span>
                             </button>
@@ -671,7 +730,7 @@ export function SwapPage({ onNavigate }: SwapProps) {
                               <div className="chain-dropdown-menu">
                                 <div className="dropdown-menu-header">Select Source Chain</div>
                                 <div className="dropdown-menu-list">
-                                  {NETWORKS_LIST.map((net) => {
+                                  {networksList.map((net) => {
                                     const isSelected = originChain === net.id;
                                     return (
                                       <button
@@ -681,7 +740,7 @@ export function SwapPage({ onNavigate }: SwapProps) {
                                         onClick={() => {
                                           setOriginChain(net.id);
                                           if (destinationChain === net.id) {
-                                            setDestinationChain(net.id === "arc" ? (IS_TESTNET ? "ethereum_sepolia" : "ethereum") : "arc");
+                                            setDestinationChain(net.id === "arc" ? (isTestnetMode ? "ethereum_sepolia" : "ethereum") : "arc");
                                           }
                                           setOriginDropdownOpen(false);
                                         }}
@@ -809,7 +868,7 @@ export function SwapPage({ onNavigate }: SwapProps) {
                               <div className="chain-btn-logo">{destNetObj.logo}</div>
                               <div className="chain-btn-text">
                                 <span className="chain-btn-name">{destNetObj.name}</span>
-                                <span className="chain-btn-badge">{IS_TESTNET ? "Testnet" : "Mainnet"}</span>
+                                <span className="chain-btn-badge">{isTestnetMode ? "Testnet" : "Mainnet"}</span>
                               </div>
                               <span className="chain-btn-caret">▾</span>
                             </button>
@@ -818,7 +877,7 @@ export function SwapPage({ onNavigate }: SwapProps) {
                               <div className="chain-dropdown-menu">
                                 <div className="dropdown-menu-header">Select Destination Chain</div>
                                 <div className="dropdown-menu-list">
-                                  {NETWORKS_LIST.map((net) => {
+                                  {networksList.map((net) => {
                                     const isSelected = destinationChain === net.id;
                                     return (
                                       <button
@@ -828,7 +887,7 @@ export function SwapPage({ onNavigate }: SwapProps) {
                                         onClick={() => {
                                           setDestinationChain(net.id);
                                           if (originChain === net.id) {
-                                            setOriginChain(net.id === "arc" ? (IS_TESTNET ? "base_sepolia" : "base") : "arc");
+                                            setOriginChain(net.id === "arc" ? (isTestnetMode ? "base_sepolia" : "base") : "arc");
                                           }
                                           setDestDropdownOpen(false);
                                         }}
@@ -1664,7 +1723,7 @@ export function SwapPage({ onNavigate }: SwapProps) {
                 </div>
 
                 <div className="network-status-list">
-                  {NETWORKS_LIST.map((net) => (
+                  {networksList.map((net) => (
                     <div key={net.id} className="network-status-item">
                       <span className="network-status-name">
                         {net.logo} {net.name}

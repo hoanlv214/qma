@@ -1,6 +1,6 @@
 import { useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import { API_BASE_URL, ApiError } from "../services/api";
-import { ensureArcTestnet, getWalletProvider, shortAddress } from "../services/wallet";
+import { ensureArcNetwork, ensureArcTestnet, getWalletProvider, shortAddress } from "../services/wallet";
 import { ARC_CHAIN } from "../config/network";
 import { payX402Resource, prepareX402Payment, submitX402Payment, X402PaymentError, type PreparedX402Payment } from "../services/x402";
 import { createInvoice, verifyPayment } from "../services/invoices";
@@ -133,7 +133,7 @@ export function usePayment({
       const chainId = await provider.request<string>({ method: "eth_chainId" });
       if (String(chainId).toLowerCase() !== ARC_CHAIN.chainIdHex.toLowerCase()) {
         setPayStatusText(`Switching network to ${ARC_CHAIN.name}...`);
-        await ensureArcTestnet(provider);
+        await ensureArcNetwork(provider);
       }
 
       setPaymentStepStatus((prev) => ({
@@ -296,7 +296,7 @@ export function usePayment({
         type,
         amount_usdc: amount,
         tx_hash: hash,
-        explorer_url: `https://testnet.arcscan.app/tx/${hash}`,
+        explorer_url: `${ARC_CHAIN.explorerUrl}/tx/${hash}`,
         at: Date.now(),
       });
       localStorage.setItem(key, JSON.stringify(events.slice(0, 50)));
@@ -332,7 +332,7 @@ export function usePayment({
       }
       if (!gwBase) throw new Error("Arc Gateway URL not configured. Retry or refresh.");
 
-      await ensureArcTestnet();
+      await ensureArcNetwork();
 
       let startingGatewayBalance = 0;
       const startingBalanceResp = await fetch(`${gwBase}/api/balance/${wallet}`).catch(() => null);

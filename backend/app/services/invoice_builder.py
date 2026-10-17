@@ -12,6 +12,7 @@ from backend.app.core.config import (
     ARC_GATEWAY_API,
     ARC_EXPLORER,
     ARC_TESTNET_USDC,
+    ARC_USDC_ADDRESS,
     INVOICE_TTL_SECONDS,
     PAYMENT_NETWORK,
     PAYMENT_NETWORK_NAME,
@@ -56,7 +57,7 @@ def invoice_payment_schema(amount: Optional[float], *, settlement: Optional[dict
         network_name=PAYMENT_NETWORK_NAME,
         rail=SETTLEMENT_RAIL,
         currency=SETTLEMENT_CURRENCY,
-        token_address=ARC_TESTNET_USDC,
+        token_address=ARC_USDC_ADDRESS,
         decimals=6,
         gateway_supported=True,
     )
@@ -342,7 +343,7 @@ def payment_requirement(
         ttl_seconds=INVOICE_TTL_SECONDS,
         settlement_rail=SETTLEMENT_RAIL,
         settlement_currency=SETTLEMENT_CURRENCY,
-        settlement_token_address=ARC_TESTNET_USDC,
+        settlement_token_address=ARC_USDC_ADDRESS,
         settlement_decimals=6,
     )
 

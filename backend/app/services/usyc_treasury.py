@@ -25,8 +25,10 @@ from backend.app.core.config import (
     ARC_EXPLORER,
     ARC_RPC_URL,
     ARC_TESTNET_USDC,
+    ARC_USDC_ADDRESS,
     ARC_USYC_VAULT_ADDRESS,
     IS_TESTNET,
+    NETWORK_MODE,
     PAYMENT_WALLET_ADDRESS,
     PLATFORM_TREASURY_ADDRESS,
     settings,
@@ -399,7 +401,7 @@ class USYCTreasuryService:
 
     def __init__(self, vault_address: Optional[str] = None, policy_file: Optional[Path] = None):
         self.vault_address = normalize_address(vault_address or USYC_VAULT_ADDRESS)
-        self.usdc_asset = normalize_address(ARC_TESTNET_USDC)
+        self.usdc_asset = normalize_address(ARC_USDC_ADDRESS)
         self.target_apy = 0.05  # 5.0% APY baseline
         self._w3 = None
         self._contract = None
@@ -740,7 +742,7 @@ class USYCTreasuryService:
             "vault_contract": self.vault_address,
             "underlying_asset": self.usdc_asset,
             "chain_id": ARC_CHAIN_ID,
-            "network": "Arc Testnet" if IS_TESTNET else "Arc Mainnet",
+            "network": "Arc Testnet" if IS_TESTNET else "Arc",
             "standard": "ERC-4626 Tokenized Vault",
             "earn_protocol": "Circle Earn / Hashnote USYC",
             "is_live_onchain": is_live_rpc,
@@ -937,7 +939,7 @@ class USYCTreasuryService:
 
         receipt = self._w3.eth.wait_for_transaction_receipt(raw_tx_hash, timeout=20)
         if receipt.get("status") != 1:
-            raise RuntimeError(f"Deposit transaction reverted on Arc Testnet: {tx_hash_hex}")
+            raise RuntimeError(f"Deposit transaction reverted on Arc ({NETWORK_MODE}): {tx_hash_hex}")
 
         self._last_rebalance_at = time.time()
         _invalidate_position_cache()
@@ -1007,7 +1009,7 @@ class USYCTreasuryService:
 
         receipt = self._w3.eth.wait_for_transaction_receipt(raw_tx_hash, timeout=20)
         if receipt.get("status") != 1:
-            raise RuntimeError(f"Redemption transaction reverted on Arc Testnet: {tx_hash_hex}")
+            raise RuntimeError(f"Redemption transaction reverted on Arc ({NETWORK_MODE}): {tx_hash_hex}")
 
         self._last_rebalance_at = time.time()
         _invalidate_position_cache()

@@ -7,7 +7,7 @@
  * - Arc Native StableFX (USDC ↔ EURC) currency exchange
  */
 
-import { ensureArcTestnet, type Eip1193Provider } from "./wallet";
+import { ensureArcNetwork, ensureArcTestnet, type Eip1193Provider } from "./wallet";
 import { AppKit, BridgeChain } from "@circle-fin/app-kit";
 import { SwapKit } from "@circle-fin/swap-kit";
 import { createViemAdapterFromProvider } from "@circle-fin/adapter-viem-v2";
@@ -30,12 +30,10 @@ export const circleAppKit = new AppKit();
 export const circleSwapKit = new SwapKit();
 
 export const CCTP_V2_TOKEN_MESSENGER = CIRCLE_CONTRACTS.cctpTokenMessenger;
-export const ARC_TESTNET_CCTP_DOMAIN = ARC_CHAIN.cctpDomain;
+export const ARC_CCTP_DOMAIN = ARC_CHAIN.cctpDomain;
+export const ARC_TESTNET_CCTP_DOMAIN = ARC_CHAIN.cctpDomain; // Backward-compatible alias
 export const SUPPORTED_CCTP_CHAINS: SupportedCrossChain[] = SUPPORTED_CROSS_CHAINS;
 
-/**
- * Maps frontend chain identifier to Circle App Kit canonical Blockchain name.
- */
 /**
  * Maps frontend chain identifier to Circle App Kit canonical Blockchain name.
  */
@@ -45,10 +43,28 @@ export function mapSourceChainToAppKitChain(chainId: string | number): BridgeCha
     if (found) chainId = found.id;
   }
   const normalized = String(chainId || "").toLowerCase().replace(/[- ]/g, "_");
+
+  // Explicit testnet matching
+  if (normalized === "base_sepolia") return BridgeChain.Base_Sepolia;
+  if (normalized === "arbitrum_sepolia") return BridgeChain.Arbitrum_Sepolia;
+  if (normalized === "ethereum_sepolia") return BridgeChain.Ethereum_Sepolia;
+  if (normalized === "polygon_amoy" || normalized === "polygon_amoy_testnet") return BridgeChain.Polygon_Amoy_Testnet;
+  if (normalized === "arc_testnet") return BridgeChain.Arc_Testnet;
+
+  // Explicit mainnet matching
+  if (normalized === "base") return BridgeChain.Base;
+  if (normalized === "arbitrum" || normalized === "arbitrum_one") return BridgeChain.Arbitrum;
+  if (normalized === "ethereum" || normalized === "eth" || normalized === "mainnet") return BridgeChain.Ethereum;
+  if (normalized === "polygon" || normalized === "matic") return BridgeChain.Polygon;
+  if (normalized === "arc" || normalized === "arc_mainnet") return IS_MAINNET ? BridgeChain.Arc : BridgeChain.Arc_Testnet;
+
+  // Substring fallbacks honoring IS_MAINNET
   if (normalized.includes("base")) return IS_MAINNET ? BridgeChain.Base : BridgeChain.Base_Sepolia;
   if (normalized.includes("arbitrum")) return IS_MAINNET ? BridgeChain.Arbitrum : BridgeChain.Arbitrum_Sepolia;
+  if (normalized.includes("polygon") || normalized.includes("matic")) return IS_MAINNET ? BridgeChain.Polygon : BridgeChain.Polygon_Amoy_Testnet;
   if (normalized.includes("sepolia") || normalized.includes("eth")) return IS_MAINNET ? BridgeChain.Ethereum : BridgeChain.Ethereum_Sepolia;
   if (normalized.includes("arc")) return IS_MAINNET ? BridgeChain.Arc : BridgeChain.Arc_Testnet;
+
   return IS_MAINNET ? BridgeChain.Base : BridgeChain.Base_Sepolia;
 }
 
@@ -555,7 +571,7 @@ export async function executeGatewayDeposit({
 }): Promise<{ success: boolean; txHash?: string; error?: string }> {
   try {
     onProgress?.({ step: "approving", message: `Preparing Gateway deposit for ${amountUsdc} USDC...` });
-    await ensureArcTestnet();
+    await ensureArcNetwork();
 
     const amountNum = parseFloat(amountUsdc);
     if (!Number.isFinite(amountNum) || amountNum <= 0) {
@@ -768,7 +784,7 @@ export async function executeCrossChainGatewayDeposit({
     });
 
     try {
-      await ensureArcTestnet();
+      await ensureArcNetwork();
     } catch {
       // User can switch manually if needed
     }
@@ -797,7 +813,7 @@ export async function executeAddDelegate({
   onProgress?: (event: BridgeProgressEvent) => void;
 }): Promise<{ success: boolean; txHash?: string; error?: string }> {
   try {
-    await ensureArcTestnet();
+    await ensureArcNetwork();
     onProgress?.({ step: "approving", message: "Authorizing Autonomous Agent via Circle Unified Balance Kit..." });
 
     const adapter = await createViemAdapterFromProvider({ provider: provider as any });

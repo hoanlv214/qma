@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { FundArcWalletModal } from "./FundArcWalletModal";
 import { Loader } from "../ui/Loader";
-import { getWalletProvider, ensureArcTestnet } from "../../services/wallet";
+import { getWalletProvider, ensureArcNetwork, ensureArcTestnet } from "../../services/wallet";
 import { ARC_CHAIN } from "../../config/network";
 import { cn } from "../../utils/cn";
 import { formatUsdc } from "../../utils/format";
@@ -232,7 +232,7 @@ export function UnifiedFundsModal({
     if (!provider) return;
     setSwitchingNetwork(true);
     try {
-      await ensureArcTestnet(provider);
+      await ensureArcNetwork(provider);
       const hexId = await provider.request<string>({ method: "eth_chainId" });
       if (hexId) setCurrentChainId(parseInt(hexId, 16));
       if (refreshFundingReadiness) await refreshFundingReadiness();
